@@ -1,0 +1,281 @@
+╔════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                ║
+║   IP LAW FIRM QUOTATION MANAGEMENT SYSTEM - QUICK START (ENTERPRISE v2)      ║
+║                                                                                ║
+║                  Built with Next.js 14 App Router + MongoDB                  ║
+║                                                                                ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+📦 WHAT YOU'VE RECEIVED
+======================
+
+A complete enterprise blueprint and implementation package for a legal-tech SaaS platform:
+
+✅ Next.js 14 App Router architecture
+✅ JWT authentication + role-based authorization
+✅ MongoDB + Mongoose data models
+✅ Enterprise quotation management workflow
+✅ Trademark / Patent / Design fee schedule pages
+✅ Services, Countries, Procedures, Client Types, Pricing Rules modules
+✅ Revenue & quotation reports
+✅ PDF quotation generation + email sending flow
+✅ Responsive SaaS dashboard (desktop/tablet/mobile)
+✅ Professional documentation set
+
+Documentation included:
+- README.md
+- IMPLEMENTATION_GUIDE.md
+- PROJECT_STRUCTURE.txt
+- QUICK_START.txt (this file)
+
+
+🚀 QUICK START (10 MINUTES)
+============================
+
+1) INSTALL DEPENDENCIES
+   cd ip-law-firm-quotation-system
+   npm install
+
+2) CREATE ENV FILE
+   Copy `.env.example` to `.env.local`
+
+3) CONFIGURE `.env.local`
+   Use the required variables (example):
+   PORT=5001
+   MONGODB_URI=mongodb+srv://<db_user>:<db_password>@inventoryai.8jgcmpw.mongodb.net/dashboard_db?retryWrites=true&w=majority
+   MONGODB_DB=aipt_db
+   NEXTAUTH_SECRET=generate-a-random-string-here
+   JWT_SECRET=generate-another-random-string-here
+   NODE_ENV=development
+   GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID_HERE
+   UPLOAD_DIR=uploads
+   EMAIL_HOST=smtp.gmail.com
+   EMAIL_PORT=587
+   EMAIL_USER=your_email@gmail.com
+   EMAIL_PASS=your_app_password
+   ALERT_EMAIL=admin@aipt.com
+   FRONTEND_URL=http://localhost:3000
+   NEXT_PUBLIC_API_URL=http://localhost:3000
+
+4) START DEVELOPMENT SERVER
+   npm run dev
+
+5) OPEN APPLICATION
+   http://localhost:3000
+
+✅ You are ready to begin implementation and testing.
+
+
+🧭 APP NAVIGATION (SIDEBAR)
+===========================
+
+- Dashboard
+- New Quotation
+- All Quotations
+- Services
+- Countries
+- Procedures
+- Client Types
+- Pricing Rules
+- Quotations Report
+- Revenue Report
+- Users
+- Profile
+- Settings
+- Logout
+
+
+🧱 CORE MODULES
+===============
+
+DASHBOARD
+- KPI cards: Total Quotations, Approved, Pending, Total Value (SAR)
+- Quotation line chart
+- Top countries pie chart
+- Recent quotations table
+
+QUOTATIONS
+- Create / Edit / View / Approve / Reject / Delete
+- Search, filter, pagination
+- Status badges (Draft, Pending, Approved, Rejected)
+- Download PDF
+- Send Email
+
+FEE SCHEDULE PAGES
+- /quotations/fee-schedules/trademark
+- /quotations/fee-schedules/patent
+- /quotations/fee-schedules/design
+- Dynamic procedure columns
+- Country rows with image flags
+- Fee columns: Official Fee, Attorney Fee, Total
+
+MASTER DATA
+- Services
+- Countries (flag, name, abbreviation)
+- Procedures
+- Client Types
+- Pricing Rules
+
+REPORTS
+- Quotations report
+- Revenue report
+- Service/country performance (as implementation expands)
+
+SETTINGS
+- Company profile
+- Currency/tax defaults
+- SMTP configuration
+- Branding/logo
+
+
+🗂️ ARCHITECTURE SNAPSHOT (NEXT.JS 14)
+======================================
+
+APP ROUTER
+- app/(auth)/login/page.tsx
+- app/(auth)/register/page.tsx
+- app/(dashboard)/dashboard/page.tsx
+- app/(dashboard)/quotations/** (new, list, details, edit)
+- app/(dashboard)/services/page.tsx
+- app/(dashboard)/countries/page.tsx
+- app/(dashboard)/procedures/page.tsx
+- app/(dashboard)/client-types/page.tsx
+- app/(dashboard)/pricing-rules/page.tsx
+- app/(dashboard)/reports/quotations/page.tsx
+- app/(dashboard)/reports/revenue/page.tsx
+- app/(dashboard)/users/page.tsx
+- app/(dashboard)/profile/page.tsx
+- app/(dashboard)/settings/page.tsx
+
+API ROUTE HANDLERS
+- app/api/auth/login/route.ts
+- app/api/auth/register/route.ts
+- app/api/quotations/** 
+- app/api/clients/**
+- app/api/services/**
+- app/api/countries/**
+- app/api/procedures/**
+- app/api/client-types/**
+- app/api/pricing-rules/**
+- app/api/reports/quotations/route.ts
+- app/api/reports/revenue/route.ts
+- app/api/settings/route.ts
+
+MODELS
+- User
+- Client
+- Quotation
+- Service
+- Country
+- Procedure
+- PricingRule
+
+
+🔐 SECURITY BASELINE
+====================
+
+- Password hashing with bcryptjs
+- JWT-based authentication
+- Protected routes via middleware
+- Role-based authorization checks
+- API input validation (recommended with Zod)
+- Environment secrets in `.env.local` only
+
+
+🧮 QUOTATION CALCULATION LOGIC
+==============================
+
+subtotal =
+  governmentFee +
+  serviceFee +
+  (classFee * numberOfClasses) +
+  procedureFee
+
+total = subtotal * clientMultiplier
+
+
+📄 PROFESSIONAL UI / PDF STANDARDS
+===================================
+
+UI STYLE
+- Dark navy sidebar (#0B1739)
+- White content surface
+- Thin borders + soft shadows
+- Rounded cards
+- Compact professional tables
+- Corporate legal-tech typography
+
+PDF QUOTATION
+- Firm logo + quotation number
+- Client and quotation information
+- Fee breakdown table
+- Highlighted total amount
+- Signature and stamp section
+- Terms and conditions footer
+
+
+🧪 TESTING CHECKLIST (RECOMMENDED)
+==================================
+
+CRITICAL PATH
+- Login/Register flow works
+- Protected route enforcement works
+- Create quotation + calculate fees works
+- Approve quotation works
+- PDF generation works
+- Email sending works (SMTP configured)
+
+THOROUGH COVERAGE
+- All dashboard cards/charts/tables render and update
+- All master data CRUD endpoints and UI screens
+- All report pages and filters
+- All API happy/error/edge scenarios via curl
+- Responsive behavior across desktop/tablet/mobile
+
+
+🛠️ TROUBLESHOOTING
+===================
+
+PROBLEM: Port already in use
+SOLUTION:
+  PORT=3001 npm run dev
+
+PROBLEM: MongoDB connection failed
+SOLUTION:
+  1. Verify MONGODB_URI and MONGODB_DB
+  2. Check Atlas user/password
+  3. Check Atlas network IP whitelist
+  4. Confirm cluster is running
+
+PROBLEM: Module not found
+SOLUTION:
+  rm -rf node_modules package-lock.json
+  npm install
+
+PROBLEM: Styles not applied
+SOLUTION:
+  rm -rf .next
+  npm run dev
+
+PROBLEM: Email send fails
+SOLUTION:
+  1. Verify EMAIL_HOST/PORT/USER/PASS
+  2. Use app password for Gmail SMTP
+  3. Confirm firewall/network allows SMTP
+
+
+📚 REFERENCES
+=============
+
+- IMPLEMENTATION_GUIDE.md   → Full setup and detailed requirements
+- PROJECT_STRUCTURE.txt     → Enterprise folder architecture
+- README.md                 → High-level project overview
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                           ✅ ENTERPRISE QUICK START READY
+
+                 Follow the steps above to initialize and run the project.
+
+═══════════════════════════════════════════════════════════════════════════════

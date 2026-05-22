@@ -1,0 +1,249 @@
+'use client';
+
+import React, { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
+import Topbar from '@/components/layout/Topbar';
+import { DataTable } from '@/components/tables';
+import { StatusBadge } from '@/components/tables';
+import { TablePagination } from '@/components/tables';
+import { Button } from '@/components/ui';
+import { Select } from '@/components/ui';
+import { Input } from '@/components/ui';
+import { Modal } from '@/components/ui';
+import { quotationsService, Quotation } from '@/services/quotations.service';
+import { useDebounce } from '@/hooks/useDebounce';
+import { formatCurrency } from '@/utils/currency';
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'All Statuses' },
+  { value: 'Draft', label: 'Draft' },
+  { value: 'Pending', label: 'Pending' },
+  { value: 'Approved', label: 'Approved' },
+  { value: 'Rejected', label: 'Rejected' },
+];
+
+const PAGE_SIZE = 10;
+
+export default function QuotationsPage() {
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [statusFilter, setStatusFilter] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const debouncedSearch = useDebounce(searchInput, 400);
+
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Delete modal state
+  const [deleteTarget, setDeleteTarget] = useState<Quotation | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const fetchQuotations = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params: Record<string, string> = {};
+      if (statusFilter) params.status = statusFilter;
+      if (debouncedSearch) params.search = debouncedSearch;
+      const data = await quotationsService.list(params);
+      setQuotations(data.quotations);
+      setTotal(data.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load quotations');
+    } finally {
+      setLoading(false);
+    }
+  }, [statusFilter, debouncedSearch]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, debouncedSearch]);
+
+  useEffect(() => {
+    fetchQuotations();
+  }, [fetchQuotations]);
+
+  const paginatedData = quotations.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE,
+  );
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await quotationsService.delete(deleteTarget._id);
+      setDeleteTarget(null);
+      await fetchQuotations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete quotation');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const columns = [
+    {
+      key: 'quotationNo',
+      label: 'Quotation No',
+      render: (row: Quotation) => (
+        <Link
+          href={`/quotations/${row._id}`}
+          className="font-medium text-primary hover:underline"
+        >
+          {row.quotationNo}
+        </Link>
+      ),
+    },
+    { key: 'clientName', label: 'Client Name' },
+    { key: 'service', label: 'Service' },
+    { key: 'procedure', label: 'Procedure' },
+    { key: 'country', label: 'Country' },
+    {
+      key: 'total',
+      label: 'Total',
+      align: 'right' as const,
+      render: (row: Quotation) => (
+        <span className="tabular-nums font-medium">
+          {formatCurrency(row.total, row.currency)}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      render: (row: Quotation) => (
+        <StatusBadge status={row.status} />
+      ),
+    },
+    {
+      key: 'createdAt',
+      label: 'Date',
+      render: (row: Quotation) =>
+        new Date(row.createdAt).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }),
+    },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (row: Quotation) => (
+        <div className="flex items-center gap-2">
+          <Link href={`/quotations/${row._id}`}>
+            <Button variant="secondary" size="sm">
+              View
+            </Button>
+          </Link>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => setDeleteTarget(row)}
+          >
+            Delete
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  return (
+    <div className="flex flex-col min-h-screen">
+      <Topbar
+        title="All Quotations"
+        breadcrumbs={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Quotations' }]}
+      />
+
+      <div className="flex-1 p-6 space-y-4">
+        {/* Header row */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Status filter */}
+            <div className="w-44">
+              <Select
+                options={STATUS_OPTIONS}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                aria-label="Filter by status"
+              />
+            </div>
+            {/* Search */}
+            <div className="w-64">
+              <Input
+                placeholder="Search quotations..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                aria-label="Search quotations"
+              />
+            </div>
+          </div>
+          <Link href="/quotations/new">
+            <Button variant="primary">+ New Quotation</Button>
+          </Link>
+        </div>
+
+        {error && (
+          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* Table card */}
+        <div className="card overflow-hidden">
+          <DataTable
+            columns={columns}
+            data={paginatedData}
+            loading={loading}
+            emptyMessage="No quotations found"
+            emptyDescription="Try adjusting your filters or create a new quotation."
+            keyExtractor={(row: Quotation) => row._id}
+          />
+          <TablePagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={total}
+            itemsPerPage={PAGE_SIZE}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Quotation"
+        size="sm"
+      >
+        <p className="text-sm text-gray-600 mb-6">
+          Are you sure you want to delete quotation{' '}
+          <span className="font-semibold text-gray-900">
+            {deleteTarget?.quotationNo}
+          </span>
+          ? This action cannot be undone.
+        </p>
+        <div className="flex justify-end gap-3">
+          <Button
+            variant="secondary"
+            onClick={() => setDeleteTarget(null)}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={handleDeleteConfirm}
+            loading={deleting}
+          >
+            Delete
+          </Button>
+        </div>
+      </Modal>
+    </div>
+  );
+}

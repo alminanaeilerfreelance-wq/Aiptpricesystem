@@ -1,0 +1,336 @@
+IP Law Firm Quotation Management System (Enterprise)
+====================================================
+
+NEXT.JS 14 APP ROUTER - PROJECT FILE STRUCTURE
+==============================================
+
+ip-law-firm-quotation-system/
+│
+├── 📄 package.json                         # Project dependencies and scripts
+├── 📄 next.config.js                       # Next.js configuration
+├── 📄 tailwind.config.js                   # Tailwind CSS customization
+├── 📄 postcss.config.js                    # PostCSS plugins configuration
+├── 📄 .env.example                         # Environment variables template
+├── 📄 .gitignore                           # Git ignore rules
+├── 📄 README.md                            # Project documentation
+├── 📄 IMPLEMENTATION_GUIDE.md              # Setup and implementation guide
+├── 📄 PROJECT_STRUCTURE.txt                # This file
+│
+├── 📁 app/                                 # Next.js 14 App Router
+│   ├── 📄 layout.tsx                       # Root layout
+│   ├── 📄 page.tsx                         # Root redirect/landing
+│   ├── 📄 globals.css                      # Global styles
+│   │
+│   ├── 📁 (auth)/                          # Authentication route group
+│   │   ├── 📁 login/
+│   │   │   └── 📄 page.tsx                 # Login page
+│   │   └── 📁 register/
+│   │       └── 📄 page.tsx                 # Register page
+│   │
+│   ├── 📁 (dashboard)/                     # Protected dashboard route group
+│   │   ├── 📄 layout.tsx                   # Dashboard shell with sidebar/header
+│   │   ├── 📁 dashboard/
+│   │   │   └── 📄 page.tsx                 # Dashboard overview
+│   │   │
+│   │   ├── 📁 quotations/
+│   │   │   ├── 📄 page.tsx                 # All quotations
+│   │   │   ├── 📁 new/
+│   │   │   │   └── 📄 page.tsx             # New quotation
+│   │   │   ├── 📁 [id]/
+│   │   │   │   ├── 📄 page.tsx             # Quotation details
+│   │   │   │   └── 📁 edit/
+│   │   │   │       └── 📄 page.tsx         # Edit quotation
+│   │   │   └── 📁 fee-schedules/
+│   │   │       ├── 📁 trademark/
+│   │   │       │   └── 📄 page.tsx         # Trademark fee schedule
+│   │   │       ├── 📁 patent/
+│   │   │       │   └── 📄 page.tsx         # Patent fee schedule
+│   │   │       └── 📁 design/
+│   │   │           └── 📄 page.tsx         # Design fee schedule
+│   │   │
+│   │   ├── 📁 services/
+│   │   │   └── 📄 page.tsx                 # Services CRUD
+│   │   ├── 📁 countries/
+│   │   │   └── 📄 page.tsx                 # Countries CRUD + flags + abbreviations
+│   │   ├── 📁 procedures/
+│   │   │   └── 📄 page.tsx                 # Procedures CRUD
+│   │   ├── 📁 client-types/
+│   │   │   └── 📄 page.tsx                 # Client type management
+│   │   ├── 📁 pricing-rules/
+│   │   │   └── 📄 page.tsx                 # Pricing rules management
+│   │   ├── 📁 reports/
+│   │   │   ├── 📁 quotations/
+│   │   │   │   └── 📄 page.tsx             # Quotations report
+│   │   │   └── 📁 revenue/
+│   │   │       └── 📄 page.tsx             # Revenue report
+│   │   ├── 📁 users/
+│   │   │   └── 📄 page.tsx                 # Users management
+│   │   ├── 📁 profile/
+│   │   │   └── 📄 page.tsx                 # User profile
+│   │   └── 📁 settings/
+│   │       └── 📄 page.tsx                 # App/company settings
+│   │
+│   └── 📁 api/                             # Route handlers (Next.js API)
+│       ├── 📁 auth/
+│       │   ├── 📁 login/
+│       │   │   └── 📄 route.ts             # POST login
+│       │   ├── 📁 register/
+│       │   │   └── 📄 route.ts             # POST register
+│       │   └── 📁 me/
+│       │       └── 📄 route.ts             # GET current user
+│       │
+│       ├── 📁 quotations/
+│       │   ├── 📄 route.ts                 # GET list / POST create
+│       │   ├── 📁 [id]/
+│       │   │   └── 📄 route.ts             # GET one / PATCH / DELETE
+│       │   ├── 📁 [id]/approve/
+│       │   │   └── 📄 route.ts             # PATCH approve quotation
+│       │   ├── 📁 [id]/pdf/
+│       │   │   └── 📄 route.ts             # GET quotation PDF
+│       │   └── 📁 [id]/send-email/
+│       │       └── 📄 route.ts             # POST send quotation email
+│       │
+│       ├── 📁 clients/
+│       │   ├── 📄 route.ts                 # GET list / POST create
+│       │   └── 📁 [id]/
+│       │       └── 📄 route.ts             # GET one / PATCH / DELETE
+│       │
+│       ├── 📁 services/
+│       │   ├── 📄 route.ts                 # GET list / POST create
+│       │   └── 📁 [id]/
+│       │       └── 📄 route.ts             # GET one / PATCH / DELETE
+│       │
+│       ├── 📁 countries/
+│       │   ├── 📄 route.ts                 # GET list / POST create
+│       │   └── 📁 [id]/
+│       │       └── 📄 route.ts             # GET one / PATCH / DELETE
+│       │
+│       ├── 📁 procedures/
+│       │   ├── 📄 route.ts                 # GET list / POST create
+│       │   └── 📁 [id]/
+│       │       └── 📄 route.ts             # GET one / PATCH / DELETE
+│       │
+│       ├── 📁 pricing-rules/
+│       │   ├── 📄 route.ts                 # GET list / POST create
+│       │   └── 📁 [id]/
+│       │       └── 📄 route.ts             # GET one / PATCH / DELETE
+│       │
+│       ├── 📁 client-types/
+│       │   ├── 📄 route.ts                 # GET list / POST create
+│       │   └── 📁 [id]/
+│       │       └── 📄 route.ts             # GET one / PATCH / DELETE
+│       │
+│       ├── 📁 reports/
+│       │   ├── 📁 quotations/
+│       │   │   └── 📄 route.ts             # Quotations analytics
+│       │   └── 📁 revenue/
+│       │       └── 📄 route.ts             # Revenue analytics
+│       │
+│       └── 📁 settings/
+│           └── 📄 route.ts                 # GET / PATCH settings
+│
+├── 📁 components/                          # Reusable UI components
+│   ├── 📁 layout/
+│   │   ├── 📄 AppSidebar.tsx               # Sidebar navigation
+│   │   ├── 📄 Topbar.tsx                   # Header bar
+│   │   └── 📄 DashboardLayout.tsx          # Layout wrapper
+│   ├── 📁 dashboard/
+│   │   ├── 📄 StatsCards.tsx               # KPI cards
+│   │   ├── 📄 QuotationsLineChart.tsx      # Line chart
+│   │   ├── 📄 TopCountriesPieChart.tsx     # Pie chart
+│   │   └── 📄 RecentQuotationsTable.tsx    # Recent quotations table
+│   ├── 📁 quotations/
+│   │   ├── 📄 QuotationForm.tsx            # New/Edit quotation form
+│   │   ├── 📄 QuotationFeeSummary.tsx      # Fee summary card
+│   │   ├── 📄 QuotationDetailsCard.tsx     # Details/invoice-style card
+│   │   └── 📄 FeeScheduleTable.tsx         # Dynamic fee schedule table
+│   ├── 📁 tables/
+│   │   ├── 📄 DataTable.tsx                # Generic table wrapper
+│   │   ├── 📄 TablePagination.tsx          # Pagination controls
+│   │   └── 📄 StatusBadge.tsx              # Approved/Pending/Draft/Rejected
+│   ├── 📁 ui/
+│   │   ├── 📄 Button.tsx
+│   │   ├── 📄 Input.tsx
+│   │   ├── 📄 Select.tsx
+│   │   ├── 📄 Card.tsx
+│   │   ├── 📄 Modal.tsx
+│   │   ├── 📄 Skeleton.tsx
+│   │   └── 📄 EmptyState.tsx
+│   └── 📁 feedback/
+│       └── 📄 ToastProvider.tsx            # Toast notifications
+│
+├── 📁 layouts/                             # Optional layout abstractions
+│   └── 📄 index.ts
+│
+├── 📁 models/                              # MongoDB Mongoose schemas
+│   ├── 📄 User.ts
+│   ├── 📄 Client.ts
+│   ├── 📄 Quotation.ts
+│   ├── 📄 Service.ts
+│   ├── 📄 Country.ts
+│   ├── 📄 Procedure.ts
+│   └── 📄 PricingRule.ts
+│
+├── 📁 lib/                                 # Low-level libs and integrations
+│   ├── 📄 mongodb.ts                       # MongoDB connection
+│   ├── 📄 auth.ts                          # JWT helpers
+│   ├── 📄 validator.ts                     # Zod schemas/helpers
+│   ├── 📄 mailer.ts                        # Nodemailer setup
+│   └── 📄 logger.ts                        # Server logging helpers
+│
+├── 📁 hooks/                               # Reusable React hooks
+│   ├── 📄 useAuth.ts
+│   ├── 📄 useQuotations.ts
+│   ├── 📄 usePagination.ts
+│   └── 📄 useDebounce.ts
+│
+├── 📁 context/                             # React context providers
+│   ├── 📄 AuthContext.tsx
+│   ├── 📄 SettingsContext.tsx
+│   └── 📄 ThemeContext.tsx
+│
+├── 📁 services/                            # API client layer
+│   ├── 📄 apiClient.ts                     # Axios instance
+│   ├── 📄 auth.service.ts
+│   ├── 📄 quotations.service.ts
+│   ├── 📄 clients.service.ts
+│   ├── 📄 services.service.ts
+│   ├── 📄 countries.service.ts
+│   ├── 📄 procedures.service.ts
+│   ├── 📄 pricing-rules.service.ts
+│   ├── 📄 client-types.service.ts
+│   ├── 📄 reports.service.ts
+│   └── 📄 settings.service.ts
+│
+├── 📁 utils/                               # Utility functions
+│   ├── 📄 currency.ts
+│   ├── 📄 date.ts
+│   ├── 📄 quotation-calculator.ts
+│   ├── 📄 constants.ts
+│   └── 📄 formatters.ts
+│
+├── 📁 middleware/
+│   ├── 📄 auth-middleware.ts               # API guard helpers
+│   └── 📄 role-middleware.ts               # Role-based access helpers
+│
+├── 📄 middleware.ts                        # Next.js middleware for protected routes
+│
+├── 📁 pdf/
+│   ├── 📄 quotation-template.ts            # PDF template generator
+│   └── 📄 quotation-styles.ts              # PDF style definitions
+│
+├── 📁 public/
+│   ├── 📁 logos/
+│   │   └── 📄 ip-law-firm-logo.png
+│   ├── 📁 flags/
+│   │   └── 🖼️ country-flag-assets...
+│   └── 📁 images/
+│       └── 🖼️ dashboard-assets...
+│
+└── 📁 styles/
+    ├── 📄 globals.css
+    └── 📄 dashboard.css
+
+QUICK REFERENCE
+===============
+
+KEY APP ROUTER FILES TO UNDERSTAND:
+- app/layout.tsx                              → Root shell and metadata
+- app/(dashboard)/layout.tsx                  → Sidebar + protected dashboard shell
+- app/api/**/route.ts                         → Backend API handlers
+- models/Quotation.ts                         → Main quotation model
+- utils/quotation-calculator.ts               → Core fee calculation logic
+- pdf/quotation-template.ts                   → Quotation PDF generation
+
+CORE BUSINESS MODULES:
+- Quotations (create, edit, approve, export PDF, send email)
+- Services, Countries, Procedures, Client Types, Pricing Rules
+- Reports (quotations + revenue)
+- Settings (company, currency, taxes, SMTP)
+
+DATA FLOW (APP ROUTER)
+======================
+
+1. USER INTERACTION
+   └─→ app/(dashboard)/quotations/new/page.tsx
+
+2. FORM SUBMISSION
+   └─→ services/quotations.service.ts (Axios)
+
+3. API PROCESSING
+   └─→ app/api/quotations/route.ts
+   └─→ lib/mongodb.ts
+   └─→ models/Quotation.ts + related models
+
+4. RESPONSE
+   └─→ React state/query update
+   └─→ UI re-render
+   └─→ Updated dashboard/table display
+
+IMPORTANT NOTES
+===============
+
+AUTH + SECURITY:
+- JWT authentication
+- Password hashing with bcryptjs
+- Protected route middleware
+- Role-based access control
+
+TABLE STANDARDS:
+- Sticky headers
+- Search + filters + pagination
+- Compact rows and right-aligned currency
+- Status badges (Approved/Pending/Draft/Rejected)
+
+FEE SCHEDULE PAGES:
+- /quotations/fee-schedules/trademark
+- /quotations/fee-schedules/patent
+- /quotations/fee-schedules/design
+- Dynamic procedures in header
+- Country rows with image flags
+- Fee columns: Official Fee, Attorney Fee, Total
+
+DEPLOYMENT:
+- Vercel recommended
+- MongoDB Atlas for production database
+- SMTP required for email quotation sending
+- ENV variables required in .env.local
+
+DEVELOPMENT COMMANDS
+====================
+
+- npm install         → Install dependencies
+- npm run dev         → Start development server
+- npm run build       → Build for production
+- npm start           → Start production build
+- npm run lint        → Lint checks
+
+DATABASE COLLECTIONS
+====================
+
+- users
+- clients
+- quotations
+- services
+- countries
+- procedures
+- clienttypes
+- pricingrules
+- settings
+
+FEATURES INCLUDED (ENTERPRISE SCOPE)
+====================================
+
+✅ SaaS Dashboard with analytics cards and charts
+✅ Quotation Management (Draft/Pending/Approved/Rejected)
+✅ New/Edit/Details quotation pages
+✅ Trademark/Patent/Design fee schedule pages
+✅ Services/Countries/Procedures/Pricing Rules modules
+✅ Client types and client management
+✅ Revenue and quotations reports
+✅ PDF quotation generation
+✅ Email sending with quotation attachment
+✅ JWT authentication and protected routes
+✅ Responsive desktop/tablet/mobile UX
+
+Ready to implement? Follow IMPLEMENTATION_GUIDE.md

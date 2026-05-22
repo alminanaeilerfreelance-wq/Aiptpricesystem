@@ -1,0 +1,87 @@
+username:alminanaeilerfreelance_db_user
+password:71MMaBF2SXi3NuHE
+dbname:aiptpricedb
+mongodb+srv://alminanaeilerfreelance_db_user:71MMaBF2SXi3NuHE@aiptpricedb.qbdhhhu.mongodb.net/
+
+client page 
+create a page name client 
+add pagination, searhing to all fields, use material ui
+import, export, pdf,
+action : view, edit, update, delete
+fields:
+        Assigned ID
+        Client Name
+        Country
+        Continent
+        company name
+        Address
+        Email
+        Contact
+        Notes
+        Client Type-get the data in client data model
+        Status - Big, small, new, banned,
+
+All Quotations - fix the Request failed with status code 500
+               - create a page name client 
+                 add pagination, searhing to all fields, use material ui
+                 import, export, pdf,
+                 action : view, edit, update, delete
+New Quotation - get the data into client model 
+                  - after select auto display the client email,client type,email,notes
+                 Procedure -get the data into procedure model  
+Services page -  add pagination, searhing to all fields, use material ui
+                 import, export, pdf,
+                 action : view, edit, update, delete
+Department    - create a page name Department 
+                  fileds: Department, country 
+                 add pagination, searhing to all fields, use material ui
+                 import, export, pdf,
+                 action : view, edit, update, delete
+Countries pages- add pagination, searhing to all fields, use material ui
+                 import, export, pdf,
+                 action : view, edit, update, delete
+Procedures- add pagination, searhing to all fields, use material ui in every tab
+                 import, export, pdf,in every tab
+                 action : view, edit, update, delete in every tab
+Classification of Fees-  add pagination, searhing to all fields, use material ui
+                 import, export, pdf,
+                 action : view, edit, update, delete
+Client Types -   add pagination, searhing to all fields, use material ui
+                 import, export, pdf,
+                 action : view, edit, update, delete
+ Pricing Rules-  add pagination, searhing to all fields, use material ui
+                 import, export, pdf,
+                 action : view, edit, update, delete       
+Quotations Report - add the link in every card to the corresponding data
+
+requirment page  - create a add, edit, update delete
+                 - fields: 
+                    -country - get the data in the country model
+                    requirements - add textbox with WYSIWYG editor 
+                 - add pagination, searching to all fields, use material ui
+                 - import, export, pdf,
+
+ New Quotation page -modify the 
+Client Information card- client name: get the data in clients model
+                               - after selected the client name it must be display 
+                               -the client email, client type, note,contact,address,
+
+Service Details - card - get the data. in Pricing Rules data model 
+                                     - once the user select the Service Category
+                                     - select the country and auto filetred to display the     procedure name
+                                     - it match the data in Procedure page auto    
+                                        display to select 
+                                     -  add the select2 option for the requiments get the data fron requirments pages
+                                     - after fill up the service details it added in the cart
+                                     -save it
+
+    note if patent and design , litgation no need to select class
+    trademark only have a class 
+
+    table design 
+    procedure name  | official fees        | Attorney fees         |  Total               |
+    ---------------------------------------------------------------------------------------
+   |                | "per mark per class" |  "per mark per class" |"per mark per class"  |
+   ----------------------------------------------------------------------------------------
+   | procedure name |goverment fees        | atty fees             |total                 |
+   ----------------------------------------------------------------------------------------

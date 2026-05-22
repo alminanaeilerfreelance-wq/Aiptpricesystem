@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from 'next/server';
+import connectDB from '@/lib/mongodb';
+import Quotation from '@/models/Quotation';
+import { getUserFromRequest } from '@/lib/auth';
+
+interface RouteContext {
+  params: { id: string };
+}
+
+export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  try {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Only admins and managers can approve quotations
+    if (user.role !== 'admin' && user.role !== 'manager') {
+      return NextResponse.json({ error: 'Forbidden: insufficient permissions' }, { status: 403 });
+    }
+
+    await connectDB();
+
+    const quotation = await Quotation.findByIdAndUpdate(
+      params.id,
+      {
+        $set: {
+          status: 'Approved',
+          approvedBy: user.userId,
+          approvalDate: new Date(),
+        },
+      },
+      { new: true, runValidators: true }
+    )
+      .populate('clientId', 'name email phone country type')
+      .populate('createdBy', 'name email')
+      .populate('approvedBy', 'name email');
+
+    if (!quotation) {
+      return NextResponse.json({ error: 'Quotation not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ data: quotation });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Operation failed';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

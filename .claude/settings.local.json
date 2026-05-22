@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(npm run:*)",
+      "Bash(echo \"Dev server restarted, PID: $!\")",
+      "Bash(curl -s http://localhost:3000/api/auth/login -X POST -H 'Content-Type: application/json' -d '{\"email\":\"admin@demo.com\",\"password\":\"demo1234\"}')",
+      "Bash(python3 -m json.tool)"
+    ]
+  }
+}

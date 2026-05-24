@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import Topbar from '@/components/layout/Topbar';
 import { Card } from '@/components/ui';
 import { QuotationsLineChart } from '@/components/dashboard';
@@ -10,14 +11,23 @@ interface StatCardProps {
   label: string;
   value: number;
   colorClass: string;
+  href?: string;
 }
 
-function StatCard({ label, value, colorClass }: StatCardProps) {
-  return (
-    <div className="card p-4 flex flex-col gap-1">
+function StatCard({ label, value, colorClass, href }: StatCardProps) {
+  const content = (
+    <div className="card p-4 flex flex-col gap-1 hover:shadow-md transition-shadow">
       <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</span>
       <span className={`text-2xl font-bold ${colorClass}`}>{value.toLocaleString()}</span>
     </div>
+  );
+  
+  return href ? (
+    <Link href={href} className="block">
+      {content}
+    </Link>
+  ) : (
+    content
   );
 }
 
@@ -82,11 +92,11 @@ export default function QuotationsReportPage() {
 
         {/* Summary Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-          <StatCard label="Total" value={report?.total ?? 0} colorClass="text-gray-900" />
-          <StatCard label="Approved" value={report?.approved ?? 0} colorClass="text-green-600" />
-          <StatCard label="Pending" value={report?.pending ?? 0} colorClass="text-yellow-600" />
-          <StatCard label="Draft" value={report?.draft ?? 0} colorClass="text-gray-500" />
-          <StatCard label="Rejected" value={report?.rejected ?? 0} colorClass="text-red-600" />
+          <StatCard label="Total" value={report?.total ?? 0} colorClass="text-gray-900" href="/quotations" />
+          <StatCard label="Approved" value={report?.approved ?? 0} colorClass="text-green-600" href="/quotations?status=Approved" />
+          <StatCard label="Pending" value={report?.pending ?? 0} colorClass="text-yellow-600" href="/quotations?status=Pending" />
+          <StatCard label="Draft" value={report?.draft ?? 0} colorClass="text-gray-500" href="/quotations?status=Draft" />
+          <StatCard label="Rejected" value={report?.rejected ?? 0} colorClass="text-red-600" href="/quotations?status=Rejected" />
         </div>
 
         {/* Monthly Line Chart */}
@@ -121,7 +131,14 @@ export default function QuotationsReportPage() {
                   ) : (
                     byServiceEntries.map((item) => (
                       <tr key={item.service} className="hover:bg-surface/60 transition-colors">
-                        <td className="table-cell font-medium text-gray-900">{item.service}</td>
+                        <td className="table-cell font-medium text-gray-900">
+                          <Link
+                            href={`/quotations?service=${encodeURIComponent(item.service)}`}
+                            className="text-primary hover:underline"
+                          >
+                            {item.service}
+                          </Link>
+                        </td>
                         <td className="table-cell text-right text-gray-700">{item.count}</td>
                         <td className="table-cell text-right text-gray-500">{item.value?.toLocaleString() ?? '—'}</td>
                       </tr>
@@ -155,7 +172,14 @@ export default function QuotationsReportPage() {
                   ) : (
                     byCountryEntries.map((item) => (
                       <tr key={item.country} className="hover:bg-surface/60 transition-colors">
-                        <td className="table-cell font-medium text-gray-900">{item.country}</td>
+                        <td className="table-cell font-medium text-gray-900">
+                          <Link
+                            href={`/quotations?country=${encodeURIComponent(item.country)}`}
+                            className="text-primary hover:underline"
+                          >
+                            {item.country}
+                          </Link>
+                        </td>
                         <td className="table-cell text-right text-gray-700">{item.count}</td>
                       </tr>
                     ))

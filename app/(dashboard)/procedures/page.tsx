@@ -1,329 +1,509 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
-import Topbar from '@/components/layout/Topbar';
-import { DataTable } from '@/components/tables';
-import { StatusBadge } from '@/components/tables';
-import { Button } from '@/components/ui';
-import { Input } from '@/components/ui';
-import { Select } from '@/components/ui';
-import { Modal } from '@/components/ui';
-import { Card } from '@/components/ui';
-import { proceduresService, Procedure, CreateProcedureDto } from '@/services/procedures.service';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Pagination,
+  Select,
+  Stack,
+  Tab,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Tabs,
+  Paper,
+  TextField,
+  Typography,
+  Snackbar,
+} from '@mui/material';
+import { EmptyState } from '@/components/ui';
+import { proceduresService } from '@/services/procedures.service';
+import { useDebounce } from '@/hooks/useDebounce';
+
+export const dynamic = 'force-dynamic';
+
+interface Procedure {
+  _id: string;
+  name: string;
+  serviceCategory: string;
+  description?: string;
+  sortOrder?: number;
+  createdAt: string;
+}
 
 const CATEGORIES = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
 
-const CATEGORY_TABS = [{ value: '', label: 'All' }, ...CATEGORIES.map((c) => ({ value: c, label: c }))];
-
-const CATEGORY_SELECT_OPTIONS = CATEGORIES.map((c) => ({ value: c, label: c }));
-
-const categoryColorMap: Record<string, string> = {
-  Trademark: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700',
-  Patent: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700',
-  Copyright: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700',
-  Design: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700',
-  Litigation: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700',
-};
-
-interface FormState {
-  name: string;
-  category: string;
-  description: string;
-  sortOrder: string;
-}
-
-const EMPTY_FORM: FormState = {
-  name: '',
-  category: 'Trademark',
-  description: '',
-  sortOrder: '0',
+const categoryColors: Record<string, { bg: string; text: string }> = {
+  Trademark: { bg: '#E3F2FD', text: '#1976D2' },
+  Patent: { bg: '#F3E5F5', text: '#7B1FA2' },
+  Copyright: { bg: '#E8F5E9', text: '#388E3C' },
+  Design: { bg: '#FFF3E0', text: '#F57C00' },
+  Litigation: { bg: '#FFEBEE', text: '#D32F2F' },
 };
 
 export default function ProceduresPage() {
+  const [mounted, setMounted] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 400);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [viewingProcedure, setViewingProcedure] = useState<Procedure | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [categoryFilter, setCategoryFilter] = useState('');
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Procedure | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  const currentCategory = activeTab === 0 ? '' : CATEGORIES[activeTab - 1];
 
-  const [deleteTarget, setDeleteTarget] = useState<Procedure | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const fetchProcedures = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchProcedures = useCallback(async (params?: { nextPage?: number; nextSearch?: string; nextCategory?: string }) => {
+    const nextPage = params?.nextPage ?? page;
+    const nextSearch = params?.nextSearch ?? debouncedSearch;
+    const nextCategory = params?.nextCategory ?? currentCategory;
     try {
-      const params = categoryFilter ? { category: categoryFilter } : undefined;
-      const data = await proceduresService.list(params);
-      setProcedures(data.procedures);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load procedures');
+      setLoading(true);
+      setError('');
+      const response = await proceduresService.list({
+        page: nextPage,
+        limit,
+        search: nextSearch || undefined,
+        category: nextCategory || undefined,
+      });
+      setProcedures(Array.isArray(response?.procedures) ? response.procedures : []);
+      setTotal(response?.total || 0);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch procedures');
+      setProcedures([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [categoryFilter]);
+  }, [currentCategory, debouncedSearch, limit, page]);
 
   useEffect(() => {
-    fetchProcedures();
-  }, [fetchProcedures]);
+    setPage(1);
+  }, [activeTab]);
 
-  const openAddModal = () => {
-    setEditTarget(null);
-    setForm({ ...EMPTY_FORM, category: categoryFilter || 'Trademark' });
-    setFormError(null);
-    setModalOpen(true);
+  useEffect(() => {
+    fetchProcedures({ nextPage: page, nextSearch: debouncedSearch, nextCategory: currentCategory });
+  }, [activeTab, debouncedSearch, fetchProcedures, page]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
+  const handleView = (procedure: Procedure) => {
+    setViewingProcedure(procedure);
+    setViewDialogOpen(true);
   };
 
-  const openEditModal = (procedure: Procedure) => {
-    setEditTarget(procedure);
-    setForm({
-      name: procedure.name,
-      category: procedure.serviceCategory,
-      description: procedure.description ?? '',
-      sortOrder: String(procedure.sortOrder ?? 0),
-    });
-    setFormError(null);
-    setModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setEditTarget(null);
-    setForm(EMPTY_FORM);
-    setFormError(null);
-  };
-
-  const handleFormChange = (field: keyof FormState, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim()) {
-      setFormError('Name is required');
-      return;
-    }
-    if (!form.category) {
-      setFormError('Category is required');
-      return;
-    }
-    setSaving(true);
-    setFormError(null);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        serviceCategory: form.category as CreateProcedureDto['serviceCategory'],
-        description: form.description.trim() || undefined,
-        sortOrder: parseInt(form.sortOrder, 10) || 0,
-      };
-      if (editTarget) {
-        await proceduresService.update(editTarget._id, payload);
-      } else {
-        await proceduresService.create(payload);
-      }
-      closeModal();
-      await fetchProcedures();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to save procedure');
-    } finally {
-      setSaving(false);
-    }
+  const handleDeleteClick = (id: string) => {
+    setDeletingId(id);
+    setDeleteDialogOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+    if (!deletingId) return;
+
     try {
-      await proceduresService.delete(deleteTarget._id);
-      setDeleteTarget(null);
-      await fetchProcedures();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete procedure');
+      setLoading(true);
+      await proceduresService.delete(deletingId);
+      const targetPage = procedures.length === 1 && page > 1 ? page - 1 : page;
+      setDeleteDialogOpen(false);
+      setDeletingId(null);
+      if (targetPage !== page) {
+        setPage(targetPage);
+      } else {
+        await fetchProcedures({ nextPage: targetPage });
+      }
+      setSuccessMessage('Procedure deleted successfully');
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete procedure');
     } finally {
-      setDeleting(false);
+      setLoading(false);
     }
   };
 
-  const columns = [
-    {
-      key: 'name',
-      label: 'Name',
-      render: (row: Procedure) => (
-        <span className="font-medium text-gray-900">{row.name}</span>
-      ),
-    },
-    {
-      key: 'serviceCategory',
-      label: 'Service Category',
-      render: (row: Procedure) => (
-        <span className={categoryColorMap[row.serviceCategory] ?? 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700'}>
-          {row.serviceCategory}
-        </span>
-      ),
-    },
-    {
-      key: 'description',
-      label: 'Description',
-      render: (row: Procedure) => (
-        <span className="text-gray-500 text-sm">{row.description ?? '—'}</span>
-      ),
-    },
-    {
-      key: 'isActive',
-      label: 'Active',
-      render: (row: Procedure) => <StatusBadge isActive={row.isActive} />,
-    },
-    {
-      key: 'sortOrder',
-      label: 'Sort Order',
-      align: 'right' as const,
-      render: (row: Procedure) => (
-        <span className="text-gray-600">{row.sortOrder ?? 0}</span>
-      ),
-    },
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (row: Procedure) => (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => openEditModal(row)}>
-            Edit
-          </Button>
-          <Button variant="danger" size="sm" onClick={() => setDeleteTarget(row)}>
-            Delete
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      setError('');
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, raw: false });
+      const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell ?? '').trim()));
+
+      let importedCount = 0;
+      const importErrors: string[] = [];
+
+      for (const row of dataRows) {
+        const name = String(row[0] ?? '').trim();
+        const category = String(row[1] ?? '').trim();
+        const description = String(row[2] ?? '').trim();
+
+        if (!name || !category) continue;
+        if (!CATEGORIES.includes(category)) {
+          importErrors.push(`Invalid category "${category}" for procedure "${name}"`);
+          continue;
+        }
+
+        try {
+          await proceduresService.create({ name, serviceCategory: category, description: description || undefined });
+          importedCount += 1;
+        } catch {
+          importErrors.push(`Failed to import "${name}"`);
+        }
+      }
+
+      if (importedCount > 0) {
+        if (page !== 1) setPage(1);
+        else await fetchProcedures({ nextPage: 1 });
+        setSuccessMessage(`Imported ${importedCount} procedures`);
+      }
+      if (importErrors.length > 0) {
+        setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
+      }
+    } catch {
+      setError('Failed to import file');
+    } finally {
+      setLoading(false);
+      event.target.value = '';
+    }
+  };
+
+  const getAllFilteredProcedures = useCallback(async () => {
+    const pageSize = 100;
+    const firstResponse = await proceduresService.list({
+      page: 1,
+      limit: pageSize,
+      search: debouncedSearch || undefined,
+      category: currentCategory || undefined,
+    });
+
+    const firstData = Array.isArray(firstResponse?.procedures) ? firstResponse.procedures : [];
+    const totalPages = Math.ceil((firstResponse?.total || 0) / pageSize);
+
+    if (totalPages <= 1) return firstData;
+
+    const remainingRequests: Array<Promise<any>> = [];
+    for (let p = 2; p <= totalPages; p += 1) {
+      remainingRequests.push(
+        proceduresService.list({
+          page: p,
+          limit: pageSize,
+          search: debouncedSearch || undefined,
+          category: currentCategory || undefined,
+        })
+      );
+    }
+
+    const remainingResponses = await Promise.all(remainingRequests);
+    const remainingData = remainingResponses.flatMap((r) => (Array.isArray(r?.procedures) ? r.procedures : []));
+
+    return [...firstData, ...remainingData];
+  }, [currentCategory, debouncedSearch]);
+
+  const handleExportCSV = async () => {
+    const records = await getAllFilteredProcedures();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(records.map((p) => ({
+      Name: p.name,
+      Category: p.serviceCategory,
+      Description: p.description || '',
+      Created: new Date(p.createdAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Procedures');
+    XLSX.writeFile(wb, 'procedures.csv');
+    setSuccessMessage(`CSV exported (${records.length} rows)`);
+  };
+
+  const handleExportExcel = async () => {
+    const records = await getAllFilteredProcedures();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(records.map((p) => ({
+      Name: p.name,
+      Category: p.serviceCategory,
+      Description: p.description || '',
+      Created: new Date(p.createdAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Procedures');
+    XLSX.writeFile(wb, 'procedures.xlsx');
+    setSuccessMessage(`Excel exported (${records.length} rows)`);
+  };
+
+  const handleExportPDF = async () => {
+    const records = await getAllFilteredProcedures();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const jsPDF = await import('jspdf');
+    const autoTable = await import('jspdf-autotable');
+    const doc = new jsPDF.jsPDF();
+
+    autoTable.default(doc, {
+      head: [['Name', 'Category', 'Created']],
+      body: records.map((p) => [
+        p.name,
+        p.serviceCategory,
+        new Date(p.createdAt).toLocaleDateString(),
+      ]),
+      startY: 10,
+    });
+
+    doc.save('procedures.pdf');
+    setSuccessMessage(`PDF exported (${records.length} rows)`);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  if (!mounted) return null;
 
   return (
-    <div className="flex flex-col h-full">
-      <Topbar
-        title="Procedures"
-        breadcrumbs={[{ label: 'Master Data' }, { label: 'Procedures' }]}
-      />
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4">Procedures</Typography>
+        <Button variant="contained" disabled>
+          + Add Procedure (Form Coming Soon)
+        </Button>
+      </Box>
 
-      <div className="flex-1 p-6 space-y-4 overflow-auto">
-        {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-        <Card padding="p-0">
-          {/* Toolbar with category filter tabs */}
-          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border flex-wrap">
-            <div className="flex items-center gap-1 flex-wrap">
-              {CATEGORY_TABS.map((tab) => (
-                <button
-                  key={tab.value}
-                  onClick={() => setCategoryFilter(tab.value)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    categoryFilter === tab.value
-                      ? 'bg-primary text-white'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            <Button variant="primary" onClick={openAddModal}>
-              + Add Procedure
+      {/* Category Tabs */}
+      <Paper sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} aria-label="procedures categories">
+          <Tab label="All" />
+          {CATEGORIES.map((cat, idx) => (
+            <Tab key={cat} label={cat} />
+          ))}
+        </Tabs>
+      </Paper>
+
+      {/* Filter and Export */}
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <TextField
+              placeholder="Search procedures..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              size="small"
+              sx={{ flex: 1 }}
+            />
+            <FormControl sx={{ minWidth: 160 }}>
+              <InputLabel>Rows</InputLabel>
+              <Select
+                value={String(limit)}
+                onChange={(e) => {
+                  setLimit(Number(e.target.value));
+                  setPage(1);
+                }}
+                label="Rows"
+                size="small"
+              >
+                <MenuItem value="10">10</MenuItem>
+                <MenuItem value="25">25</MenuItem>
+                <MenuItem value="50">50</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+
+          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+            <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
+              Export CSV
             </Button>
-          </div>
+            <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
+              Export Excel
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
+              Export PDF
+            </Button>
+            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportCSV} style={{ display: 'none' }} id="import-csv-input" />
+            <label htmlFor="import-csv-input" style={{ margin: 0 }}>
+              <Button size="small" variant="outlined" component="span">
+                Import CSV
+              </Button>
+            </label>
+          </Stack>
+        </CardContent>
+      </Card>
 
-          <DataTable
-            columns={columns}
-            data={procedures}
-            loading={loading}
-            emptyMessage="No procedures found"
-            emptyDescription="Add a procedure to get started."
-            keyExtractor={(row) => row._id}
-          />
-        </Card>
-      </div>
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
 
-      {/* Add / Edit Modal */}
-      <Modal
-        isOpen={modalOpen}
-        onClose={closeModal}
-        title={editTarget ? 'Edit Procedure' : 'Add Procedure'}
-        size="md"
-      >
-        <div className="space-y-4">
-          {formError && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-              {formError}
-            </div>
+      {!loading && procedures.length === 0 ? (
+        <EmptyState
+          title="No procedures found"
+          description="Start by adding your first procedure"
+          onAction={() => {}}
+          actionLabel="Add Procedure"
+        />
+      ) : (
+        !loading && (
+          <>
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                    <TableCell><strong>Name</strong></TableCell>
+                    <TableCell><strong>Category</strong></TableCell>
+                    <TableCell><strong>Created</strong></TableCell>
+                    <TableCell align="right"><strong>Actions</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {procedures.map((procedure) => (
+                    <TableRow
+                      key={procedure._id}
+                      sx={{ '&:hover': { backgroundColor: '#f9f9f9' }, '&:last-child td, &:last-child th': { border: 0 } }}
+                    >
+                      <TableCell>{procedure.name}</TableCell>
+                      <TableCell>
+                        <Box
+                          sx={{
+                            display: 'inline-block',
+                            backgroundColor: categoryColors[procedure.serviceCategory]?.bg || '#f0f0f0',
+                            color: categoryColors[procedure.serviceCategory]?.text || '#000',
+                            px: 2,
+                            py: 0.5,
+                            borderRadius: 1,
+                            fontSize: '0.85rem',
+                            fontWeight: 500,
+                          }}
+                        >
+                          {procedure.serviceCategory}
+                        </Box>
+                      </TableCell>
+                      <TableCell>{new Date(procedure.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                          <Button size="small" variant="outlined" onClick={() => handleView(procedure)}>
+                            View
+                          </Button>
+                          <Button size="small" variant="outlined" disabled>
+                            Edit
+                          </Button>
+                          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(procedure._id)}>
+                            Delete
+                          </Button>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, px: 2 }}>
+              <Typography variant="body2" color="textSecondary">
+                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
+              </Typography>
+              <Pagination
+                count={totalPages}
+                page={page}
+                onChange={(e, newPage) => setPage(newPage)}
+                color="primary"
+                size="small"
+              />
+            </Box>
+          </>
+        )
+      )}
+
+      {/* View Dialog */}
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>View Procedure</DialogTitle>
+        <DialogContent>
+          {viewingProcedure && (
+            <Box sx={{ pt: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>Name</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{viewingProcedure.name}</Typography>
+
+              <Typography variant="subtitle2" gutterBottom>Category</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{viewingProcedure.serviceCategory}</Typography>
+
+              {viewingProcedure.description && (
+                <>
+                  <Typography variant="subtitle2" gutterBottom>Description</Typography>
+                  <Typography variant="body2">{viewingProcedure.description}</Typography>
+                </>
+              )}
+            </Box>
           )}
-          <Input
-            label="Name"
-            value={form.name}
-            onChange={(e) => handleFormChange('name', e.target.value)}
-            placeholder="e.g. Initial Filing"
-          />
-          <Select
-            label="Service Category"
-            options={CATEGORY_SELECT_OPTIONS}
-            value={form.category}
-            onChange={(e) => handleFormChange('category', e.target.value)}
-          />
-          <Input
-            label="Description"
-            value={form.description}
-            onChange={(e) => handleFormChange('description', e.target.value)}
-            placeholder="Optional description"
-          />
-          <Input
-            label="Sort Order"
-            type="number"
-            min="0"
-            step="1"
-            value={form.sortOrder}
-            onChange={(e) => handleFormChange('sortOrder', e.target.value)}
-            placeholder="0"
-          />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={closeModal} disabled={saving}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleSave} loading={saving}>
-              {editTarget ? 'Save Changes' : 'Add Procedure'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        title="Delete Procedure"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Are you sure you want to delete{' '}
-            <span className="font-semibold text-gray-900">{deleteTarget?.name}</span>?
-            This action cannot be undone.
-          </p>
-          <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={() => setDeleteTarget(null)} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={handleDeleteConfirm} loading={deleting}>
-              Delete
-            </Button>
-          </div>
-        </div>
-      </Modal>
-    </div>
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Procedure</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this procedure? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={loading}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Success Message */}
+      <Snackbar
+        open={!!successMessage}
+        autoHideDuration={6000}
+        onClose={() => setSuccessMessage('')}
+        message={successMessage}
+      />
+    </Box>
   );
 }

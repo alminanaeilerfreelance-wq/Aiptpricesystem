@@ -1,333 +1,536 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
-import Topbar from '@/components/layout/Topbar';
-import { DataTable } from '@/components/tables';
-import { StatusBadge } from '@/components/tables';
-import { Button } from '@/components/ui';
-import { Input } from '@/components/ui';
-import { Select } from '@/components/ui';
-import { Modal } from '@/components/ui';
-import { Card } from '@/components/ui';
-import { servicesService, Service } from '@/services/services.service';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Pagination,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  TextField,
+  Typography,
+  Snackbar,
+} from '@mui/material';
+import { EmptyState } from '@/components/ui';
+import { servicesService } from '@/services/services.service';
+import { useDebounce } from '@/hooks/useDebounce';
 
-const CATEGORY_OPTIONS = [
-  { value: '', label: 'All Categories' },
-  { value: 'Trademark', label: 'Trademark' },
-  { value: 'Patent', label: 'Patent' },
-  { value: 'Copyright', label: 'Copyright' },
-  { value: 'Design', label: 'Design' },
-  { value: 'Litigation', label: 'Litigation' },
-];
+export const dynamic = 'force-dynamic';
 
-const CATEGORY_FORM_OPTIONS = CATEGORY_OPTIONS.slice(1);
-
-const categoryColorMap: Record<string, string> = {
-  Trademark: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700',
-  Patent: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700',
-  Copyright: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700',
-  Design: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700',
-  Litigation: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700',
-};
-
-interface FormState {
+interface Service {
+  _id: string;
   name: string;
-  category: string;
-  description: string;
-  basePrice: string;
+  category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  description?: string;
+  basePrice?: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
-const EMPTY_FORM: FormState = {
-  name: '',
-  category: 'Trademark',
-  description: '',
-  basePrice: '',
+const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
+const CATEGORY_OPTIONS = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
+const categoryColors: Record<string, { bg: string; text: string }> = {
+  Trademark: { bg: '#E3F2FD', text: '#1976D2' },
+  Patent: { bg: '#F3E5F5', text: '#7B1FA2' },
+  Copyright: { bg: '#E8F5E9', text: '#388E3C' },
+  Design: { bg: '#FFF3E0', text: '#F57C00' },
+  Litigation: { bg: '#FFEBEE', text: '#D32F2F' },
 };
 
 export default function ServicesPage() {
+  const [mounted, setMounted] = useState(false);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 400);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [sortBy, setSortBy] = useState<'createdAt' | 'name' | 'category'>('createdAt');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [openForm, setOpenForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [viewingService, setViewingService] = useState<Service | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<Service | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  const [deleteTarget, setDeleteTarget] = useState<Service | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const fetchServices = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchServices = useCallback(async (params?: { nextPage?: number; nextSearch?: string; nextCategory?: string }) => {
+    const nextPage = params?.nextPage ?? page;
+    const nextSearch = params?.nextSearch ?? debouncedSearch;
+    const nextCategory = params?.nextCategory ?? categoryFilter;
     try {
-      const params = categoryFilter ? { category: categoryFilter } : undefined;
-      const data = await servicesService.list(params);
-      setServices(data.services);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load services');
+      setLoading(true);
+      setError('');
+      const response = await servicesService.list({
+        page: nextPage,
+        limit,
+        search: nextSearch || undefined,
+        category: nextCategory || undefined,
+      });
+      setServices(Array.isArray(response?.services) ? response.services : []);
+      setTotal(response?.total || 0);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to fetch services');
+      setServices([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [categoryFilter]);
+  }, [categoryFilter, debouncedSearch, limit, page]);
 
   useEffect(() => {
-    fetchServices();
-  }, [fetchServices]);
+    fetchServices({ nextPage: page, nextSearch: debouncedSearch, nextCategory: categoryFilter });
+  }, [categoryFilter, debouncedSearch, fetchServices, page]);
 
-  const openAddModal = () => {
-    setEditTarget(null);
-    setForm(EMPTY_FORM);
-    setFormError(null);
-    setModalOpen(true);
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
+
+  const handleAdd = () => {
+    setEditingId(null);
+    setOpenForm(true);
   };
 
-  const openEditModal = (service: Service) => {
-    setEditTarget(service);
-    setForm({
-      name: service.name,
-      category: service.category,
-      description: service.description ?? '',
-      basePrice: service.basePrice !== undefined ? String(service.basePrice) : '',
-    });
-    setFormError(null);
-    setModalOpen(true);
+  const handleEdit = (service: Service) => {
+    setEditingId(service._id);
+    setOpenForm(true);
   };
 
-  const closeModal = () => {
-    setModalOpen(false);
-    setEditTarget(null);
-    setForm(EMPTY_FORM);
-    setFormError(null);
+  const handleView = (service: Service) => {
+    setViewingService(service);
+    setViewDialogOpen(true);
   };
 
-  const handleFormChange = (field: keyof FormState, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim()) {
-      setFormError('Name is required');
-      return;
-    }
-    if (!form.category) {
-      setFormError('Category is required');
-      return;
-    }
-    setSaving(true);
-    setFormError(null);
-    try {
-      const payload = {
-        name: form.name.trim(),
-        category: form.category,
-        description: form.description.trim() || undefined,
-        basePrice: form.basePrice ? parseFloat(form.basePrice) : undefined,
-      };
-      if (editTarget) {
-        await servicesService.update(editTarget._id, payload);
-      } else {
-        await servicesService.create(payload);
-      }
-      closeModal();
-      await fetchServices();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to save service');
-    } finally {
-      setSaving(false);
-    }
+  const handleDeleteClick = (id: string) => {
+    setDeletingId(id);
+    setDeleteDialogOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+    if (!deletingId) return;
+
     try {
-      await servicesService.delete(deleteTarget._id);
-      setDeleteTarget(null);
-      await fetchServices();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete service');
+      setLoading(true);
+      await servicesService.delete(deletingId);
+      const targetPage = services.length === 1 && page > 1 ? page - 1 : page;
+      setDeleteDialogOpen(false);
+      setDeletingId(null);
+      if (targetPage !== page) {
+        setPage(targetPage);
+      } else {
+        await fetchServices({ nextPage: targetPage });
+      }
+      setSuccessMessage('Service deleted successfully');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to delete service');
     } finally {
-      setDeleting(false);
+      setLoading(false);
     }
   };
 
-  const columns = [
-    {
-      key: 'name',
-      label: 'Name',
-      render: (row: Service) => (
-        <span className="font-medium text-gray-900">{row.name}</span>
-      ),
-    },
-    {
-      key: 'category',
-      label: 'Category',
-      render: (row: Service) => (
-        <span className={categoryColorMap[row.category] ?? 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700'}>
-          {row.category}
-        </span>
-      ),
-    },
-    {
-      key: 'description',
-      label: 'Description',
-      render: (row: Service) => (
-        <span className="text-gray-500 text-sm truncate max-w-xs block">
-          {row.description ?? '—'}
-        </span>
-      ),
-    },
-    {
-      key: 'basePrice',
-      label: 'Base Price',
-      align: 'right' as const,
-      render: (row: Service) => (
-        <span className="font-medium text-gray-700">
-          {row.basePrice !== undefined && row.basePrice !== null
-            ? row.basePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-            : '—'}
-        </span>
-      ),
-    },
-    {
-      key: 'isActive',
-      label: 'Active',
-      render: (row: Service) => <StatusBadge isActive={row.isActive} />,
-    },
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (row: Service) => (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => openEditModal(row)}>
-            Edit
-          </Button>
-          <Button variant="danger" size="sm" onClick={() => setDeleteTarget(row)}>
-            Delete
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      setError('');
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, raw: false });
+      const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell ?? '').trim()));
+
+      let importedCount = 0;
+      const importErrors: string[] = [];
+
+      for (const row of dataRows) {
+        const name = String(row[0] ?? '').trim();
+        const category = String(row[1] ?? '').trim();
+        const description = String(row[2] ?? '').trim();
+        const basePrice = row[3] ? Number(row[3]) : 0;
+
+        if (!name || !category) continue;
+        if (!CATEGORY_OPTIONS.includes(category)) {
+          importErrors.push(`Invalid category "${category}" for service "${name}"`);
+          continue;
+        }
+
+        try {
+          await servicesService.create({ name, category, description, basePrice });
+          importedCount += 1;
+        } catch {
+          importErrors.push(`Failed to import "${name}"`);
+        }
+      }
+
+      if (importedCount > 0) {
+        if (page !== 1) setPage(1);
+        else await fetchServices({ nextPage: 1 });
+        setSuccessMessage(`Imported ${importedCount} services successfully`);
+      }
+
+      if (importErrors.length > 0) {
+        setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
+      }
+    } catch {
+      setError('Failed to import file');
+    } finally {
+      setLoading(false);
+      event.target.value = '';
+    }
+  };
+
+  const getAllFilteredServices = useCallback(async () => {
+    const pageSize = 100;
+    const firstResponse = await servicesService.list({
+      page: 1,
+      limit: pageSize,
+      search: debouncedSearch || undefined,
+      category: categoryFilter || undefined,
+    });
+
+    const firstData = Array.isArray(firstResponse?.services) ? firstResponse.services : [];
+    const totalPages = Math.ceil((firstResponse?.total || 0) / pageSize);
+
+    if (totalPages <= 1) return firstData;
+
+    const remainingRequests: Array<Promise<any>> = [];
+    for (let p = 2; p <= totalPages; p += 1) {
+      remainingRequests.push(
+        servicesService.list({
+          page: p,
+          limit: pageSize,
+          search: debouncedSearch || undefined,
+          category: categoryFilter || undefined,
+        })
+      );
+    }
+
+    const remainingResponses = await Promise.all(remainingRequests);
+    const remainingData = remainingResponses.flatMap((r) => (Array.isArray(r?.services) ? r.services : []));
+
+    return [...firstData, ...remainingData];
+  }, [categoryFilter, debouncedSearch]);
+
+  const handleExportCSV = async () => {
+    const records = await getAllFilteredServices();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(records.map((s) => ({
+      Name: s.name,
+      Category: s.category,
+      Description: stripHtml(s.description || ''),
+      'Base Price': s.basePrice,
+      Created: new Date(s.createdAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Services');
+    XLSX.writeFile(wb, 'services.csv');
+    setSuccessMessage(`CSV exported (${records.length} rows)`);
+  };
+
+  const handleExportExcel = async () => {
+    const records = await getAllFilteredServices();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(records.map((s) => ({
+      Name: s.name,
+      Category: s.category,
+      Description: stripHtml(s.description || ''),
+      'Base Price': s.basePrice,
+      Created: new Date(s.createdAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Services');
+    XLSX.writeFile(wb, 'services.xlsx');
+    setSuccessMessage(`Excel exported (${records.length} rows)`);
+  };
+
+  const handleExportPDF = async () => {
+    const records = await getAllFilteredServices();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const jsPDF = await import('jspdf');
+    const autoTable = await import('jspdf-autotable');
+    const doc = new jsPDF.jsPDF();
+
+    autoTable.default(doc, {
+      head: [['Name', 'Category', 'Price', 'Created']],
+      body: records.map((s) => [
+        s.name.slice(0, 30),
+        s.category,
+        `$${s.basePrice || 0}`,
+        new Date(s.createdAt).toLocaleDateString(),
+      ]),
+      startY: 10,
+    });
+
+    doc.save('services.pdf');
+    setSuccessMessage(`PDF exported (${records.length} rows)`);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  const applyCategoryFilter = (nextCategory: string) => {
+    setCategoryFilter(nextCategory);
+    setPage(1);
+  };
+
+  if (!mounted) return null;
 
   return (
-    <div className="flex flex-col h-full">
-      <Topbar
-        title="Services"
-        breadcrumbs={[{ label: 'Master Data' }, { label: 'Services' }]}
-      />
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4">Services</Typography>
+        <Button variant="contained" onClick={handleAdd}>
+          + Add Service
+        </Button>
+      </Box>
 
-      <div className="flex-1 p-6 space-y-4 overflow-auto">
-        {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-        <Card padding="p-0">
-          {/* Toolbar */}
-          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border">
-            <div className="w-48">
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <TextField
+              placeholder="Search all fields..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              size="small"
+              sx={{ flex: 1 }}
+            />
+            <FormControl sx={{ flex: 1, minWidth: 200 }}>
+              <InputLabel>Filter by Category</InputLabel>
               <Select
-                options={CATEGORY_OPTIONS}
                 value={categoryFilter}
-                onChange={(e) => setCategoryFilter(e.target.value)}
-                aria-label="Filter by category"
+                onChange={(e) => applyCategoryFilter(e.target.value)}
+                label="Filter by Category"
+                size="small"
+              >
+                <MenuItem value="">All Categories</MenuItem>
+                {CATEGORY_OPTIONS.map((cat) => (
+                  <MenuItem key={cat} value={cat}>
+                    {cat}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl sx={{ minWidth: 160 }}>
+              <InputLabel>Rows</InputLabel>
+              <Select
+                value={String(limit)}
+                onChange={(e) => {
+                  setLimit(Number(e.target.value));
+                  setPage(1);
+                }}
+                label="Rows"
+                size="small"
+              >
+                <MenuItem value="10">10</MenuItem>
+                <MenuItem value="25">25</MenuItem>
+                <MenuItem value="50">50</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+
+          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+            <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
+              Export CSV
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
+              Export Excel
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
+              Export PDF
+            </Button>
+            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportCSV} style={{ display: 'none' }} id="import-csv-input" />
+            <label htmlFor="import-csv-input" style={{ margin: 0 }}>
+              <Button size="small" variant="outlined" component="span">
+                Import CSV
+              </Button>
+            </label>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
+
+      {!loading && services.length === 0 ? (
+        <EmptyState
+          title="No services found"
+          description="Start by adding your first service"
+          onAction={handleAdd}
+          actionLabel="Add Service"
+        />
+      ) : (
+        !loading && (
+          <>
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                    <TableCell><strong>Name</strong></TableCell>
+                    <TableCell><strong>Category</strong></TableCell>
+                    <TableCell align="right"><strong>Price</strong></TableCell>
+                    <TableCell><strong>Created</strong></TableCell>
+                    <TableCell align="right"><strong>Actions</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {services.map((service) => (
+                    <TableRow
+                      key={service._id}
+                      sx={{ '&:hover': { backgroundColor: '#f9f9f9' }, '&:last-child td, &:last-child th': { border: 0 } }}
+                    >
+                      <TableCell>{service.name}</TableCell>
+                      <TableCell>
+                        <Box
+                          sx={{
+                            display: 'inline-block',
+                            backgroundColor: categoryColors[service.category]?.bg || '#f0f0f0',
+                            color: categoryColors[service.category]?.text || '#000',
+                            px: 2,
+                            py: 0.5,
+                            borderRadius: 1,
+                            fontSize: '0.85rem',
+                            fontWeight: 500,
+                          }}
+                        >
+                          {service.category}
+                        </Box>
+                      </TableCell>
+                      <TableCell align="right">${service.basePrice || 0}</TableCell>
+                      <TableCell>{new Date(service.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                          <Button size="small" variant="outlined" onClick={() => handleView(service)}>
+                            View
+                          </Button>
+                          <Button size="small" variant="outlined" onClick={() => handleEdit(service)}>
+                            Edit
+                          </Button>
+                          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(service._id)}>
+                            Delete
+                          </Button>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, px: 2 }}>
+              <Typography variant="body2" color="textSecondary">
+                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
+              </Typography>
+              <Pagination
+                count={totalPages}
+                page={page}
+                onChange={(e, newPage) => setPage(newPage)}
+                color="primary"
+                size="small"
               />
-            </div>
-            <Button variant="primary" onClick={openAddModal}>
-              + Add Service
-            </Button>
-          </div>
+            </Box>
+          </>
+        )
+      )}
 
-          <DataTable
-            columns={columns}
-            data={services}
-            loading={loading}
-            emptyMessage="No services found"
-            emptyDescription="Add a service to get started."
-            keyExtractor={(row) => row._id}
-          />
-        </Card>
-      </div>
+      {/* View Dialog */}
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>View Service</DialogTitle>
+        <DialogContent>
+          {viewingService && (
+            <Box sx={{ pt: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>Name</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{viewingService.name}</Typography>
 
-      {/* Add / Edit Modal */}
-      <Modal
-        isOpen={modalOpen}
-        onClose={closeModal}
-        title={editTarget ? 'Edit Service' : 'Add Service'}
-        size="md"
-      >
-        <div className="space-y-4">
-          {formError && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-              {formError}
-            </div>
+              <Typography variant="subtitle2" gutterBottom>Category</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{viewingService.category}</Typography>
+
+              <Typography variant="subtitle2" gutterBottom>Base Price</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>${viewingService.basePrice || 0}</Typography>
+
+              {viewingService.description && (
+                <>
+                  <Typography variant="subtitle2" gutterBottom>Description</Typography>
+                  <Typography variant="body2">{viewingService.description}</Typography>
+                </>
+              )}
+            </Box>
           )}
-          <Input
-            label="Name"
-            value={form.name}
-            onChange={(e) => handleFormChange('name', e.target.value)}
-            placeholder="e.g. Trademark Registration"
-          />
-          <Select
-            label="Category"
-            options={CATEGORY_FORM_OPTIONS}
-            value={form.category}
-            onChange={(e) => handleFormChange('category', e.target.value)}
-          />
-          <Input
-            label="Description"
-            value={form.description}
-            onChange={(e) => handleFormChange('description', e.target.value)}
-            placeholder="Optional description"
-          />
-          <Input
-            label="Base Price"
-            type="number"
-            min="0"
-            step="0.01"
-            value={form.basePrice}
-            onChange={(e) => handleFormChange('basePrice', e.target.value)}
-            placeholder="0.00"
-          />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={closeModal} disabled={saving}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleSave} loading={saving}>
-              {editTarget ? 'Save Changes' : 'Add Service'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        title="Delete Service"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Are you sure you want to delete{' '}
-            <span className="font-semibold text-gray-900">{deleteTarget?.name}</span>?
-            This action cannot be undone.
-          </p>
-          <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={() => setDeleteTarget(null)} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={handleDeleteConfirm} loading={deleting}>
-              Delete
-            </Button>
-          </div>
-        </div>
-      </Modal>
-    </div>
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Service</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this service? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={loading}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Success Message */}
+      <Snackbar
+        open={!!successMessage}
+        autoHideDuration={6000}
+        onClose={() => setSuccessMessage('')}
+        message={successMessage}
+      />
+    </Box>
   );
 }

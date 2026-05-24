@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import Topbar from '@/components/layout/Topbar';
 import { DataTable } from '@/components/tables';
 import { StatusBadge } from '@/components/tables';
@@ -25,12 +26,15 @@ const STATUS_OPTIONS = [
 const PAGE_SIZE = 10;
 
 export default function QuotationsPage() {
+  const searchParams = useSearchParams();
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState('');
+  const [serviceFilter, setServiceFilter] = useState('');
+  const [countryFilter, setCountryFilter] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebounce(searchInput, 400);
 
@@ -40,12 +44,24 @@ export default function QuotationsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Quotation | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Initialize filters from URL parameters on mount
+  useEffect(() => {
+    const status = searchParams.get('status') || '';
+    const service = searchParams.get('service') || '';
+    const country = searchParams.get('country') || '';
+    setStatusFilter(status);
+    setServiceFilter(service);
+    setCountryFilter(country);
+  }, [searchParams]);
+
   const fetchQuotations = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const params: Record<string, string> = {};
       if (statusFilter) params.status = statusFilter;
+      if (serviceFilter) params.service = serviceFilter;
+      if (countryFilter) params.country = countryFilter;
       if (debouncedSearch) params.search = debouncedSearch;
       const data = await quotationsService.list(params);
       setQuotations(data.quotations);
@@ -55,11 +71,11 @@ export default function QuotationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, debouncedSearch]);
+  }, [statusFilter, serviceFilter, countryFilter, debouncedSearch]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, debouncedSearch]);
+  }, [statusFilter, serviceFilter, countryFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchQuotations();
@@ -172,6 +188,30 @@ export default function QuotationsPage() {
                 aria-label="Filter by status"
               />
             </div>
+            {/* Service filter */}
+            {serviceFilter && (
+              <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm flex items-center gap-2">
+                <span>Service: <strong>{serviceFilter}</strong></span>
+                <button
+                  onClick={() => setServiceFilter('')}
+                  className="ml-1 text-blue-600 hover:text-blue-900 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            {/* Country filter */}
+            {countryFilter && (
+              <div className="px-3 py-1 bg-green-100 text-green-800 rounded text-sm flex items-center gap-2">
+                <span>Country: <strong>{countryFilter}</strong></span>
+                <button
+                  onClick={() => setCountryFilter('')}
+                  className="ml-1 text-green-600 hover:text-green-900 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             {/* Search */}
             <div className="w-64">
               <Input

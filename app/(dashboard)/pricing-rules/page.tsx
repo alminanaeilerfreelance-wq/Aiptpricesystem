@@ -1,413 +1,480 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
-import Topbar from '@/components/layout/Topbar';
-import { DataTable } from '@/components/tables';
-import { StatusBadge } from '@/components/tables';
-import { Button } from '@/components/ui';
-import { Input } from '@/components/ui';
-import { Select } from '@/components/ui';
-import { Modal } from '@/components/ui';
-import { Card } from '@/components/ui';
-import { pricingRulesService, PricingRule, CreatePricingRuleDto } from '@/services/pricing-rules.service';
-import { countriesService, Country } from '@/services/countries.service';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Pagination,
+  Select,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  TextField,
+  Typography,
+  Snackbar,
+} from '@mui/material';
+import { EmptyState } from '@/components/ui';
+import { pricingRulesService } from '@/services/pricing-rules.service';
+import { useDebounce } from '@/hooks/useDebounce';
 
-const CATEGORY_OPTIONS = [
-  { value: '', label: 'All Categories' },
-  { value: 'Trademark', label: 'Trademark' },
-  { value: 'Patent', label: 'Patent' },
-  { value: 'Copyright', label: 'Copyright' },
-  { value: 'Design', label: 'Design' },
-  { value: 'Litigation', label: 'Litigation' },
-];
+export const dynamic = 'force-dynamic';
 
-const CATEGORY_FORM_OPTIONS = CATEGORY_OPTIONS.slice(1);
-
-interface FormState {
-  category: string;
-  procedure: string;
-  countryName: string;
-  countryCode: string;
-  officialFee: string;
-  attorneyFee: string;
-  classFee: string;
-}
-
-const EMPTY_FORM: FormState = {
-  category: 'Trademark',
-  procedure: '',
-  countryName: '',
-  countryCode: '',
-  officialFee: '0',
-  attorneyFee: '0',
-  classFee: '0',
-};
-
-function formatFee(val: number | undefined): string {
-  if (val === undefined || val === null) return '—';
-  return val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+interface PricingRule {
+  _id: string;
+  name: string;
+  description?: string;
+  percentage?: number;
+  fixedAmount?: number;
+  minServiceValue?: number;
+  maxServiceValue?: number;
+  createdAt: string;
 }
 
 export default function PricingRulesPage() {
-  const [rules, setRules] = useState<PricingRule[]>([]);
-  const [countries, setCountries] = useState<Country[]>([]);
+  const [mounted, setMounted] = useState(false);
+  const [items, setItems] = useState<PricingRule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 400);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [viewingItem, setViewingItem] = useState<PricingRule | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [countryFilter, setCountryFilter] = useState('');
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<PricingRule | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const [deleteTarget, setDeleteTarget] = useState<PricingRule | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchItems = useCallback(async (params?: { nextPage?: number; nextSearch?: string }) => {
+    const nextPage = params?.nextPage ?? page;
+    const nextSearch = params?.nextSearch ?? debouncedSearch;
     try {
-      const params: { category?: string; country?: string } = {};
-      if (categoryFilter) params.category = categoryFilter;
-      if (countryFilter) params.country = countryFilter;
-
-      const [rulesData, countriesData] = await Promise.all([
-        pricingRulesService.list(params),
-        countriesService.list(),
-      ]);
-      setRules(rulesData.pricingRules);
-      setCountries(countriesData.countries);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load pricing rules');
+      setLoading(true);
+      setError('');
+      const response = await pricingRulesService.list({
+        page: nextPage,
+        limit,
+        search: nextSearch || undefined,
+      });
+      setItems(Array.isArray(response?.pricingRules) ? response.pricingRules : []);
+      setTotal(response?.total || 0);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch data');
+      setItems([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [categoryFilter, countryFilter]);
+  }, [debouncedSearch, limit, page]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchItems({ nextPage: page, nextSearch: debouncedSearch });
+  }, [debouncedSearch, fetchItems, page]);
 
-  const countryOptions = [
-    { value: '', label: 'All Countries' },
-    ...countries.map((c) => ({ value: c.name, label: c.name })),
-  ];
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch]);
 
-  const openAddModal = () => {
-    setEditTarget(null);
-    setForm({ ...EMPTY_FORM, category: categoryFilter || 'Trademark' });
-    setFormError(null);
-    setModalOpen(true);
+  const handleView = (item: PricingRule) => {
+    setViewingItem(item);
+    setViewDialogOpen(true);
   };
 
-  const openEditModal = (rule: PricingRule) => {
-    setEditTarget(rule);
-    setForm({
-      category: rule.serviceCategory,
-      procedure: rule.procedureName ?? '',
-      countryName: rule.countryName ?? '',
-      countryCode: rule.countryAbbreviation ?? '',
-      officialFee: String(rule.officialFee ?? 0),
-      attorneyFee: String(rule.attorneyFee ?? 0),
-      classFee: String(rule.classFee ?? 0),
-    });
-    setFormError(null);
-    setModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setEditTarget(null);
-    setForm(EMPTY_FORM);
-    setFormError(null);
-  };
-
-  const handleFormChange = (field: keyof FormState, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = async () => {
-    if (!form.procedure.trim()) {
-      setFormError('Procedure name is required');
-      return;
-    }
-    if (!form.countryName.trim()) {
-      setFormError('Country name is required');
-      return;
-    }
-    setSaving(true);
-    setFormError(null);
-    try {
-      const payload = {
-        serviceCategory: form.category as CreatePricingRuleDto['serviceCategory'],
-        procedureName: form.procedure.trim(),
-        countryName: form.countryName.trim(),
-        countryAbbreviation: form.countryCode.trim().toUpperCase(),
-        officialFee: parseFloat(form.officialFee) || 0,
-        attorneyFee: parseFloat(form.attorneyFee) || 0,
-        classFee: parseFloat(form.classFee) || 0,
-      };
-      if (editTarget) {
-        await pricingRulesService.update(editTarget._id, payload);
-      } else {
-        await pricingRulesService.create(payload);
-      }
-      closeModal();
-      await fetchData();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to save pricing rule');
-    } finally {
-      setSaving(false);
-    }
+  const handleDeleteClick = (id: string) => {
+    setDeletingId(id);
+    setDeleteDialogOpen(true);
   };
 
   const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+    if (!deletingId) return;
+
     try {
-      await pricingRulesService.delete(deleteTarget._id);
-      setDeleteTarget(null);
-      await fetchData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete pricing rule');
+      setLoading(true);
+      await pricingRulesService.delete(deletingId);
+      const targetPage = items.length === 1 && page > 1 ? page - 1 : page;
+      setDeleteDialogOpen(false);
+      setDeletingId(null);
+      if (targetPage !== page) {
+        setPage(targetPage);
+      } else {
+        await fetchItems({ nextPage: targetPage });
+      }
+      setSuccessMessage('Pricing rule deleted successfully');
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete');
     } finally {
-      setDeleting(false);
+      setLoading(false);
     }
   };
 
-  const columns = [
-    {
-      key: 'serviceCategory',
-      label: 'Service',
-      render: (row: PricingRule) => (
-        <span className="font-medium text-gray-900">{row.serviceCategory ?? '—'}</span>
-      ),
-    },
-    {
-      key: 'procedureName',
-      label: 'Procedure',
-      render: (row: PricingRule) => (
-        <span className="text-gray-700">{row.procedureName ?? '—'}</span>
-      ),
-    },
-    {
-      key: 'countryName',
-      label: 'Country',
-      render: (row: PricingRule) => (
-        <span className="text-gray-700">{row.countryName ?? '—'}</span>
-      ),
-    },
-    {
-      key: 'officialFee',
-      label: 'Official Fee',
-      align: 'right' as const,
-      render: (row: PricingRule) => (
-        <span className="font-mono text-sm">{formatFee(row.officialFee)}</span>
-      ),
-    },
-    {
-      key: 'attorneyFee',
-      label: 'Attorney Fee',
-      align: 'right' as const,
-      render: (row: PricingRule) => (
-        <span className="font-mono text-sm">{formatFee(row.attorneyFee)}</span>
-      ),
-    },
-    {
-      key: 'classFee',
-      label: 'Class Fee',
-      align: 'right' as const,
-      render: (row: PricingRule) => (
-        <span className="font-mono text-sm">{formatFee(row.classFee)}</span>
-      ),
-    },
-    {
-      key: 'total',
-      label: 'Total',
-      align: 'right' as const,
-      render: (row: PricingRule) => {
-        const total = (row.officialFee ?? 0) + (row.attorneyFee ?? 0);
-        return (
-          <span className="font-mono text-sm font-bold text-gray-900">{formatFee(total)}</span>
-        );
-      },
-    },
-    {
-      key: 'isActive',
-      label: 'Active',
-      render: (row: PricingRule) => <StatusBadge isActive={row.isActive} />,
-    },
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (row: PricingRule) => (
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={() => openEditModal(row)}>
-            Edit
-          </Button>
-          <Button variant="danger" size="sm" onClick={() => setDeleteTarget(row)}>
-            Delete
-          </Button>
-        </div>
-      ),
-    },
-  ];
+  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setLoading(true);
+      setError('');
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, raw: false });
+      const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell ?? '').trim()));
+
+      let importedCount = 0;
+      const importErrors: string[] = [];
+
+      for (const row of dataRows) {
+        const name = String(row[0] ?? '').trim();
+        const description = String(row[1] ?? '').trim();
+        const percentage = row[2] ? Number(row[2]) : undefined;
+        const fixedAmount = row[3] ? Number(row[3]) : undefined;
+
+        if (!name) continue;
+
+        try {
+          await pricingRulesService.create({
+            name,
+            description: description || undefined,
+            percentage,
+            fixedAmount,
+          });
+          importedCount += 1;
+        } catch {
+          importErrors.push(`Failed to import "${name}"`);
+        }
+      }
+
+      if (importedCount > 0) {
+        if (page !== 1) setPage(1);
+        else await fetchItems({ nextPage: 1 });
+        setSuccessMessage(`Imported ${importedCount} items`);
+      }
+      if (importErrors.length > 0) {
+        setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
+      }
+    } catch {
+      setError('Failed to import file');
+    } finally {
+      setLoading(false);
+      event.target.value = '';
+    }
+  };
+
+  const getAllFiltered = useCallback(async () => {
+    const pageSize = 100;
+    const firstResponse = await pricingRulesService.list({
+      page: 1,
+      limit: pageSize,
+      search: debouncedSearch || undefined,
+    });
+
+    const firstData = Array.isArray(firstResponse?.pricingRules) ? firstResponse.pricingRules : [];
+    const totalPages = Math.ceil((firstResponse?.total || 0) / pageSize);
+
+    if (totalPages <= 1) return firstData;
+
+    const remainingRequests: Array<Promise<any>> = [];
+    for (let p = 2; p <= totalPages; p += 1) {
+      remainingRequests.push(
+        pricingRulesService.list({
+          page: p,
+          limit: pageSize,
+          search: debouncedSearch || undefined,
+        })
+      );
+    }
+
+    const remainingResponses = await Promise.all(remainingRequests);
+    const remainingData = remainingResponses.flatMap((r) => (Array.isArray(r?.pricingRules) ? r.pricingRules : []));
+
+    return [...firstData, ...remainingData];
+  }, [debouncedSearch]);
+
+  const handleExportCSV = async () => {
+    const records = await getAllFiltered();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(records.map((i) => ({
+      Name: i.name,
+      Description: i.description || '',
+      'Percentage (%)': i.percentage || '',
+      'Fixed Amount': i.fixedAmount || '',
+      Created: new Date(i.createdAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pricing Rules');
+    XLSX.writeFile(wb, 'pricing-rules.csv');
+    setSuccessMessage(`CSV exported (${records.length} rows)`);
+  };
+
+  const handleExportExcel = async () => {
+    const records = await getAllFiltered();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(records.map((i) => ({
+      Name: i.name,
+      Description: i.description || '',
+      'Percentage (%)': i.percentage || '',
+      'Fixed Amount': i.fixedAmount || '',
+      Created: new Date(i.createdAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Pricing Rules');
+    XLSX.writeFile(wb, 'pricing-rules.xlsx');
+    setSuccessMessage(`Excel exported (${records.length} rows)`);
+  };
+
+  const handleExportPDF = async () => {
+    const records = await getAllFiltered();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+    const jsPDF = await import('jspdf');
+    const autoTable = await import('jspdf-autotable');
+    const doc = new jsPDF.jsPDF();
+
+    autoTable.default(doc, {
+      head: [['Name', 'Type', 'Amount', 'Created']],
+      body: records.map((i) => [
+        i.name,
+        i.percentage ? `${i.percentage}%` : `$${i.fixedAmount || 0}`,
+        '',
+        new Date(i.createdAt).toLocaleDateString(),
+      ]),
+      startY: 10,
+    });
+
+    doc.save('pricing-rules.pdf');
+    setSuccessMessage(`PDF exported (${records.length} rows)`);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  if (!mounted) return null;
 
   return (
-    <div className="flex flex-col h-full">
-      <Topbar
-        title="Pricing Rules"
-        breadcrumbs={[{ label: 'Master Data' }, { label: 'Pricing Rules' }]}
-      />
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4">Pricing Rules</Typography>
+        <Button variant="contained" disabled>
+          + Add Rule (Form Coming Soon)
+        </Button>
+      </Box>
 
-      <div className="flex-1 p-6 space-y-4 overflow-auto">
-        {error && (
-          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-        <Card padding="p-0">
-          {/* Toolbar */}
-          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border flex-wrap">
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="w-44">
-                <Select
-                  options={CATEGORY_OPTIONS}
-                  value={categoryFilter}
-                  onChange={(e) => setCategoryFilter(e.target.value)}
-                  aria-label="Filter by category"
-                />
-              </div>
-              <div className="w-44">
-                <Select
-                  options={countryOptions}
-                  value={countryFilter}
-                  onChange={(e) => setCountryFilter(e.target.value)}
-                  aria-label="Filter by country"
-                />
-              </div>
-            </div>
-            <Button variant="primary" onClick={openAddModal}>
-              + Add Pricing Rule
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <TextField
+              placeholder="Search pricing rules..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              size="small"
+              sx={{ flex: 1 }}
+            />
+            <FormControl sx={{ minWidth: 160 }}>
+              <InputLabel>Rows</InputLabel>
+              <Select
+                value={String(limit)}
+                onChange={(e) => {
+                  setLimit(Number(e.target.value));
+                  setPage(1);
+                }}
+                label="Rows"
+                size="small"
+              >
+                <MenuItem value="10">10</MenuItem>
+                <MenuItem value="25">25</MenuItem>
+                <MenuItem value="50">50</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+
+          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+            <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
+              Export CSV
             </Button>
-          </div>
+            <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
+              Export Excel
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
+              Export PDF
+            </Button>
+            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportCSV} style={{ display: 'none' }} id="import-csv-input" />
+            <label htmlFor="import-csv-input" style={{ margin: 0 }}>
+              <Button size="small" variant="outlined" component="span">
+                Import CSV
+              </Button>
+            </label>
+          </Stack>
+        </CardContent>
+      </Card>
 
-          <DataTable
-            columns={columns}
-            data={rules}
-            loading={loading}
-            emptyMessage="No pricing rules found"
-            emptyDescription="Add a pricing rule to get started."
-            keyExtractor={(row) => row._id}
-          />
-        </Card>
-      </div>
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
 
-      {/* Add / Edit Modal */}
-      <Modal
-        isOpen={modalOpen}
-        onClose={closeModal}
-        title={editTarget ? 'Edit Pricing Rule' : 'Add Pricing Rule'}
-        size="md"
-      >
-        <div className="space-y-4">
-          {formError && (
-            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-              {formError}
-            </div>
+      {!loading && items.length === 0 ? (
+        <EmptyState
+          title="No pricing rules found"
+          description="Start by adding your first pricing rule"
+          onAction={() => {}}
+          actionLabel="Add Pricing Rule"
+        />
+      ) : (
+        !loading && (
+          <>
+            <TableContainer component={Paper}>
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
+                    <TableCell><strong>Name</strong></TableCell>
+                    <TableCell><strong>Percentage</strong></TableCell>
+                    <TableCell><strong>Fixed Amount</strong></TableCell>
+                    <TableCell><strong>Created</strong></TableCell>
+                    <TableCell align="right"><strong>Actions</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {items.map((item) => (
+                    <TableRow
+                      key={item._id}
+                      sx={{ '&:hover': { backgroundColor: '#f9f9f9' }, '&:last-child td, &:last-child th': { border: 0 } }}
+                    >
+                      <TableCell>{item.name}</TableCell>
+                      <TableCell>{item.percentage ? `${item.percentage}%` : '-'}</TableCell>
+                      <TableCell>${item.fixedAmount || '-'}</TableCell>
+                      <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                          <Button size="small" variant="outlined" onClick={() => handleView(item)}>
+                            View
+                          </Button>
+                          <Button size="small" variant="outlined" disabled>
+                            Edit
+                          </Button>
+                          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(item._id)}>
+                            Delete
+                          </Button>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, px: 2 }}>
+              <Typography variant="body2" color="textSecondary">
+                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
+              </Typography>
+              <Pagination
+                count={totalPages}
+                page={page}
+                onChange={(e, newPage) => setPage(newPage)}
+                color="primary"
+                size="small"
+              />
+            </Box>
+          </>
+        )
+      )}
+
+      {/* View Dialog */}
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>View Pricing Rule</DialogTitle>
+        <DialogContent>
+          {viewingItem && (
+            <Box sx={{ pt: 2 }}>
+              <Typography variant="subtitle2" gutterBottom>Name</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{viewingItem.name}</Typography>
+
+              {viewingItem.percentage && (
+                <>
+                  <Typography variant="subtitle2" gutterBottom>Percentage</Typography>
+                  <Typography variant="body2" sx={{ mb: 2 }}>{viewingItem.percentage}%</Typography>
+                </>
+              )}
+
+              {viewingItem.fixedAmount && (
+                <>
+                  <Typography variant="subtitle2" gutterBottom>Fixed Amount</Typography>
+                  <Typography variant="body2" sx={{ mb: 2 }}>${viewingItem.fixedAmount}</Typography>
+                </>
+              )}
+
+              {viewingItem.description && (
+                <>
+                  <Typography variant="subtitle2" gutterBottom>Description</Typography>
+                  <Typography variant="body2">{viewingItem.description}</Typography>
+                </>
+              )}
+            </Box>
           )}
-          <Select
-            label="Service Category"
-            options={CATEGORY_FORM_OPTIONS}
-            value={form.category}
-            onChange={(e) => handleFormChange('category', e.target.value)}
-          />
-          <Input
-            label="Procedure Name"
-            value={form.procedure}
-            onChange={(e) => handleFormChange('procedure', e.target.value)}
-            placeholder="e.g. Initial Filing"
-          />
-          <Input
-            label="Country Name"
-            value={form.countryName}
-            onChange={(e) => handleFormChange('countryName', e.target.value)}
-            placeholder="e.g. Saudi Arabia"
-          />
-          <Input
-            label="Country Abbreviation"
-            value={form.countryCode}
-            onChange={(e) => handleFormChange('countryCode', e.target.value)}
-            placeholder="e.g. SA"
-            maxLength={3}
-          />
-          <div className="grid grid-cols-3 gap-3">
-            <Input
-              label="Official Fee"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.officialFee}
-              onChange={(e) => handleFormChange('officialFee', e.target.value)}
-              placeholder="0.00"
-            />
-            <Input
-              label="Attorney Fee"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.attorneyFee}
-              onChange={(e) => handleFormChange('attorneyFee', e.target.value)}
-              placeholder="0.00"
-            />
-            <Input
-              label="Class Fee"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.classFee}
-              onChange={(e) => handleFormChange('classFee', e.target.value)}
-              placeholder="0.00"
-            />
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="secondary" onClick={closeModal} disabled={saving}>
-              Cancel
-            </Button>
-            <Button variant="primary" onClick={handleSave} loading={saving}>
-              {editTarget ? 'Save Changes' : 'Add Rule'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        title="Delete Pricing Rule"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Are you sure you want to delete this pricing rule for{' '}
-            <span className="font-semibold text-gray-900">{deleteTarget?.countryName ?? deleteTarget?.procedureName}</span>?
-            This action cannot be undone.
-          </p>
-          <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={() => setDeleteTarget(null)} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={handleDeleteConfirm} loading={deleting}>
-              Delete
-            </Button>
-          </div>
-        </div>
-      </Modal>
-    </div>
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Pricing Rule</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this pricing rule? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button
+            onClick={handleDeleteConfirm}
+            color="error"
+            variant="contained"
+            disabled={loading}
+          >
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Success Message */}
+      <Snackbar
+        open={!!successMessage}
+        autoHideDuration={6000}
+        onClose={() => setSuccessMessage('')}
+        message={successMessage}
+      />
+    </Box>
   );
 }

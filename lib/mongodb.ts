@@ -22,7 +22,27 @@ export async function connectDB(): Promise<typeof mongoose> {
   if (cached.conn) return cached.conn;
 
   if (!cached.promise) {
-    cached.promise = mongoose.connect(MONGODB_URI, { dbName: MONGODB_DB }).then((m) => m);
+    cached.promise = mongoose
+      .connect(MONGODB_URI, {
+        dbName: MONGODB_DB,
+        serverSelectionTimeoutMS: 10000,
+      })
+      .then((m) => m)
+      .catch((error: unknown) => {
+        cached.promise = null;
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (
+          message.includes('Could not connect to any servers') ||
+          message.includes('Server selection timed out')
+        ) {
+          throw new Error(
+            'MongoDB Atlas connection failed. Check Atlas Network Access (IP whitelist), cluster status, and MONGODB_URI credentials.'
+          );
+        }
+
+        throw error;
+      });
   }
 
   cached.conn = await cached.promise;

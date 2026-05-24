@@ -19,6 +19,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const search = searchParams.get('search');
+    const service = searchParams.get('service');
+    const country = searchParams.get('country');
     const pageParam = Number(searchParams.get('page') ?? '1');
     const limitParam = Number(searchParams.get('limit') ?? '10');
 
@@ -32,6 +34,14 @@ export async function GET(req: NextRequest) {
 
     if (status) {
       filter.status = status;
+    }
+
+    if (service) {
+      filter.service = service;
+    }
+
+    if (country) {
+      filter.country = country;
     }
 
     const normalizedSearch = search?.trim();

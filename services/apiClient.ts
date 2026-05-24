@@ -1,17 +1,29 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 
 const apiClient: AxiosInstance = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || '',
+  // Use relative URLs for same-origin requests (will use current origin)
+  baseURL: typeof window !== 'undefined' ? '' : (process.env.NEXT_PUBLIC_API_URL || ''),
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Request interceptor: attach JWT token from localStorage
+// Request interceptor: attach JWT token from localStorage or cookies
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('token');
+      // Try localStorage first, then cookies
+      let token = localStorage.getItem('token');
+      
+      if (!token) {
+        // Extract token from cookies as fallback
+        const cookies = document.cookie.split('; ');
+        const tokenCookie = cookies.find(c => c.startsWith('token='));
+        if (tokenCookie) {
+          token = tokenCookie.substring(6); // Remove 'token=' prefix
+        }
+      }
+      
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }

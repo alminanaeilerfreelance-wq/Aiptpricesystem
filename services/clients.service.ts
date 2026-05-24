@@ -8,7 +8,13 @@ export interface Client {
   address?: string;
   clientType?: string;
   country?: string;
+  continent?: string;
+  companyName?: string;
+  type?: 'Individual' | 'Company' | 'Organization';
+  registrationNumber?: string;
+  taxId?: string;
   notes?: string;
+  status?: 'Big' | 'Small' | 'New' | 'Banned';
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -21,6 +27,11 @@ export interface CreateClientDto {
   address?: string;
   clientType?: string;
   country?: string;
+  continent?: string;
+  companyName?: string;
+  type?: 'Individual' | 'Company' | 'Organization';
+  registrationNumber?: string;
+  taxId?: string;
   notes?: string;
   isActive?: boolean;
 }

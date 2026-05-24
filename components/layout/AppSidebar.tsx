@@ -105,6 +105,7 @@ const navItems: NavItem[] = [
   { label: 'Continents', href: '/continents', icon: <GlobeIcon /> },
   { label: 'Procedures', href: '/procedures', icon: <ClipboardIcon /> },
   { label: 'Classification of Fees', href: '/classification-of-fees', icon: <TagIcon /> },
+  { label: 'Requirements', href: '/requirements', icon: <TagIcon /> },
   { label: 'Client Types', href: '/client-types', icon: <UsersIcon /> },
   { label: 'Pricing Rules', href: '/pricing-rules', icon: <TagIcon /> },
   { label: 'Quotations Report', href: '/reports/quotations', icon: <ChartBarIcon /> },
@@ -168,7 +169,7 @@ const AppSidebar: React.FC<AppSidebarProps> = ({
           </svg>
         </div>
         <span className="text-sm font-bold text-white tracking-wide leading-tight">
-          IP LAW FIRM
+         AIP&T LAW FIRM
         </span>
       </div>
 

@@ -5,7 +5,7 @@ import { getUserFromRequest } from '@/lib/auth';
 import { sendMail } from '@/lib/mailer';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 function buildQuotationEmailHtml(quotation: {
@@ -222,6 +222,7 @@ function buildQuotationEmailHtml(quotation: {
 }
 
 export async function POST(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -230,7 +231,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    const quotation = await Quotation.findById(params.id)
+    const quotation = await Quotation.findById(id)
       .populate('clientId', 'name email phone country type')
       .populate('createdBy', 'name email')
       .populate('approvedBy', 'name email');

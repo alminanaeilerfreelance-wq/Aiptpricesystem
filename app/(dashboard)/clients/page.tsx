@@ -118,7 +118,7 @@ export default function ClientsPage() {
       phone: client.phone || '',
       country: client.country || '',
       address: client.address || '',
-      type: (client.type as any) || 'Company',
+      type: client.type || 'Company',
       registrationNumber: client.registrationNumber || '',
       taxId: client.taxId || '',
       notes: client.notes || '',
@@ -337,6 +337,8 @@ export default function ClientsPage() {
               <TablePagination
                 currentPage={currentPage}
                 totalPages={totalPages}
+                totalItems={total}
+                itemsPerPage={PAGE_SIZE}
                 onPageChange={setCurrentPage}
               />
             </div>

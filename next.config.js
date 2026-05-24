@@ -1,9 +1,4 @@
 /** @type {import('next').NextConfig} */
-const corsHeaders = [
-  { key: 'Access-Control-Allow-Origin', value: '*' },
-  { key: 'Access-Control-Allow-Methods', value: 'GET,POST,PUT,PATCH,DELETE,OPTIONS' },
-  { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization, X-Requested-With, Accept, Origin' },
-];
 
 const nextConfig = {
   images: {
@@ -18,7 +13,15 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        headers: corsHeaders,
+        headers: [
+          { key: 'Access-Control-Allow-Credentials', value: 'true' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,DELETE,PATCH,POST,PUT,OPTIONS' },
+          { 
+            key: 'Access-Control-Allow-Headers', 
+            value: 'X-CSRF-Token, X-Forwarded-Host, Accept-Version, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, X-Requested-With, Origin, Accept'
+          },
+        ],
       },
     ];
   },

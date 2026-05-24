@@ -4,10 +4,11 @@ import ClientType from '@/models/ClientType';
 import { getUserFromRequest } from '@/lib/auth';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    const clientType = await ClientType.findById(params.id);
+    const clientType = await ClientType.findById(id);
     if (!clientType) {
       return NextResponse.json({ error: 'Client type not found' }, { status: 404 });
     }
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -39,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     const body = await req.json();
     const clientType = await ClientType.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: body },
       { new: true, runValidators: true }
     );
@@ -56,6 +58,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -65,7 +68,7 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
     await connectDB();
 
     const clientType = await ClientType.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: { isActive: false } },
       { new: true }
     );

@@ -4,10 +4,11 @@ import Continent from '@/models/Continent';
 import { getUserFromRequest } from '@/lib/auth';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    const continent = await Continent.findById(params.id);
+    const continent = await Continent.findById(id);
     if (!continent) {
       return NextResponse.json({ error: 'Continent not found' }, { status: 404 });
     }
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -39,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     const body = await req.json();
     const continent = await Continent.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: body },
       { new: true, runValidators: true }
     );
@@ -56,6 +58,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -65,7 +68,7 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
     await connectDB();
 
     const continent = await Continent.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: { isActive: false } },
       { new: true }
     );

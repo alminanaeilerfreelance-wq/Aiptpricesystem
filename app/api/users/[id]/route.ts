@@ -4,10 +4,11 @@ import User from '@/models/User';
 import { getUserFromRequest } from '@/lib/auth';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    const foundUser = await User.findById(params.id).select('-password');
+    const foundUser = await User.findById(id).select('-password');
     if (!foundUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -50,18 +52,18 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     // Prevent direct password update via PATCH without proper handling
     // If password is being changed, it must go through the User model pre-save hook
     if (body.password) {
-      const userDoc = await User.findById(params.id);
+      const userDoc = await User.findById(id);
       if (!userDoc) {
         return NextResponse.json({ error: 'User not found' }, { status: 404 });
       }
       Object.assign(userDoc, body);
       await userDoc.save();
-      const updated = await User.findById(params.id).select('-password');
+      const updated = await User.findById(id).select('-password');
       return NextResponse.json(updated);
     }
 
     const updatedUser = await User.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: body },
       { new: true, runValidators: true }
     ).select('-password');
@@ -78,6 +80,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -89,7 +92,7 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
     }
 
     // Prevent admin from deleting their own account
-    if (user.userId === params.id) {
+    if (user.userId === id) {
       return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
     }
 
@@ -97,7 +100,7 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
 
     // Soft delete: deactivate instead of removing
     const deletedUser = await User.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: { isActive: false } },
       { new: true }
     ).select('-password');

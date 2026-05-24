@@ -4,10 +4,11 @@ import Quotation from '@/models/Quotation';
 import { getUserFromRequest } from '@/lib/auth';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -22,7 +23,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     await connectDB();
 
     const quotation = await Quotation.findByIdAndUpdate(
-      params.id,
+      id,
       {
         $set: {
           status: 'Approved',

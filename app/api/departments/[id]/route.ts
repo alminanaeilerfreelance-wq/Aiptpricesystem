@@ -4,10 +4,11 @@ import Department from '@/models/Department';
 import { getUserFromRequest } from '@/lib/auth';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    const department = await Department.findById(params.id);
+    const department = await Department.findById(id);
     if (!department) {
       return NextResponse.json({ error: 'Department not found' }, { status: 404 });
     }
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -39,7 +41,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     const body = await req.json();
     const department = await Department.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: body },
       { new: true, runValidators: true }
     );
@@ -56,6 +58,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -66,7 +69,7 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
 
     // Soft delete: mark as inactive
     const department = await Department.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: { isActive: false } },
       { new: true }
     );

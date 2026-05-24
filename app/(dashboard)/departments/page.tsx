@@ -294,6 +294,8 @@ export default function DepartmentsPage() {
               <TablePagination
                 currentPage={currentPage}
                 totalPages={totalPages}
+                totalItems={total}
+                itemsPerPage={PAGE_SIZE}
                 onPageChange={setCurrentPage}
               />
             </div>

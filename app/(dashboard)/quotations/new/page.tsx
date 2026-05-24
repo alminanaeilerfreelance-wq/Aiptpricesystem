@@ -1,88 +1,97 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { v4 as uuidv4 } from 'uuid';
 import Topbar from '@/components/layout/Topbar';
-import { Button, Input, Select, Card } from '@/components/ui';
-import QuotationFeeSummary from '@/components/quotations/QuotationFeeSummary';
+import { Button, Input, Card } from '@/components/ui';
+import {
+  ClientInformationCard,
+  ServiceDetailsCard,
+  QuotationCartTable,
+  EditCartItemModal,
+  CartItem,
+} from '@/components/quotations';
 import { useToast } from '@/components/feedback/ToastProvider';
-import { quotationsService, CreateQuotationDto } from '@/services/quotations.service';
+import { quotationsService } from '@/services/quotations.service';
 import { clientsService, Client } from '@/services/clients.service';
-import { clientTypesService, ClientType } from '@/services/client-types.service';
 import { countriesService, Country } from '@/services/countries.service';
 import { proceduresService, Procedure } from '@/services/procedures.service';
-import { pricingRulesService } from '@/services/pricing-rules.service';
+import { pricingRulesService, PricingRule } from '@/services/pricing-rules.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
-const SERVICES = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'] as const;
+const SERVICES = [
+  'Trademark',
+  'Patent',
+  'Copyright',
+  'Design',
+  'Litigation',
+] as const;
 type ServiceType = typeof SERVICES[number];
-
-interface FeeState {
-  governmentFee: number;
-  serviceFee: number;
-  classFee: number;
-  procedureFee: number;
-}
 
 export default function NewQuotationPage() {
   const router = useRouter();
   const toast = useToast();
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  // Client info
+  // CLIENT INFO STATE
   const [clientSearch, setClientSearch] = useState('');
   const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [clientEmail, setClientEmail] = useState('');
-  const [clientTypeId, setClientTypeId] = useState('');
-  const [notes, setNotes] = useState('');
+  const [selectedClient, setSelectedClient] = useState({
+    name: '',
+    email: '',
+    type: '',
+    phone: '',
+    address: '',
+    notes: '',
+  });
+  const [globalNotes, setGlobalNotes] = useState('');
 
-  // Service / Country
+  // SERVICE DETAILS STATE
   const [service, setService] = useState<ServiceType | ''>('');
   const [procedureId, setProcedureId] = useState('');
   const [countryId, setCountryId] = useState('');
   const [numberOfClasses, setNumberOfClasses] = useState(1);
+  const [requirementIds, setRequirementIds] = useState<string[]>([]);
 
-  // Lookup data
-  const [clientTypes, setClientTypes] = useState<ClientType[]>([]);
+  // LOOKUP DATA
   const [countries, setCountries] = useState<Country[]>([]);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
+  const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
 
-  // Fees
-  const [fees, setFees] = useState<FeeState>({
-    governmentFee: 0,
-    serviceFee: 0,
-    classFee: 0,
-    procedureFee: 0,
-  });
-  const [multiplier, setMultiplier] = useState(1);
+  // CART STATE
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [currency, setCurrency] = useState('SAR');
 
-  // UI state
+  // EDIT MODAL STATE
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+
+  // UI STATE
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const debouncedClientSearch = useDebounce(clientSearch, 350);
-  const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  // Load static data
+  // LOAD STATIC DATA
   useEffect(() => {
     async function loadData() {
       try {
-        const [ctRes, cRes] = await Promise.all([
-          clientTypesService.list(),
+        const [cRes, prRes] = await Promise.all([
           countriesService.list(),
+          pricingRulesService.list(),
         ]);
-        setClientTypes(ctRes.clientTypes);
         setCountries(cRes.countries);
-      } catch {
+        setPricingRules(prRes.pricingRules);
+      } catch (err) {
         toast.error('Failed to load form data');
       }
     }
     loadData();
   }, []);
 
-  // Search clients
+  // SEARCH CLIENTS
   useEffect(() => {
     if (!debouncedClientSearch || debouncedClientSearch.length < 2) {
       setClientSuggestions([]);
@@ -94,7 +103,7 @@ export default function NewQuotationPage() {
       .catch(() => setClientSuggestions([]));
   }, [debouncedClientSearch]);
 
-  // Load procedures when service changes
+  // LOAD PROCEDURES WHEN SERVICE CHANGES
   useEffect(() => {
     if (!service) {
       setProcedures([]);
@@ -108,34 +117,56 @@ export default function NewQuotationPage() {
     setProcedureId('');
   }, [service]);
 
-  // Auto-fetch pricing rule when service + country are selected
-  useEffect(() => {
-    if (!service || !countryId) return;
-    const country = countries.find((c) => c._id === countryId);
-    if (!country) return;
-    pricingRulesService
-      .list({ category: service, country: country.name })
-      .then((res) => {
-        const rule = res.pricingRules[0];
-        if (rule) {
-          setFees({
-            governmentFee: rule.officialFee ?? 0,
-            serviceFee: rule.attorneyFee ?? 0,
-            classFee: rule.classFee ?? 0,
-            procedureFee: 0,
-          });
-        }
-      })
-      .catch(() => {});
-  }, [service, countryId, countries]);
+  const selectedCountry = useMemo(
+    () => countries.find((c) => c._id === countryId) || null,
+    [countries, countryId]
+  );
 
-  // Update multiplier when client type changes
-  useEffect(() => {
-    const ct = clientTypes.find((c) => c._id === clientTypeId);
-    setMultiplier(ct?.multiplier ?? 1);
-  }, [clientTypeId, clientTypes]);
+  // Procedure options must match Procedure page + Pricing Rules for selected service/country
+  const filteredProcedures = useMemo(() => {
+    if (!service || !selectedCountry) return [];
 
-  // Dismiss suggestions on outside click
+    const procedureNameSet = new Set(
+      pricingRules
+        .filter((rule) =>
+          rule.serviceCategory === service &&
+          (rule.countryName === selectedCountry.name ||
+            rule.countryAbbreviation === selectedCountry.abbreviation)
+        )
+        .map((rule) => rule.procedureName.trim().toLowerCase())
+    );
+
+    return procedures.filter((procedure) =>
+      procedureNameSet.has(procedure.name.trim().toLowerCase())
+    );
+  }, [pricingRules, procedures, selectedCountry, service]);
+
+  const selectedProcedure = useMemo(
+    () => filteredProcedures.find((p) => p._id === procedureId) || null,
+    [filteredProcedures, procedureId]
+  );
+
+  const selectedPricingRule = useMemo(() => {
+    if (!service || !selectedCountry || !selectedProcedure) return null;
+
+    return (
+      pricingRules.find(
+        (rule) =>
+          rule.serviceCategory === service &&
+          rule.procedureName.trim().toLowerCase() === selectedProcedure.name.trim().toLowerCase() &&
+          (rule.countryName === selectedCountry.name ||
+            rule.countryAbbreviation === selectedCountry.abbreviation)
+      ) || null
+    );
+  }, [pricingRules, selectedCountry, selectedProcedure, service]);
+
+  useEffect(() => {
+    if (procedureId && !filteredProcedures.some((p) => p._id === procedureId)) {
+      setProcedureId('');
+    }
+  }, [filteredProcedures, procedureId]);
+
+  // DISMISS SUGGESTIONS ON OUTSIDE CLICK
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (
@@ -149,102 +180,176 @@ export default function NewQuotationPage() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // HANDLERS
   const handleSelectClient = (client: Client) => {
     setSelectedClientId(client._id);
-    setClientName(client.name);
     setClientSearch(client.name);
-    setClientEmail(client.email ?? '');
-    if (client.clientType) setClientTypeId(client.clientType);
+    setSelectedClient({
+      name: client.name,
+      email: client.email || '',
+      type: client.type || client.clientType || '',
+      phone: client.phone || '',
+      address: client.address || '',
+      notes: client.notes || '',
+    });
     setShowSuggestions(false);
   };
 
-  const handleFeeChange = (field: keyof FeeState, value: string) => {
-    setFees((prev) => ({ ...prev, [field]: parseFloat(value) || 0 }));
+  const handleClientSearchChange = (value: string) => {
+    setClientSearch(value);
+    setShowSuggestions(true);
+    setSelectedClientId('');
+    setSelectedClient({
+      name: value,
+      email: '',
+      type: '',
+      phone: '',
+      address: '',
+      notes: '',
+    });
   };
 
-  // Live calculation
-  const subtotal =
-    fees.governmentFee +
-    fees.serviceFee +
-    fees.classFee * numberOfClasses +
-    fees.procedureFee;
-  const total = subtotal * multiplier;
+  const handleServiceChange = (value: string) => {
+    setService(value as ServiceType);
+    setCountryId('');
+    setProcedureId('');
+    setRequirementIds([]);
+    setNumberOfClasses(1);
+    setErrors((prev) => ({ ...prev, service: '', country: '', procedure: '' }));
+  };
 
-  const validate = (): boolean => {
+  const handleCountryChange = (value: string) => {
+    setCountryId(value);
+    setProcedureId('');
+    setRequirementIds([]);
+    setErrors((prev) => ({ ...prev, country: '', procedure: '' }));
+  };
+
+  const handleAddToCart = () => {
     const newErrors: Record<string, string> = {};
-    if (!clientName.trim()) newErrors.clientName = 'Client name is required';
     if (!service) newErrors.service = 'Service is required';
-    if (!procedureId) newErrors.procedureId = 'Procedure is required';
-    if (!countryId) newErrors.countryId = 'Country is required';
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (!procedureId) newErrors.procedure = 'Procedure is required';
+    if (!countryId) newErrors.country = 'Country is required';
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    const procedure = filteredProcedures.find((p) => p._id === procedureId);
+    const country = countries.find((c) => c._id === countryId);
+    const pricingRule = selectedPricingRule;
+
+    if (!procedure || !country || !pricingRule) {
+      toast.error('Unable to add item. Please check your selections.');
+      return;
+    }
+
+    const newCartItem: CartItem = {
+      id: uuidv4(),
+      procedureName: procedure.name,
+      procedureId,
+      countryName: country.name,
+      countryId,
+      serviceCategory: service as ServiceType,
+      numberOfClasses: service === 'Trademark' ? numberOfClasses : 1,
+      officialFee: pricingRule.officialFee,
+      attorneyFee: pricingRule.attorneyFee,
+      classFee: pricingRule.classFee,
+      requirementIds,
+      total: 0, // Will be calculated in table
+    };
+
+    setCartItems([...cartItems, newCartItem]);
+    toast.success('Item added to cart');
+
+    // Reset service details for next item
+    setService('');
+    setProcedureId('');
+    setCountryId('');
+    setNumberOfClasses(1);
+    setRequirementIds([]);
+    setErrors({});
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleRemoveCartItem = (itemId: string) => {
+    setCartItems(cartItems.filter((item) => item.id !== itemId));
+    toast.success('Item removed from cart');
+  };
+
+  const handleEditCartItem = (itemId: string) => {
+    setEditingItemId(itemId);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveEditedItem = (updatedItem: CartItem) => {
+    setCartItems(cartItems.map((item) =>
+      item.id === updatedItem.id ? updatedItem : item
+    ));
+    toast.success('Item updated in cart');
+  };
+
+  const editingItem = editingItemId
+    ? cartItems.find((item) => item.id === editingItemId) || null
+    : null;
+
+  const handleCreateQuotation = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate()) return;
 
-    const selectedProcedure = procedures.find((p) => p._id === procedureId);
-    const selectedCountry = countries.find((c) => c._id === countryId);
+    const newErrors: Record<string, string> = {};
+    if (!selectedClient.name.trim()) newErrors.clientName = 'Client name is required';
+    if (cartItems.length === 0) newErrors.cart = 'At least one item must be added to cart';
 
-    const payload: CreateQuotationDto = {
-      clientId: selectedClientId || undefined,
-      clientName: clientName.trim(),
-      clientEmail: clientEmail.trim() || undefined,
-      clientType: clientTypeId || undefined,
-      service: service as ServiceType,
-      procedure: selectedProcedure?.name ?? procedureId,
-      country: selectedCountry?.name ?? countryId,
-      numberOfClasses,
-      fees: {
-        governmentFee: fees.governmentFee,
-        serviceFee: fees.serviceFee,
-        classFee: fees.classFee,
-        procedureFee: fees.procedureFee,
-      },
-      multiplier,
-      currency,
-      notes: notes.trim() || undefined,
-      status: 'Draft',
-    };
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const created = await quotationsService.create(payload);
-      toast.success('Quotation created successfully');
-      router.push(`/quotations/${created._id}`);
+      const created = await Promise.all(
+        cartItems.map((item) =>
+          quotationsService.create({
+            clientId: selectedClientId || undefined,
+            clientName: selectedClient.name.trim(),
+            clientEmail: selectedClient.email.trim() || undefined,
+            clientType: selectedClient.type || undefined,
+            service: item.serviceCategory,
+            procedure: item.procedureName,
+            country: item.countryName,
+            numberOfClasses: item.serviceCategory === 'Trademark' ? item.numberOfClasses : 1,
+            fees: {
+              governmentFee: item.officialFee,
+              serviceFee: item.attorneyFee,
+              classFee: item.serviceCategory === 'Trademark' ? item.classFee : 0,
+              procedureFee: 0,
+            },
+            multiplier: 1,
+            currency,
+            notes: globalNotes.trim() || undefined,
+            status: 'Draft',
+          })
+        )
+      );
+
+      if (created.length === 1) {
+        toast.success('Quotation created successfully');
+        router.push(`/quotations/${created[0]._id}`);
+        return;
+      }
+
+      toast.success(`${created.length} quotations created successfully`);
+      router.push('/quotations');
     } catch (err) {
       toast.error(
         'Failed to create quotation',
-        err instanceof Error ? err.message : undefined,
+        err instanceof Error ? err.message : undefined
       );
     } finally {
       setSubmitting(false);
     }
   };
-
-  const clientTypeOptions = [
-    { value: '', label: 'Select client type' },
-    ...clientTypes.map((ct) => ({ value: ct._id, label: ct.name })),
-  ];
-
-  const serviceOptions = [
-    { value: '', label: 'Select service' },
-    ...SERVICES.map((s) => ({ value: s, label: s })),
-  ];
-
-  const procedureOptions = [
-    { value: '', label: service ? 'Select procedure' : 'Select a service first' },
-    ...procedures.map((p) => ({ value: p._id, label: p.name })),
-  ];
-
-  const countryOptions = [
-    { value: '', label: 'Select country' },
-    ...countries.map((c) => ({
-      value: c._id,
-      label: c.abbreviation ? `${c.abbreviation} ${c.name}` : c.name,
-    })),
-  ];
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -257,191 +362,88 @@ export default function NewQuotationPage() {
         ]}
       />
 
-      <form onSubmit={handleSubmit} className="flex-1 p-6 space-y-6">
+      <form onSubmit={handleCreateQuotation} className="flex-1 p-6 space-y-6">
+        {/* CLIENT INFO & SERVICE DETAILS */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left column — Client info */}
-          <Card className="space-y-4">
-            <h2 className="text-base font-semibold text-gray-900 mb-2">
-              Client Information
-            </h2>
+          <ClientInformationCard
+            clientSearch={clientSearch}
+            onClientSearchChange={handleClientSearchChange}
+            clientSuggestions={clientSuggestions}
+            showSuggestions={showSuggestions}
+            onShowSuggestions={setShowSuggestions}
+            onSelectClient={handleSelectClient}
+            selectedClient={selectedClient}
+            errors={errors}
+            suggestionsRef={suggestionsRef}
+          />
 
-            {/* Client Name with search dropdown */}
-            <div className="relative" ref={suggestionsRef}>
-              <Input
-                label="Client Name"
-                value={clientSearch}
-                onChange={(e) => {
-                  setClientSearch(e.target.value);
-                  setClientName(e.target.value);
-                  setSelectedClientId('');
-                  setShowSuggestions(true);
-                }}
-                onFocus={() => setShowSuggestions(true)}
-                placeholder="Type to search or enter new name"
-                error={errors.clientName}
-                autoComplete="off"
-              />
-              {showSuggestions && clientSuggestions.length > 0 && (
-                <div className="absolute z-20 mt-1 w-full rounded-lg border border-border bg-white shadow-lg overflow-hidden">
-                  {clientSuggestions.map((c) => (
-                    <button
-                      key={c._id}
-                      type="button"
-                      className="w-full px-4 py-2.5 text-left text-sm hover:bg-surface transition-colors"
-                      onMouseDown={() => handleSelectClient(c)}
-                    >
-                      <span className="font-medium text-gray-900">{c.name}</span>
-                      {c.email && (
-                        <span className="ml-2 text-xs text-gray-400">{c.email}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <Input
-              label="Client Email"
-              type="email"
-              value={clientEmail}
-              onChange={(e) => setClientEmail(e.target.value)}
-              placeholder="client@example.com"
-            />
-
-            <Select
-              label="Client Type"
-              value={clientTypeId}
-              options={clientTypeOptions}
-              onChange={(e) => setClientTypeId(e.target.value)}
-            />
-
-            <div>
-              <label className="label">Notes</label>
-              <textarea
-                className="input resize-none"
-                rows={4}
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Optional notes..."
-              />
-            </div>
-          </Card>
-
-          {/* Right column — Service / Country */}
-          <Card className="space-y-4">
-            <h2 className="text-base font-semibold text-gray-900 mb-2">
-              Service Details
-            </h2>
-
-            <Select
-              label="Service"
-              value={service}
-              options={serviceOptions}
-              onChange={(e) => setService(e.target.value as ServiceType | '')}
-              error={errors.service}
-            />
-
-            <Select
-              label="Procedure"
-              value={procedureId}
-              options={procedureOptions}
-              onChange={(e) => setProcedureId(e.target.value)}
-              disabled={!service}
-              error={errors.procedureId}
-            />
-
-            <Select
-              label="Country"
-              value={countryId}
-              options={countryOptions}
-              onChange={(e) => setCountryId(e.target.value)}
-              error={errors.countryId}
-            />
-
-            <Input
-              label="Number of Classes"
-              type="number"
-              min={1}
-              value={numberOfClasses}
-              onChange={(e) =>
-                setNumberOfClasses(Math.max(1, parseInt(e.target.value) || 1))
-              }
-            />
-          </Card>
+          <ServiceDetailsCard
+            service={service as ServiceType}
+            procedureId={procedureId}
+            countryId={countryId}
+            numberOfClasses={numberOfClasses}
+            requirementIds={requirementIds}
+            procedures={filteredProcedures}
+            countries={countries}
+            selectedPricingRule={selectedPricingRule}
+            onServiceChange={handleServiceChange}
+            onProcedureChange={setProcedureId}
+            onCountryChange={handleCountryChange}
+            onNumberOfClassesChange={setNumberOfClasses}
+            onRequirementsChange={setRequirementIds}
+            errors={errors}
+            onAddToCart={handleAddToCart}
+          />
         </div>
 
-        {/* Fee fields */}
-        <Card>
-          <h2 className="text-base font-semibold text-gray-900 mb-4">Fee Details</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Input
-              label="Government Fee"
-              type="number"
-              min={0}
-              step="0.01"
-              value={fees.governmentFee}
-              onChange={(e) => handleFeeChange('governmentFee', e.target.value)}
-            />
-            <Input
-              label="Attorney Fee"
-              type="number"
-              min={0}
-              step="0.01"
-              value={fees.serviceFee}
-              onChange={(e) => handleFeeChange('serviceFee', e.target.value)}
-            />
-            <Input
-              label="Class Fee (per class)"
-              type="number"
-              min={0}
-              step="0.01"
-              value={fees.classFee}
-              onChange={(e) => handleFeeChange('classFee', e.target.value)}
-            />
-            <Input
-              label="Procedure Fee"
-              type="number"
-              min={0}
-              step="0.01"
-              value={fees.procedureFee}
-              onChange={(e) => handleFeeChange('procedureFee', e.target.value)}
-            />
-            <Input
-              label="Multiplier"
-              type="number"
-              min={0.1}
-              step="0.1"
-              value={multiplier}
-              onChange={(e) =>
-                setMultiplier(Math.max(0.1, parseFloat(e.target.value) || 1))
-              }
-              helperText="Applied to subtotal (from client type)"
-            />
-            <Input
-              label="Currency"
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              placeholder="SAR"
-            />
-          </div>
-        </Card>
-
-        {/* Live fee summary */}
-        <QuotationFeeSummary
-          fees={{
-            'Government Fee': fees.governmentFee,
-            'Attorney Fee': fees.serviceFee,
-            'Class Fee': fees.classFee,
-            'Procedure Fee': fees.procedureFee,
-          }}
-          numberOfClasses={numberOfClasses}
-          multiplier={multiplier}
-          subtotal={subtotal}
-          total={total}
+        {/* CART TABLE */}
+        <QuotationCartTable
+          items={cartItems}
+          onRemoveItem={handleRemoveCartItem}
+          onEditItem={handleEditCartItem}
           currency={currency}
         />
 
-        {/* Submit */}
+        {/* EDIT CART ITEM MODAL */}
+        <EditCartItemModal
+          isOpen={isEditModalOpen}
+          item={editingItem}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditingItemId(null);
+          }}
+          onSave={handleSaveEditedItem}
+          currency={currency}
+        />
+
+        {/* GLOBAL NOTES */}
+        {cartItems.length > 0 && (
+          <Card className="space-y-4">
+            <h2 className="text-base font-semibold text-gray-900">
+              Quotation Notes
+            </h2>
+            <div>
+              <label className="label">Additional Notes</label>
+              <textarea
+                className="input resize-none"
+                rows={3}
+                value={globalNotes}
+                onChange={(e) => setGlobalNotes(e.target.value)}
+                placeholder="Any additional notes or terms for this quotation..."
+              />
+            </div>
+            <div className="flex gap-2 items-center">
+              <Input
+                label="Currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                placeholder="SAR"
+              />
+            </div>
+          </Card>
+        )}
+
+        {/* SUBMIT BUTTONS */}
         <div className="flex items-center justify-end gap-3 pt-2">
           <Button
             type="button"
@@ -451,8 +453,13 @@ export default function NewQuotationPage() {
           >
             Cancel
           </Button>
-          <Button type="submit" variant="primary" loading={submitting}>
-            Create Quotation
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={cartItems.length === 0 || submitting}
+            loading={submitting}
+          >
+            Create Quotation ({cartItems.length} item{cartItems.length !== 1 ? 's' : ''})
           </Button>
         </div>
       </form>

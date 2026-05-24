@@ -4,10 +4,11 @@ import Quotation from '@/models/Quotation';
 import { getUserFromRequest } from '@/lib/auth';
 
 interface RouteContext {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    const quotation = await Quotation.findById(params.id)
+    const quotation = await Quotation.findById(id)
       .populate('clientId', 'name email phone country type address city')
       .populate('createdBy', 'name email')
       .populate('approvedBy', 'name email');
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -44,7 +46,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     const body = await req.json();
 
     // Recalculate financials if fees, numberOfClasses, or multiplier are being updated
-    const existingDoc = await Quotation.findById(params.id);
+    const existingDoc = await Quotation.findById(id);
     if (!existingDoc) {
       return NextResponse.json({ error: 'Quotation not found' }, { status: 404 });
     }
@@ -71,7 +73,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     }
 
     const quotation = await Quotation.findByIdAndUpdate(
-      params.id,
+      id,
       { $set: body },
       { new: true, runValidators: true }
     )
@@ -91,6 +93,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 }
 
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
+  const { id } = await params;
   try {
     const user = getUserFromRequest(req);
     if (!user) {
@@ -99,7 +102,7 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    const quotation = await Quotation.findByIdAndDelete(params.id);
+    const quotation = await Quotation.findByIdAndDelete(id);
     if (!quotation) {
       return NextResponse.json({ error: 'Quotation not found' }, { status: 404 });
     }

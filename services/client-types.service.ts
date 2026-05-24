@@ -22,13 +22,19 @@ export interface ClientTypeListResponse {
   total: number;
 }
 
+export interface ClientTypeListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
 export const clientTypesService = {
   /**
    * Retrieve a list of all client types.
    * GET /api/client-types
    */
-  async list(): Promise<ClientTypeListResponse> {
-    const response = await apiClient.get<ClientTypeListResponse>('/api/client-types');
+  async list(params?: ClientTypeListParams): Promise<ClientTypeListResponse> {
+    const response = await apiClient.get<ClientTypeListResponse>('/api/client-types', { params });
     return response.data;
   },
 

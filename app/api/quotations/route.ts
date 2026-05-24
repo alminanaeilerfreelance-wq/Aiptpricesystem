@@ -1,11 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Quotation from '@/models/Quotation';
+import '@/models/Requirement';
+import '@/models/Country';
+import '@/models/Client';
+import '@/models/User';
 import { getUserFromRequest } from '@/lib/auth';
+import mongoose from 'mongoose';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+const parseRequirementIds = (raw: unknown): mongoose.Types.ObjectId[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((id) => (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id) ? id : null))
+    .filter((id): id is string => Boolean(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -74,6 +87,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ quotations, total, page, limit, totalPages });
   } catch (err: unknown) {
+    console.error('GET /api/quotations error:', err);
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -94,6 +108,7 @@ export async function POST(req: NextRequest) {
       fees,
       numberOfClasses = 1,
       multiplier = 1,
+      requirementIds,
       ...rest
     } = body;
 
@@ -108,6 +123,7 @@ export async function POST(req: NextRequest) {
 
     const quotation = await Quotation.create({
       ...rest,
+      requirementIds: parseRequirementIds(requirementIds),
       fees: { governmentFee, serviceFee, classFee, procedureFee },
       numberOfClasses: Number(numberOfClasses),
       multiplier: Number(multiplier),
@@ -118,11 +134,17 @@ export async function POST(req: NextRequest) {
 
     const populated = await quotation.populate([
       { path: 'clientId', select: 'name email phone country type' },
+      {
+        path: 'requirementIds',
+        select: 'requirements country',
+        populate: { path: 'country', select: 'name abbreviation' },
+      },
       { path: 'createdBy', select: 'name email' },
     ]);
 
     return NextResponse.json(populated, { status: 201 });
   } catch (err: unknown) {
+    console.error('POST /api/quotations error:', err);
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });
   }

@@ -2,6 +2,12 @@ import apiClient from './apiClient';
 
 export interface PricingRule {
   _id: string;
+  name: string;
+  description?: string;
+  percentage?: number;
+  fixedAmount?: number;
+  minServiceValue?: number;
+  maxServiceValue?: number;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   procedureName: string;
   countryName: string;
@@ -15,10 +21,16 @@ export interface PricingRule {
 }
 
 export interface CreatePricingRuleDto {
-  serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
-  procedureName: string;
-  countryName: string;
-  countryAbbreviation: string;
+  name?: string;
+  description?: string;
+  percentage?: number;
+  fixedAmount?: number;
+  minServiceValue?: number;
+  maxServiceValue?: number;
+  serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  procedureName?: string;
+  countryName?: string;
+  countryAbbreviation?: string;
   officialFee?: number;
   attorneyFee?: number;
   classFee?: number;
@@ -28,6 +40,9 @@ export interface CreatePricingRuleDto {
 export interface PricingRuleListParams {
   category?: string;
   country?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface PricingRuleListResponse {

@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import Topbar from '@/components/layout/Topbar';
 import { DataTable } from '@/components/tables';
 import { StatusBadge } from '@/components/tables';
@@ -15,6 +14,8 @@ import { quotationsService, Quotation } from '@/services/quotations.service';
 import { useDebounce } from '@/hooks/useDebounce';
 import { formatCurrency } from '@/utils/currency';
 
+export const dynamic = 'force-dynamic';
+
 const STATUS_OPTIONS = [
   { value: '', label: 'All Statuses' },
   { value: 'Draft', label: 'Draft' },
@@ -26,7 +27,6 @@ const STATUS_OPTIONS = [
 const PAGE_SIZE = 10;
 
 export default function QuotationsPage() {
-  const searchParams = useSearchParams();
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -46,13 +46,14 @@ export default function QuotationsPage() {
 
   // Initialize filters from URL parameters on mount
   useEffect(() => {
-    const status = searchParams.get('status') || '';
-    const service = searchParams.get('service') || '';
-    const country = searchParams.get('country') || '';
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('status') || '';
+    const service = params.get('service') || '';
+    const country = params.get('country') || '';
     setStatusFilter(status);
     setServiceFilter(service);
     setCountryFilter(country);
-  }, [searchParams]);
+  }, []);
 
   const fetchQuotations = useCallback(async () => {
     setLoading(true);

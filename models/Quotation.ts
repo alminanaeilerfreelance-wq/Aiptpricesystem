@@ -17,6 +17,7 @@ export interface IQuotation extends Document {
   procedure: string;
   country: string;
   numberOfClasses: number;
+  requirementIds: mongoose.Types.ObjectId[];
   fees: IQuotationFees;
   multiplier: number;
   subtotal: number;
@@ -47,6 +48,7 @@ const quotationSchema = new mongoose.Schema<IQuotation>(
     procedure: { type: String, required: true },
     country: { type: String, required: true },
     numberOfClasses: { type: Number, default: 1 },
+    requirementIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Requirement' }],
     fees: {
       governmentFee: { type: Number, default: 0 },
       serviceFee: { type: Number, default: 0 },

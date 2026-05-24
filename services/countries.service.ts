@@ -13,7 +13,7 @@ export interface Country {
 export interface CreateCountryDto {
   name: string;
   abbreviation: string;
-  flagCode: string;
+  flagCode?: string;
   isActive?: boolean;
 }
 

@@ -13,7 +13,7 @@ export interface Procedure {
 
 export interface CreateProcedureDto {
   name: string;
-  serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation' | string;
   description?: string;
   sortOrder?: number;
   isActive?: boolean;
@@ -21,6 +21,9 @@ export interface CreateProcedureDto {
 
 export interface ProcedureListParams {
   category?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface ProcedureListResponse {

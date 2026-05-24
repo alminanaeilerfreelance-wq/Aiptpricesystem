@@ -1,11 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Quotation from '@/models/Quotation';
+import '@/models/Requirement';
+import '@/models/Country';
+import '@/models/Client';
+import '@/models/User';
 import { getUserFromRequest } from '@/lib/auth';
+import mongoose from 'mongoose';
+import { generateQuotationPdfToken } from '@/lib/quotation-pdf-token';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
+
+const parseRequirementIds = (raw: unknown): mongoose.Types.ObjectId[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((id) => (typeof id === 'string' && mongoose.Types.ObjectId.isValid(id) ? id : null))
+    .filter((id): id is string => Boolean(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+};
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
   const { id } = await params;
@@ -19,6 +33,11 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     const quotation = await Quotation.findById(id)
       .populate('clientId', 'name email phone country type address city')
+      .populate({
+        path: 'requirementIds',
+        select: 'requirements country',
+        populate: { path: 'country', select: 'name abbreviation' },
+      })
       .populate('createdBy', 'name email')
       .populate('approvedBy', 'name email');
 
@@ -26,7 +45,13 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ error: 'Quotation not found' }, { status: 404 });
     }
 
-    return NextResponse.json(quotation);
+    const quotationObject = quotation.toObject();
+    const pdfAccessToken = generateQuotationPdfToken(id);
+
+    return NextResponse.json({
+      ...quotationObject,
+      pdfAccessToken,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -44,6 +69,10 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     await connectDB();
 
     const body = await req.json();
+
+    if (body.requirementIds !== undefined) {
+      body.requirementIds = parseRequirementIds(body.requirementIds);
+    }
 
     // Recalculate financials if fees, numberOfClasses, or multiplier are being updated
     const existingDoc = await Quotation.findById(id);
@@ -78,6 +107,11 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       { new: true, runValidators: true }
     )
       .populate('clientId', 'name email phone country type')
+      .populate({
+        path: 'requirementIds',
+        select: 'requirements country',
+        populate: { path: 'country', select: 'name abbreviation' },
+      })
       .populate('createdBy', 'name email')
       .populate('approvedBy', 'name email');
 

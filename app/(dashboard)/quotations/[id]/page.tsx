@@ -9,6 +9,7 @@ import { StatusBadge } from '@/components/tables';
 import QuotationFeeSummary from '@/components/quotations/QuotationFeeSummary';
 import { useToast } from '@/components/feedback/ToastProvider';
 import { quotationsService, Quotation } from '@/services/quotations.service';
+import requirementsService from '@/services/requirements.service';
 
 export default function QuotationDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -26,6 +27,14 @@ export default function QuotationDetailPage() {
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [recipientEmail, setRecipientEmail] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [origin, setOrigin] = useState('');
+  const [countryRequirements, setCountryRequirements] = useState<
+    Array<{ _id: string; requirements: string }>
+  >([]);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -41,6 +50,38 @@ export default function QuotationDetailPage() {
       })
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!quotation) return;
+
+    const hasAssignedRequirements =
+      Array.isArray(quotation.requirementIds) &&
+      quotation.requirementIds.some(
+        (item) => Boolean(item) && typeof item === 'object' && 'requirements' in item
+      );
+
+    if (hasAssignedRequirements) {
+      setCountryRequirements([]);
+      return;
+    }
+
+    requirementsService
+      .list(1, 100, quotation.country)
+      .then((res) => {
+        const normalizedCountry = quotation.country.trim().toLowerCase();
+        const list = Array.isArray(res?.data?.data) ? res.data.data : [];
+        const matched = list.filter(
+          (item) => item.country?.name?.trim().toLowerCase() === normalizedCountry
+        );
+        setCountryRequirements(
+          matched.map((item) => ({
+            _id: item._id,
+            requirements: item.requirements,
+          }))
+        );
+      })
+      .catch(() => setCountryRequirements([]));
+  }, [quotation]);
 
   const handleApprove = async () => {
     if (!quotation) return;
@@ -105,12 +146,44 @@ export default function QuotationDetailPage() {
     year: 'numeric',
   });
 
-  const feesForSummary: Record<string, number> = {
-    'Government Fee': quotation.fees.governmentFee,
-    'Attorney Fee': quotation.fees.serviceFee,
-    'Class Fee': quotation.fees.classFee,
-    'Procedure Fee': quotation.fees.procedureFee,
-  };
+  const feeSummaryRows = [
+    {
+      procedureName: quotation.procedure,
+      governmentFees:
+        quotation.fees.governmentFee +
+        quotation.fees.classFee +
+        quotation.fees.procedureFee,
+      attorneyFees: quotation.fees.serviceFee,
+      total: quotation.total,
+    },
+  ];
+
+  const requirementItems = Array.isArray(quotation.requirementIds)
+    ? quotation.requirementIds.filter(
+        (item): item is { _id: string; requirements: string } =>
+          Boolean(item) && typeof item === 'object' && 'requirements' in item
+      )
+    : [];
+  const requirementsToDisplay =
+    requirementItems.length > 0 ? requirementItems : countryRequirements;
+
+  const sanitizeHtml = (value: string) =>
+    value
+      .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+      .replace(/\son\w+="[^"]*"/gi, '')
+      .replace(/\son\w+='[^']*'/gi, '')
+      .replace(/javascript:/gi, '');
+
+  const pdfDownloadPath = `/api/quotations/${quotation._id}/pdf?download=1${
+    quotation.pdfAccessToken
+      ? `&t=${encodeURIComponent(quotation.pdfAccessToken)}`
+      : ''
+  }`;
+  const qrDownloadUrl = origin ? `${origin}${pdfDownloadPath}` : '';
+  const qrImageUrl = qrDownloadUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrDownloadUrl)}`
+    : '';
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -123,7 +196,7 @@ export default function QuotationDetailPage() {
         ]}
       />
 
-      <div className="flex-1 p-6 space-y-6">
+      <div className="flex-1 p-6 space-y-6 bg-slate-50">
         {/* Action buttons — hidden when printing */}
         <div className="flex flex-wrap items-center gap-3 no-print">
           <Button variant="secondary" onClick={() => router.push('/quotations')}>
@@ -140,7 +213,7 @@ export default function QuotationDetailPage() {
             </Button>
           )}
 
-          <Button variant="secondary" onClick={() => window.print()}>
+          <Button variant="secondary" onClick={() => window.open(pdfDownloadPath, '_blank')}>
             Download PDF
           </Button>
 
@@ -153,11 +226,26 @@ export default function QuotationDetailPage() {
           </Link>
         </div>
 
+        <Card className="p-6 bg-gradient-to-r from-slate-900 to-indigo-900 text-white border-0">
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-slate-300">Quotation</p>
+              <h1 className="text-2xl font-bold mt-1">{quotation.quotationNo}</h1>
+              <p className="text-sm text-slate-200 mt-1">
+                {quotation.clientName} • {quotation.service} • {quotation.country}
+              </p>
+            </div>
+            <div className="inline-flex items-center rounded-full bg-white/15 px-4 py-1.5 text-sm">
+              {quotation.status}
+            </div>
+          </div>
+        </Card>
+
         {/* Info cards */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Client Information */}
-          <Card className="p-6">
-            <h2 className="text-base font-semibold text-gray-900 mb-4">
+          <Card className="p-6 border border-slate-200 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">
               Client Information
             </h2>
             <dl className="space-y-3">
@@ -169,14 +257,14 @@ export default function QuotationDetailPage() {
           </Card>
 
           {/* Quotation Information */}
-          <Card className="p-6">
-            <h2 className="text-base font-semibold text-gray-900 mb-4">
+          <Card className="p-6 border border-slate-200 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-4">
               Quotation Information
             </h2>
             <dl className="space-y-3">
               <InfoRow label="Quotation No" value={quotation.quotationNo} mono />
               <InfoRow label="Service" value={quotation.service} />
-              <InfoRow label="Procedure" value={quotation.procedure} />
+              {/* <InfoRow label="Procedure" value={quotation.procedure} /> */}
               <InfoRow label="Country" value={quotation.country} />
               <div className="flex items-start justify-between">
                 <dt className="text-sm text-gray-500">Status</dt>
@@ -193,25 +281,93 @@ export default function QuotationDetailPage() {
 
         {/* Fee Summary */}
         <QuotationFeeSummary
-          fees={feesForSummary}
-          numberOfClasses={quotation.numberOfClasses}
-          multiplier={quotation.multiplier}
-          subtotal={quotation.subtotal}
-          total={quotation.total}
+          data={feeSummaryRows}
           currency={quotation.currency}
         />
 
+        <Card className="p-6 border border-slate-200 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900 mb-4">Requirements</h2>
+
+          {requirementsToDisplay.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              No requirements assigned for this quotation.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="w-full border-collapse bg-white">
+                <thead>
+                  <tr className="bg-indigo-700">
+                    <th className="w-16 border border-slate-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">
+                      #
+                    </th>
+                    <th className="border border-slate-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">
+                      Requirement
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {requirementsToDisplay.map((requirement, index) => (
+                    <tr
+                      key={requirement._id}
+                      className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}
+                    >
+                      <td className="border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700">
+                        {index + 1}
+                      </td>
+                      <td className="border border-slate-200 px-4 py-3 text-sm text-slate-700">
+                        <div
+                          className="prose prose-sm max-w-none"
+                          dangerouslySetInnerHTML={{ __html: sanitizeHtml(requirement.requirements) }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card className="p-6 border border-slate-200 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900 mb-2">
+            QR Code for PDF Download
+          </h2>
+          <p className="text-sm text-slate-600 mb-4">
+            Scan this QR code to open the PDF download link directly.
+          </p>
+          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              {qrImageUrl ? (
+                <img
+                  src={qrImageUrl}
+                  alt="QR code for quotation PDF download"
+                  width={180}
+                  height={180}
+                />
+              ) : (
+                <div className="w-[180px] h-[180px] bg-slate-100 animate-pulse rounded-lg" />
+              )}
+            </div>
+            <div className="space-y-3">
+              <Button variant="primary" onClick={() => window.open(pdfDownloadPath, '_blank')}>
+                Download PDF
+              </Button>
+              <p className="text-xs text-slate-500 break-all max-w-xl">{qrDownloadUrl || 'Preparing secure link...'}</p>
+            </div>
+          </div>
+        </Card>
+
         {/* Notes */}
         {quotation.notes && (
-          <Card className="p-6">
-            <h2 className="text-base font-semibold text-gray-900 mb-2">Notes</h2>
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{quotation.notes}</p>
+          <Card className="p-6 border border-slate-200 shadow-sm">
+            <h2 className="text-base font-semibold text-slate-900 mb-2">Notes</h2>
+            <p className="text-sm text-slate-700 whitespace-pre-wrap">{quotation.notes}</p>
           </Card>
         )}
 
         {/* Terms & Conditions */}
-        <Card className="p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-3">
+        <Card className="p-6 border border-slate-200 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-900 mb-3">
             Terms & Conditions
           </h2>
           <div className="text-sm text-gray-600 space-y-2">

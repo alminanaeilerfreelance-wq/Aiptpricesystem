@@ -3,7 +3,10 @@ import apiClient from './apiClient';
 export interface Department {
   _id: string;
   name: string;
-  country?: string;
+  country: {
+    _id: string;
+    name: string;
+  };
   description?: string;
   isActive: boolean;
   createdAt: string;
@@ -19,6 +22,7 @@ export interface CreateDepartmentDto {
 
 export interface DepartmentListParams {
   search?: string;
+  country?: string;
   page?: number;
   limit?: number;
 }

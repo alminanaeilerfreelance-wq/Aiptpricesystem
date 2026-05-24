@@ -242,6 +242,17 @@ export default function EditQuotationPage() {
     fees.classFee * numberOfClasses +
     fees.procedureFee;
   const total = subtotal * multiplier;
+  const feeSummaryRows = [
+    {
+      procedureName: procedureName || 'Selected Procedure',
+      governmentFees:
+        fees.governmentFee +
+        fees.classFee +
+        fees.procedureFee,
+      attorneyFees: fees.serviceFee,
+      total,
+    },
+  ];
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -555,16 +566,7 @@ export default function EditQuotationPage() {
 
         {/* Live fee summary */}
         <QuotationFeeSummary
-          fees={{
-            'Government Fee': fees.governmentFee,
-            'Attorney Fee': fees.serviceFee,
-            'Class Fee': fees.classFee,
-            'Procedure Fee': fees.procedureFee,
-          }}
-          numberOfClasses={numberOfClasses}
-          multiplier={multiplier}
-          subtotal={subtotal}
-          total={total}
+          data={feeSummaryRows}
           currency={currency}
         />
 

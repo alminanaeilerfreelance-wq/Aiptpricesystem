@@ -3,7 +3,7 @@ import apiClient from './apiClient';
 export interface Service {
   _id: string;
   name: string;
-  category: string;
+  category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   description?: string;
   basePrice?: number;
   isActive: boolean;
@@ -13,7 +13,7 @@ export interface Service {
 
 export interface CreateServiceDto {
   name: string;
-  category: string;
+  category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   description?: string;
   basePrice?: number;
   isActive?: boolean;

@@ -7,6 +7,16 @@ export interface QuotationFees {
   procedureFee: number;
 }
 
+export interface QuotationRequirement {
+  _id: string;
+  requirements: string;
+  country?: {
+    _id: string;
+    name: string;
+    abbreviation?: string;
+  };
+}
+
 export interface Quotation {
   _id: string;
   quotationNo: string;
@@ -18,6 +28,7 @@ export interface Quotation {
   procedure: string;
   country: string;
   numberOfClasses: number;
+  requirementIds?: string[] | QuotationRequirement[];
   fees: QuotationFees;
   multiplier: number;
   subtotal: number;
@@ -31,6 +42,7 @@ export interface Quotation {
   approvalDate?: string;
   createdAt: string;
   updatedAt: string;
+  pdfAccessToken?: string;
 }
 
 export interface CreateQuotationDto {
@@ -42,6 +54,7 @@ export interface CreateQuotationDto {
   procedure: string;
   country: string;
   numberOfClasses?: number;
+  requirementIds?: string[];
   fees?: Partial<QuotationFees>;
   multiplier?: number;
   currency?: string;

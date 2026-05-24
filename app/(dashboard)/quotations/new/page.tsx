@@ -319,6 +319,7 @@ export default function NewQuotationPage() {
             procedure: item.procedureName,
             country: item.countryName,
             numberOfClasses: item.serviceCategory === 'Trademark' ? item.numberOfClasses : 1,
+            requirementIds: item.requirementIds,
             fees: {
               governmentFee: item.officialFee,
               serviceFee: item.attorneyFee,

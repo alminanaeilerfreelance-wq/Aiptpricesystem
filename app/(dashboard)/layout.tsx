@@ -4,7 +4,41 @@ import React from 'react';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
 import { ToastProvider } from '@/components/feedback/ToastProvider';
-import AppSidebar from '@/components/layout/AppSidebar';
+import { Box } from '@mui/material';
+import AppSidebar, { APP_DRAWER_WIDTH } from '@/components/layout/AppSidebar';
+import {
+  LayoutShellProvider,
+  useLayoutShell,
+} from '@/components/layout/LayoutShellContext';
+
+function DashboardShell({ children }: { children: React.ReactNode }) {
+  const { desktopOpen } = useLayoutShell();
+
+  return (
+    <Box sx={{ display: 'flex', minHeight: '100vh', backgroundColor: '#F5F7FA' }}>
+      <AppSidebar />
+      <Box
+        component="main"
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          minHeight: '100vh',
+          ml: {
+            xs: 0,
+            lg: desktopOpen ? `${APP_DRAWER_WIDTH}px` : 0,
+          },
+          transition: (theme) =>
+            theme.transitions.create('margin-left', {
+              duration: theme.transitions.duration.standard,
+              easing: theme.transitions.easing.sharp,
+            }),
+        }}
+      >
+        {children}
+      </Box>
+    </Box>
+  );
+}
 
 export default function DashboardLayout({
   children,
@@ -15,12 +49,9 @@ export default function DashboardLayout({
     <AuthProvider>
       <SettingsProvider>
         <ToastProvider>
-          <div className="flex min-h-screen">
-            <AppSidebar />
-            <main className="flex-1 ml-64 bg-surface min-h-screen">
-              {children}
-            </main>
-          </div>
+          <LayoutShellProvider>
+            <DashboardShell>{children}</DashboardShell>
+          </LayoutShellProvider>
         </ToastProvider>
       </SettingsProvider>
     </AuthProvider>

@@ -6,10 +6,52 @@ import Link from 'next/link';
 import Topbar from '@/components/layout/Topbar';
 import { Button, Card, Modal, Input } from '@/components/ui';
 import { StatusBadge } from '@/components/tables';
-import QuotationFeeSummary from '@/components/quotations/QuotationFeeSummary';
+import QuotationFeeSummary, {
+  FeeTableColorConfig,
+} from '@/components/quotations/QuotationFeeSummary';
 import { useToast } from '@/components/feedback/ToastProvider';
 import { quotationsService, Quotation } from '@/services/quotations.service';
 import requirementsService from '@/services/requirements.service';
+
+interface QuotationColorTheme {
+  quotationCardStart: string;
+  quotationCardEnd: string;
+  feeHeaderBg: string;
+  feeSubHeaderBg: string;
+  feeProcedureColBg: string;
+  feeOfficialColBg: string;
+  feeAttorneyColBg: string;
+  feeTotalColBg: string;
+  feeFooterLabelBg: string;
+  requirementsHeaderBg: string;
+}
+
+const THEME_STORAGE_KEY = 'quotation-detail-color-theme-v1';
+
+const DEFAULT_THEME: QuotationColorTheme = {
+  quotationCardStart: '#0f172a',
+  quotationCardEnd: '#1e3a8a',
+  feeHeaderBg: '#0f172a',
+  feeSubHeaderBg: '#f1f5f9',
+  feeProcedureColBg: '#ffffff',
+  feeOfficialColBg: '#fffbeb',
+  feeAttorneyColBg: '#ecfdf5',
+  feeTotalColBg: '#eff6ff',
+  feeFooterLabelBg: '#0f172a',
+  requirementsHeaderBg: '#4338ca',
+};
+
+const getContrastText = (hex: string) => {
+  const safeHex = hex.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(safeHex)) return '#ffffff';
+
+  const r = parseInt(safeHex.slice(0, 2), 16);
+  const g = parseInt(safeHex.slice(2, 4), 16);
+  const b = parseInt(safeHex.slice(4, 6), 16);
+
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? '#0f172a' : '#ffffff';
+};
 
 export default function QuotationDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,10 +73,24 @@ export default function QuotationDetailPage() {
   const [countryRequirements, setCountryRequirements] = useState<
     Array<{ _id: string; requirements: string }>
   >([]);
+  const [colorTheme, setColorTheme] = useState<QuotationColorTheme>(DEFAULT_THEME);
 
   useEffect(() => {
     setOrigin(window.location.origin);
+    const rawTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (!rawTheme) return;
+
+    try {
+      const parsed = JSON.parse(rawTheme) as Partial<QuotationColorTheme>;
+      setColorTheme((prev) => ({ ...prev, ...parsed }));
+    } catch {
+      // ignore bad local storage payload
+    }
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(colorTheme));
+  }, [colorTheme]);
 
   useEffect(() => {
     if (!id) return;
@@ -185,6 +241,27 @@ export default function QuotationDetailPage() {
     ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrDownloadUrl)}`
     : '';
 
+  const updateColorTheme = (key: keyof QuotationColorTheme, value: string) => {
+    setColorTheme((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const resetColorTheme = () => {
+    setColorTheme(DEFAULT_THEME);
+  };
+
+  const quotationCardTextColor = getContrastText(colorTheme.quotationCardStart);
+  const requirementsHeaderTextColor = getContrastText(colorTheme.requirementsHeaderBg);
+
+  const feeTableColors: FeeTableColorConfig = {
+    headerBg: colorTheme.feeHeaderBg,
+    subHeaderBg: colorTheme.feeSubHeaderBg,
+    procedureColBg: colorTheme.feeProcedureColBg,
+    officialColBg: colorTheme.feeOfficialColBg,
+    attorneyColBg: colorTheme.feeAttorneyColBg,
+    totalColBg: colorTheme.feeTotalColBg,
+    footerLabelBg: colorTheme.feeFooterLabelBg,
+  };
+
   return (
     <div className="flex flex-col min-h-screen">
       <Topbar
@@ -226,16 +303,96 @@ export default function QuotationDetailPage() {
           </Link>
         </div>
 
-        <Card className="p-6 bg-gradient-to-r from-slate-900 to-indigo-900 text-white border-0">
+        <Card className="p-5 border border-slate-200 shadow-sm no-print">
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h2 className="text-base font-semibold text-slate-900">Customize Colors</h2>
+              <Button variant="secondary" onClick={resetColorTheme}>
+                Reset Colors
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <ColorControl
+                label="Quotation Card Start"
+                value={colorTheme.quotationCardStart}
+                onChange={(value) => updateColorTheme('quotationCardStart', value)}
+              />
+              <ColorControl
+                label="Quotation Card End"
+                value={colorTheme.quotationCardEnd}
+                onChange={(value) => updateColorTheme('quotationCardEnd', value)}
+              />
+              <ColorControl
+                label="Fee Header"
+                value={colorTheme.feeHeaderBg}
+                onChange={(value) => updateColorTheme('feeHeaderBg', value)}
+              />
+              <ColorControl
+                label="Fee Sub Header"
+                value={colorTheme.feeSubHeaderBg}
+                onChange={(value) => updateColorTheme('feeSubHeaderBg', value)}
+              />
+              <ColorControl
+                label="Procedure Column"
+                value={colorTheme.feeProcedureColBg}
+                onChange={(value) => updateColorTheme('feeProcedureColBg', value)}
+              />
+              <ColorControl
+                label="Official Fees Column"
+                value={colorTheme.feeOfficialColBg}
+                onChange={(value) => updateColorTheme('feeOfficialColBg', value)}
+              />
+              <ColorControl
+                label="Atty Fees Column"
+                value={colorTheme.feeAttorneyColBg}
+                onChange={(value) => updateColorTheme('feeAttorneyColBg', value)}
+              />
+              <ColorControl
+                label="Total Fees Column"
+                value={colorTheme.feeTotalColBg}
+                onChange={(value) => updateColorTheme('feeTotalColBg', value)}
+              />
+              <ColorControl
+                label="Fee Footer Label"
+                value={colorTheme.feeFooterLabelBg}
+                onChange={(value) => updateColorTheme('feeFooterLabelBg', value)}
+              />
+              <ColorControl
+                label="Requirements Header"
+                value={colorTheme.requirementsHeaderBg}
+                onChange={(value) => updateColorTheme('requirementsHeaderBg', value)}
+              />
+            </div>
+          </div>
+        </Card>
+
+        <Card
+          className="p-6 border-0"
+          style={{
+            background: `linear-gradient(120deg, ${colorTheme.quotationCardStart}, ${colorTheme.quotationCardEnd})`,
+            color: quotationCardTextColor,
+          }}
+        >
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-300">Quotation</p>
+              <p className="text-xs uppercase tracking-[0.24em]" style={{ opacity: 0.82 }}>
+                Quotation
+              </p>
               <h1 className="text-2xl font-bold mt-1">{quotation.quotationNo}</h1>
-              <p className="text-sm text-slate-200 mt-1">
+              <p className="text-sm mt-1" style={{ opacity: 0.86 }}>
                 {quotation.clientName} • {quotation.service} • {quotation.country}
               </p>
             </div>
-            <div className="inline-flex items-center rounded-full bg-white/15 px-4 py-1.5 text-sm">
+            <div
+              className="inline-flex items-center rounded-full px-4 py-1.5 text-sm"
+              style={{
+                backgroundColor:
+                  quotationCardTextColor === '#ffffff'
+                    ? 'rgba(255,255,255,0.16)'
+                    : 'rgba(15,23,42,0.15)',
+              }}
+            >
               {quotation.status}
             </div>
           </div>
@@ -283,6 +440,7 @@ export default function QuotationDetailPage() {
         <QuotationFeeSummary
           data={feeSummaryRows}
           currency={quotation.currency}
+          colorConfig={feeTableColors}
         />
 
         <Card className="p-6 border border-slate-200 shadow-sm">
@@ -296,11 +454,17 @@ export default function QuotationDetailPage() {
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="w-full border-collapse bg-white">
                 <thead>
-                  <tr className="bg-indigo-700">
-                    <th className="w-16 border border-slate-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">
+                  <tr style={{ backgroundColor: colorTheme.requirementsHeaderBg }}>
+                    <th
+                      className="w-16 border border-slate-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
+                      style={{ color: requirementsHeaderTextColor }}
+                    >
                       #
                     </th>
-                    <th className="border border-slate-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-white">
+                    <th
+                      className="border border-slate-200 px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide"
+                      style={{ color: requirementsHeaderTextColor }}
+                    >
                       Requirement
                     </th>
                   </tr>
@@ -469,5 +633,30 @@ function InfoRow({
         {value}
       </dd>
     </div>
+  );
+}
+
+function ColorControl({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <span className="text-sm text-slate-700">{label}</span>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-8 w-10 cursor-pointer rounded border border-slate-300 bg-white p-0"
+        />
+        <span className="w-20 text-xs font-mono text-slate-500">{value.toUpperCase()}</span>
+      </div>
+    </label>
   );
 }

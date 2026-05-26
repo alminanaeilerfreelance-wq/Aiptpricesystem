@@ -744,7 +744,7 @@ export default function AssocitePage() {
             rowsPerPage={limit}
             total={total}
             onPageChange={setPage}
-            showToolbar={false}
+            showToolbar
             loading={false}
           />
         )

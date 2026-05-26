@@ -333,7 +333,7 @@ export default function ProfitLossAnalysisPage() {
             rowsPerPage={limit}
             total={total}
             onPageChange={setPage}
-            showToolbar={false}
+            showToolbar
             loading={false}
           />
         )

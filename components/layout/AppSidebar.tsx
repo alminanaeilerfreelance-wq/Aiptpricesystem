@@ -130,6 +130,7 @@ const mainNavItems: NavItem[] = [
   },
   { label: 'Client Quotations', href: '/client-quotations', icon: <ListIcon /> },
   { label: 'Associate Quotations', href: '/associate-quotations', icon: <ListIcon /> },
+  { label: 'Inquires', href: '/inquires', icon: <ListIcon /> },
   { label: 'Procedures', href: '/procedures', icon: <ClipboardIcon /> },
   { label: 'Requirements', href: '/requirements', icon: <TagIcon /> },
   { label: 'Pricing Rules', href: '/pricing-rules', icon: <TagIcon /> },

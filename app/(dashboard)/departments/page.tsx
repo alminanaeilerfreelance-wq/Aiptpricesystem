@@ -599,7 +599,7 @@ export default function DepartmentsPage() {
               rowsPerPage={limit}
               total={total}
               onPageChange={setPage}
-              showToolbar={false}
+              showToolbar
               loading={false}
             />
           </>

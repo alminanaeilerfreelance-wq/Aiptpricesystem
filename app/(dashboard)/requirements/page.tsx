@@ -582,7 +582,7 @@ export default function RequirementsPage() {
                   setPage(1);
                 }
               }}
-              showToolbar={false}
+              showToolbar
               loading={false}
             />
           </>

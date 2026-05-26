@@ -485,3 +485,163 @@ Service Details - card - get the data. in Pricing Rules data model
    ----------------------------------------------------------------------------------------
    | procedure name |goverment fees        | atty fees             |total                 |
    ----------------------------------------------------------------------------------------  
+   inquires page - create a add, edit, update, delete
+use material ui, pagination datatable, sorting,searching to all data
+date  
+service - get the data onto service model 
+reference format -  year-country example   2026-SA/AE/KW
+procedure - get the data onto procedure model 
+country - get the data onto country model  
+              -can select multi country
+client-get the data onto client model
+remarks
+
+
+
+TBALE
+Use this prompt to generate the same modern DataTable UI design in Claude Code, Cursor, v0, Figma AI, Bolt, Lovable, or any UI generator:
+
+Prompt:
+
+Create a modern premium Admin DataTable Dashboard UI using React.js + Material UI (MUI).
+
+Requirements:
+
+Layout
+Clean enterprise dashboard style
+White background
+Rounded corners (16px–24px)
+Soft shadows
+Responsive desktop and mobile layout
+Spacious padding
+Modern SaaS appearance
+Header Section
+
+Top card header:
+
+Left icon inside rounded container
+Title: Users Management
+Subtitle: Manage and view all users in the system
+Right side:
+Primary button
+Icon "+"
+Label: Add New User
+Toolbar
+
+Below header:
+
+Left:
+
+Large search input
+Placeholder:
+"Search by name, email, role or status..."
+
+Right:
+
+Filter button
+Filter icon
+Dropdown support
+DataTable
+
+Columns:
+
+| ID | Image | Name | Email | Role | Status | Actions |
+
+Table Design:
+
+Sticky header
+Light gray header background
+Rounded rows
+Hover animation
+Row spacing
+Responsive
+
+Columns details:
+
+Image Column
+Circular avatar image
+56x56
+Soft border
+Placeholder support
+Role Badge
+
+Admin → Blue chip
+Editor → Purple chip
+User → Green chip
+
+Status Badge
+
+Active → Green outlined chip
+Inactive → Red outlined chip
+
+Actions Column
+
+Display icon buttons:
+
+👁 View
+✏ Edit
+🗑 Delete
+
+Actions:
+
+Tooltip
+Hover animation
+Rounded icon buttons
+Pagination Footer
+
+Bottom section:
+
+Left:
+Showing 1 to 5 of 25 entries
+
+Center:
+Pagination controls:
+< 1 2 3 4 5 >
+
+Right:
+Rows per page selector
+
+Options:
+5 / 10 / 25 / 50
+
+Functional Requirements
+
+Add:
+
+Global searching
+Pagination
+Sorting
+Export CSV
+Export PDF
+Import Excel
+Column visibility
+Loading skeleton
+Empty state
+View modal
+Edit modal
+Delete confirmation
+Mobile responsive
+Tech Stack
+
+Frontend:
+
+React.js
+Material UI
+React Hook Form
+Framer Motion
+
+Optional:
+
+TanStack Table
+React Query
+
+Style:
+Modern enterprise CRM / ERP dashboard similar to:
+
+Stripe
+Linear
+Notion
+Material Dashboard
+Vercel Admin
+
+Generate production-ready component structure and reusable DataTable architecture.

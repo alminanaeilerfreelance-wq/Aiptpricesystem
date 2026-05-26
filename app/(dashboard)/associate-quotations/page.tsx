@@ -573,7 +573,7 @@ export default function AssociateQuotationsPage() {
             rowsPerPage={limit}
             total={total}
             onPageChange={setPage}
-            showToolbar={false}
+            showToolbar
             loading={false}
           />
         )

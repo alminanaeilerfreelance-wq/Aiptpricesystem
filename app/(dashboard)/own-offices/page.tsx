@@ -303,7 +303,7 @@ export default function OwnOfficesPage() {
             rowsPerPage={limit}
             total={total}
             onPageChange={setPage}
-            showToolbar={false}
+            showToolbar
             loading={false}
           />
         )

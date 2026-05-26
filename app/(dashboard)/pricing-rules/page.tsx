@@ -747,7 +747,7 @@ export default function PricingRulesPage() {
               rowsPerPage={limit}
               total={total}
               onPageChange={setPage}
-              showToolbar={false}
+              showToolbar
               loading={false}
             />
           </>

@@ -534,7 +534,7 @@ export default function ClientTypesPage() {
               rowsPerPage={limit}
               total={total}
               onPageChange={setPage}
-              showToolbar={false}
+              showToolbar
               loading={false}
             />
           </>

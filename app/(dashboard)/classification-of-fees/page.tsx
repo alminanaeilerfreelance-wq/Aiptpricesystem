@@ -510,7 +510,7 @@ export default function ClassificationOfFeesPage() {
               rowsPerPage={limit}
               total={total}
               onPageChange={setPage}
-              showToolbar={false}
+              showToolbar
               loading={false}
             />
           </>

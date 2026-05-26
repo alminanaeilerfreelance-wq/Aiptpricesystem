@@ -19,6 +19,8 @@ export interface AssociateQuotationServiceItem {
 export interface AssociateQuotation {
   _id: string;
   quotationNo: string;
+  serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  countryAbbreviation: string;
   associateId?: string | {
     _id: string;
     associteName?: string;
@@ -64,6 +66,7 @@ export interface AssociateQuotationListResponse {
 
 export interface CreateAssociateQuotationDto {
   associateId?: string;
+  serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   inquiryProject: string;
   services: Array<Partial<AssociateQuotationServiceItem> & { procedureName: string }>;
   status?: 'Draft' | 'Submitted' | 'Approved' | 'Rejected';

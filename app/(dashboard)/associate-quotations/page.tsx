@@ -43,15 +43,38 @@ import { useDebounce } from '@/hooks/useDebounce';
 export const dynamic = 'force-dynamic';
 
 type ClassType = 'single' | 'multi';
+type ServiceCategory = 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+
+const SERVICE_OPTIONS: ServiceCategory[] = [
+  'Trademark',
+  'Patent',
+  'Copyright',
+  'Design',
+  'Litigation',
+];
+
+const SERVICE_CODE_MAP: Record<ServiceCategory, string> = {
+  Trademark: 'T',
+  Patent: 'P',
+  Copyright: 'C',
+  Design: 'D',
+  Litigation: 'L',
+};
 
 interface AssociateOption {
   _id: string;
   associteName: string;
+  country?: string;
   email?: string;
   associteType?: string;
   contact?: string;
   address?: string;
   notes?: string;
+}
+
+interface PricingProcedureOption {
+  serviceCategory: ServiceCategory;
+  procedureName: string;
 }
 
 interface ServiceDraft {
@@ -151,11 +174,12 @@ export default function AssociateQuotationsPage() {
   const [successMessage, setSuccessMessage] = useState('');
 
   const [associates, setAssociates] = useState<AssociateOption[]>([]);
-  const [procedureOptions, setProcedureOptions] = useState<string[]>([]);
+  const [allProcedureOptions, setAllProcedureOptions] = useState<PricingProcedureOption[]>([]);
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedAssociateId, setSelectedAssociateId] = useState<string>('');
+  const [selectedServiceCategory, setSelectedServiceCategory] = useState<ServiceCategory>('Trademark');
   const [inquiryProject, setInquiryProject] = useState('');
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(defaultServiceDraft);
   const [services, setServices] = useState<AssociateQuotationServiceItem[]>([]);
@@ -174,6 +198,35 @@ export default function AssociateQuotationsPage() {
     [associates, selectedAssociateId]
   );
 
+  const procedureOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          allProcedureOptions
+            .filter((item) => item.serviceCategory === selectedServiceCategory)
+            .map((item) => item.procedureName.trim())
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b)),
+    [allProcedureOptions, selectedServiceCategory]
+  );
+
+  const referencePreview = useMemo(() => {
+    const year = new Date().getFullYear();
+    const serviceCode = SERVICE_CODE_MAP[selectedServiceCategory];
+    const rawCountry = (selectedAssociate?.country || '').trim();
+    const country = rawCountry
+      ? rawCountry
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((item) => item[0]?.toUpperCase() || '')
+          .join('')
+          .slice(0, 3) || rawCountry.slice(0, 2).toUpperCase()
+      : 'XX';
+    return `${serviceCode} ${year}-0001 ${country}`;
+  }, [selectedAssociate?.country, selectedServiceCategory]);
+
   const totals = useMemo(() => computeTotals(services), [services]);
 
   const loadLookups = useCallback(async () => {
@@ -186,6 +239,7 @@ export default function AssociateQuotationsPage() {
       ? associateRes.assocites.map((item) => ({
           _id: item._id,
           associteName: item.associteName,
+          country: item.country,
           email: item.email,
           associteType: item.associteType,
           contact: item.contact,
@@ -196,17 +250,20 @@ export default function AssociateQuotationsPage() {
 
     setAssociates(normalizedAssociates);
 
-    const procedures = Array.isArray(pricingRes.pricingRules)
-      ? Array.from(
-          new Set(
-            pricingRes.pricingRules
-              .map((item) => item.procedureName.trim())
-              .filter(Boolean)
+    const procedurePairs = Array.isArray(pricingRes.pricingRules)
+      ? pricingRes.pricingRules
+          .filter(
+            (item) =>
+              SERVICE_OPTIONS.includes(item.serviceCategory as ServiceCategory) &&
+              String(item.procedureName || '').trim()
           )
-        ).sort((a, b) => a.localeCompare(b))
+          .map((item) => ({
+            serviceCategory: item.serviceCategory as ServiceCategory,
+            procedureName: item.procedureName,
+          }))
       : [];
 
-    setProcedureOptions(procedures);
+    setAllProcedureOptions(procedurePairs);
   }, []);
 
   const fetchItems = useCallback(async (params?: { nextPage?: number; nextSearch?: string }) => {
@@ -242,13 +299,14 @@ export default function AssociateQuotationsPage() {
   useEffect(() => {
     loadLookups().catch(() => {
       setAssociates([]);
-      setProcedureOptions([]);
+      setAllProcedureOptions([]);
     });
   }, [loadLookups]);
 
   const resetFormState = () => {
     setEditingId(null);
     setSelectedAssociateId('');
+    setSelectedServiceCategory('Trademark');
     setInquiryProject('');
     setServiceDraft(defaultServiceDraft);
     setServices([]);
@@ -262,6 +320,7 @@ export default function AssociateQuotationsPage() {
   const handleEdit = (item: AssociateQuotation) => {
     setEditingId(item._id);
     setSelectedAssociateId(normalizeAssociate(item.associateId) || '');
+    setSelectedServiceCategory(item.serviceCategory || 'Trademark');
     setInquiryProject(item.inquiryProject || '');
     setServices(Array.isArray(item.services) ? item.services : []);
     setServiceDraft(defaultServiceDraft);
@@ -303,6 +362,10 @@ export default function AssociateQuotationsPage() {
       setError('Associate is required');
       return;
     }
+    if (!selectedServiceCategory) {
+      setError('Service category is required');
+      return;
+    }
     if (!inquiryProject.trim()) {
       setError('Inquiry project is required');
       return;
@@ -314,6 +377,7 @@ export default function AssociateQuotationsPage() {
 
     const payload = {
       associateId: selectedAssociateId,
+      serviceCategory: selectedServiceCategory,
       inquiryProject: inquiryProject.trim(),
       services: services.map((service) => ({
         procedureName: service.procedureName,
@@ -375,6 +439,14 @@ export default function AssociateQuotationsPage() {
       sortable: true,
       searchValue: (row) => row.quotationNo,
       render: (row) => row.quotationNo,
+    },
+    {
+      id: 'serviceCategory',
+      label: 'Service',
+      sortable: true,
+      minWidth: 130,
+      searchValue: (row) => row.serviceCategory || '',
+      render: (row) => row.serviceCategory || '-',
     },
     {
       id: 'associate',
@@ -525,10 +597,40 @@ export default function AssociateQuotationsPage() {
 
                   <Grid container spacing={2}>
                     <Grid size={{ xs: 12, md: 6 }}>
+                      <FormControl fullWidth required>
+                        <InputLabel>Service Category</InputLabel>
+                        <Select
+                          value={selectedServiceCategory}
+                          label="Service Category"
+                          onChange={(event) => {
+                            setSelectedServiceCategory(event.target.value as ServiceCategory);
+                            setServiceDraft((prev) => ({ ...prev, procedureName: '' }));
+                          }}
+                        >
+                          {SERVICE_OPTIONS.map((option) => (
+                            <MenuItem key={option} value={option}>
+                              {option}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 6 }}>
+                      <TextField
+                        label="Reference Preview"
+                        value={referencePreview}
+                        fullWidth
+                        slotProps={{ input: { readOnly: true } }}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 6 }}>
                       <TextField label="Associate Email" value={selectedAssociate?.email || ''} fullWidth slotProps={{ input: { readOnly: true } }} />
                     </Grid>
                     <Grid size={{ xs: 12, md: 6 }}>
                       <TextField label="Associate Type" value={selectedAssociate?.associteType || ''} fullWidth slotProps={{ input: { readOnly: true } }} />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 6 }}>
+                      <TextField label="Country" value={selectedAssociate?.country || ''} fullWidth slotProps={{ input: { readOnly: true } }} />
                     </Grid>
                     <Grid size={{ xs: 12 }}>
                       <TextField label="Notes" value={selectedAssociate?.notes || ''} fullWidth multiline minRows={2} slotProps={{ input: { readOnly: true } }} />
@@ -750,6 +852,8 @@ export default function AssociateQuotationsPage() {
           {viewingItem && (
             <Stack spacing={2} sx={{ pt: 1 }}>
               <Typography><strong>Quotation No:</strong> {viewingItem.quotationNo}</Typography>
+              <Typography><strong>Service Category:</strong> {viewingItem.serviceCategory || '-'}</Typography>
+              <Typography><strong>Country Abbreviation:</strong> {viewingItem.countryAbbreviation || '-'}</Typography>
               <Typography><strong>Associate:</strong> {viewingItem.associateSnapshot?.associteName || '-'}</Typography>
               <Typography><strong>Inquiry Project:</strong> {viewingItem.inquiryProject}</Typography>
               <Typography><strong>Grand Total:</strong> {toCurrency(viewingItem.grandTotal || 0)}</Typography>

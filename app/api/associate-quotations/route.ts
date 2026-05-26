@@ -4,6 +4,12 @@ import connectDB from '@/lib/mongodb';
 import AssociateQuotation from '@/models/AssociateQuotation';
 import Associte from '@/models/Associte';
 import { getUserFromRequest } from '@/lib/auth';
+import {
+  ASSOCIATE_QUOTATION_SERVICE_CATEGORIES,
+  generateAssociateQuotationNo,
+  isAssociateQuotationServiceCategory,
+  resolveCountryAbbreviationFromValue,
+} from '@/lib/associate-quotation-number';
 
 interface RawServiceItem {
   procedureId?: string;
@@ -106,6 +112,8 @@ export async function GET(req: NextRequest) {
       filter.$or = [
         { quotationNo: { $regex: safeSearch, $options: 'i' } },
         { inquiryProject: { $regex: safeSearch, $options: 'i' } },
+        { serviceCategory: { $regex: safeSearch, $options: 'i' } },
+        { countryAbbreviation: { $regex: safeSearch, $options: 'i' } },
         { 'associateSnapshot.associteName': { $regex: safeSearch, $options: 'i' } },
         { 'associateSnapshot.email': { $regex: safeSearch, $options: 'i' } },
         { 'services.procedureName': { $regex: safeSearch, $options: 'i' } },
@@ -142,6 +150,18 @@ export async function POST(req: NextRequest) {
     await connectDB();
     const body = await req.json();
     const inquiryProject = String(body?.inquiryProject || '').trim();
+    const serviceCategoryRaw = String(body?.serviceCategory || '').trim();
+
+    if (!isAssociateQuotationServiceCategory(serviceCategoryRaw)) {
+      return NextResponse.json(
+        {
+          error: `Service category is required and must be one of: ${ASSOCIATE_QUOTATION_SERVICE_CATEGORIES.join(
+            ', '
+          )}`,
+        },
+        { status: 400 }
+      );
+    }
 
     if (!inquiryProject) {
       return NextResponse.json({ error: 'Inquiry project is required' }, { status: 400 });
@@ -161,28 +181,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid status value' }, { status: 400 });
     }
 
-    let associateSnapshot: any = undefined;
-    let associateId: mongoose.Types.ObjectId | undefined;
-
-    if (body?.associateId !== undefined && body.associateId !== null && body.associateId !== '') {
-      if (typeof body.associateId !== 'string' || !mongoose.Types.ObjectId.isValid(body.associateId)) {
-        return NextResponse.json({ error: 'Invalid associateId' }, { status: 400 });
-      }
-      associateId = new mongoose.Types.ObjectId(body.associateId);
-      const associte = await Associte.findById(associateId).lean();
-      if (associte && associte.isActive) {
-        associateSnapshot = {
-          associteName: associte.associteName,
-          email: associte.email,
-          associteType: associte.associteType,
-          contact: associte.contact,
-          address: associte.address,
-          notes: associte.notes,
-        };
-      }
+    if (!body?.associateId) {
+      return NextResponse.json({ error: 'Associate is required' }, { status: 400 });
+    }
+    if (typeof body.associateId !== 'string' || !mongoose.Types.ObjectId.isValid(body.associateId)) {
+      return NextResponse.json({ error: 'Invalid associateId' }, { status: 400 });
     }
 
+    const associateId = new mongoose.Types.ObjectId(body.associateId);
+    const associte = await Associte.findById(associateId).lean();
+    if (!associte || !associte.isActive) {
+      return NextResponse.json({ error: 'Associate not found' }, { status: 404 });
+    }
+
+    const countryAbbreviation = await resolveCountryAbbreviationFromValue(associte.country);
+    if (!countryAbbreviation) {
+      return NextResponse.json(
+        { error: 'Associate country is required to generate quotation reference number' },
+        { status: 400 }
+      );
+    }
+
+    const quotationNo = await generateAssociateQuotationNo({
+      serviceCategory: serviceCategoryRaw,
+      countryAbbreviation,
+    });
+
+    const associateSnapshot = {
+      associteName: associte.associteName,
+      email: associte.email,
+      associteType: associte.associteType,
+      contact: associte.contact,
+      address: associte.address,
+      country: associte.country,
+      notes: associte.notes,
+    };
+
     const associateQuotation = await AssociateQuotation.create({
+      quotationNo,
+      serviceCategory: serviceCategoryRaw,
+      countryAbbreviation,
       associateId,
       associateSnapshot,
       inquiryProject,
@@ -199,6 +237,18 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(populated, { status: 201 });
   } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (err as any).code === 11000
+    ) {
+      return NextResponse.json(
+        { error: 'Duplicate quotation reference generated. Please retry.' },
+        { status: 409 }
+      );
+    }
     if (err instanceof mongoose.Error.ValidationError) {
       return NextResponse.json(toErrorPayload('Invalid associate quotation payload', err), { status: 400 });
     }

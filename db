@@ -55,74 +55,363 @@ All Quotations - fix the Request failed with status code 500
                  import, export, pdf,
                  action : view, edit, update, delete
 
-create a page name own officies  
-    add,edit, update, delete
-    fields: country , company name, address, tax,
-    material ui pagination card, searching,
+Fix the “All Quotations” page error: Request failed with status code 500.
 
-   client Quotation 
-                  Associte Information card
+First, inspect the backend logs and the frontend API call used by All Quotations.
+Find the exact failing route, controller, model, populate, query, or missing field.
+Fix the API so All Quotations loads without 500 errors.
+Add proper try/catch, validation, and clear JSON error responses.
 
-                  - get the data into associte model 
-                  - after select auto display the client email,associte type,email,notes,notes
-                  - add input name inquires project
-                  user can input multi project  example project1, project2, projectr3 an so on
-                  get inquires project select from asssocite Quotation required
+Then implement these new modules using clean architecture.
 
-                  Service Details card
-   
-                  Procedure -get the data into Pricing Rules model 
-                  after select the procedure add to the cart and manually input the office fee, atty fee and the total
+TECH STACK:
+- Frontend: React / Next.js
+- UI: Material UI
+- Backend: Node.js + Express
+- Database: MongoDB + Mongoose
+- Use existing auth/API structure if available
+- Keep code consistent with current project structure
 
-                  add inputbox for the offices fees 
-                  optional for add discount inputbox 
-                  this is optional if the client have a multi or single class if 
-                  the user select single no need to display the input additional fees for additional class
-                  official fees user manual input
+==================================================
+1. CLIENT PAGE
+==================================================
 
-                  else if the user select multi class the user required to input additional fees for additional class
-                  inputbox for qty * number of classes = total of official fees  
+Create page: Client
 
-                  atty fees input box 
+Features:
+- Add client
+- View client
+- Edit client
+- Update client
+- Delete client
+- Material UI table/card layout
+- Pagination
+- Search all fields
+- Import clients
+- Export clients
+- Export PDF
 
-                  total amount
+Client fields should support:
+- client name
+- email
+- phone
+- address
+- country
+- company name
+- notes
+- createdAt
+- updatedAt
 
-                  other fees + total of official fees + atty fee = grand total 
-                  display on the table the total of class 
+Backend:
+- Create Client model
+- Create client controller
+- Create client routes
+- Support pagination:
+  page, limit
+- Support search across all fields
+- CRUD API endpoints
+- Import/export endpoint if needed
 
-   asssocite Quotation  
-                  Associte Information card
+Frontend:
+- /clients page
+- Material UI DataGrid or Table
+- Search input
+- Pagination
+- Buttons: Add, Import, Export, PDF
+- Row actions: View, Edit, Delete
+- Modal/Dialog form for add/edit/view
 
-                  - get the data into associte model 
-                  - after select auto display the client email,associte type,email,notes,notes
-                  - add input name inquires project
+==================================================
+2. OWN OFFICES PAGE
+==================================================
 
-                  Service Details card
-                  
-                  Procedure -get the data into Pricing Rules model 
-                  after select the procedure add to the cart and manuly input the office fee, atty fee and the total
-                  add inputbox for othe fees 
+Create page: Own Offices
 
-                  this is optional if the associte have a multi or single class if 
-                  the user select single no need to display the input additional fees for additional class
-                  official fees user manual input
+Fields:
+- country
+- companyName
+- address
+- tax
 
-                  else if the user select multi class the user required to input additional fees for additional class
-                  inputbox for qty * number of class = total of official fees  
+Features:
+- Add
+- Edit
+- Update
+- Delete
+- Material UI card/table
+- Pagination
+- Search
 
-                  atty fees input box 
+Backend:
+- Create OwnOffice model
+- Create controller
+- Create routes
+- CRUD API
+- Search across country, companyName, address, tax
 
-                  total amount
+Frontend:
+- /own-offices page
+- Material UI Card + Table
+- Add/Edit dialog
+- Delete confirmation
+- Pagination
+- Search
 
-                  other fees + total of official fees + atty fee = grand total 
-                  display on the table the total of class
+==================================================
+3. CLIENT QUOTATION
+==================================================
 
-   profit or loss analysis
-                  match the inquires project from client Quotation  to asssocite Quotation  
-                  display the total of 
-                  client Quotation - asssocite Quotation = profit or loss analysis 
-                  display total of profit or loss 
-                  
+Create or fix page: Client Quotation
+
+Sections:
+
+A. Associate Information Card
+
+Important:
+- Get associate data from Associate model
+- When user selects associate, auto-display:
+  - client email
+  - associate type
+  - email
+  - notes
+  - notes/details if existing
+
+Add input:
+- inquiryProject
+
+User can input multiple inquiry projects:
+Example:
+- project1
+- project2
+- project3
+
+Use chip/tag input or dynamic input rows.
+
+Inquiry Project is required.
+
+The inquiry project should later be used to match Client Quotation with Associate Quotation.
+
+B. Service Details Card
+
+Procedure:
+- Get procedure data from Pricing Rules model
+- When user selects procedure, add it to quotation cart/table
+- User can manually input:
+  - office fee
+  - official fee
+  - attorney fee
+  - other fees
+  - discount optional
+  - class type: single or multi
+
+Class fee logic:
+- If class type is single:
+  - Do NOT display additional class fee input
+  - Official fee is manual input
+
+- If class type is multi:
+  - Display additional class fee inputs
+  - Required fields:
+    - numberOfClasses
+    - additionalFeePerClass
+  - totalOfficialFees = officialFee + (additionalFeePerClass * numberOfClasses)
+
+Service row calculation:
+- totalAmount = officialFees + attorneyFee + officeFee + otherFees
+- discount is optional
+- grandTotal = totalAmount - discount
+
+Display in table:
+- procedure
+- class type
+- number of classes
+- official fees
+- additional class fees
+- attorney fee
+- office fee
+- other fees
+- discount
+- grand total
+
+Quotation total:
+- Sum all service row grand totals
+
+Backend:
+- Create ClientQuotation model if missing
+- Store:
+  - associateId
+  - associate snapshot info
+  - inquiryProjects array
+  - services array
+  - totalOfficialFees
+  - totalAttorneyFees
+  - totalOfficeFees
+  - totalOtherFees
+  - totalDiscount
+  - grandTotal
+- Create CRUD APIs
+- Add search and pagination
+
+Frontend:
+- Add Material UI cards
+- Associate select autocomplete
+- Pricing Rule / Procedure select autocomplete
+- Add to cart button
+- Service details table
+- Auto-calculate totals
+- Save quotation
+
+==================================================
+4. ASSOCIATE QUOTATION
+==================================================
+
+Create or fix page: Associate Quotation
+
+Sections:
+
+A. Associate Information Card
+
+- Get data from Associate model
+- After selecting associate, auto-display:
+  - client email
+  - associate type
+  - email
+  - notes
+  - notes/details
+
+Add input:
+- inquiryProject
+
+Important:
+- inquiryProject is required
+- This must be used to match with Client Quotation inquiryProject
+
+B. Service Details Card
+
+Procedure:
+- Get procedures from Pricing Rules model
+- After selecting procedure, add it to cart
+- User manually inputs:
+  - office fee
+  - official fee
+  - attorney fee
+  - other fees
+  - class type: single or multi
+
+Class fee logic:
+- If single:
+  - Hide additional class fee input
+  - Official fee manual input
+
+- If multi:
+  - Show:
+    - numberOfClasses
+    - additionalFeePerClass
+  - totalOfficialFees = officialFee + (additionalFeePerClass * numberOfClasses)
+
+Service row calculation:
+- totalAmount = officialFees + attorneyFee + officeFee + otherFees
+- grandTotal = totalAmount
+
+Display in table:
+- procedure
+- class type
+- number of classes
+- official fees
+- additional class fees
+- attorney fee
+- office fee
+- other fees
+- grand total
+
+Backend:
+- Create AssociateQuotation model if missing
+- Store:
+  - associateId
+  - associate snapshot info
+  - inquiryProject
+  - services array
+  - totals
+  - grandTotal
+- Create CRUD APIs
+- Add search and pagination
+
+Frontend:
+- Material UI card layout
+- Associate autocomplete
+- Procedure autocomplete
+- Add to cart
+- Calculation table
+- Save quotation
+
+==================================================
+5. PROFIT OR LOSS ANALYSIS
+==================================================
+
+Create page: Profit or Loss Analysis
+
+Logic:
+- Match Client Quotation inquiryProjects with Associate Quotation inquiryProject
+- Compare totals:
+
+profitOrLoss = clientQuotationGrandTotal - associateQuotationGrandTotal
+
+Display:
+- inquiry project
+- client quotation number
+- associate quotation number
+- client quotation total
+- associate quotation total
+- profit/loss amount
+- status:
+  - Profit if amount > 0
+  - Loss if amount < 0
+  - Break-even if amount = 0
+
+Also display:
+- Total profit
+- Total loss
+- Net total
+
+Frontend:
+- Material UI table/card
+- Search by inquiry project
+- Pagination
+- Export PDF
+- Export Excel/CSV
+
+Backend:
+- Create endpoint:
+  GET /api/profit-loss
+- Aggregate or match quotations by inquiryProject
+- Return calculated profit/loss records
+
+==================================================
+6. GENERAL REQUIREMENTS
+==================================================
+
+- Fix all API 500 errors
+- Never leave unhandled server errors
+- Add clear backend validation
+- Add frontend loading state
+- Add frontend error snackbar
+- Add delete confirmation dialog
+- Use reusable API helper
+- Use reusable table/page components if available
+- Keep UI responsive
+- Do not break existing pages
+- Make sure all routes are registered in server.js/app.js
+- Make sure all frontend API URLs are correct
+- Make sure MongoDB model names and refs are correct
+- Test every CRUD endpoint
+- Test quotation calculations
+- Test profit/loss matching
+
+After implementation, give me:
+1. Files changed
+2. What caused the 500 error
+3. How it was fixed
+4. How to test each page
                  
 Services page -  fix the add,edit,update,delete 
                  modifiy into proffesional design

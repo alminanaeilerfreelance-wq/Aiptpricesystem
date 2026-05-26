@@ -4,6 +4,12 @@ import connectDB from '@/lib/mongodb';
 import AssociateQuotation from '@/models/AssociateQuotation';
 import Associte from '@/models/Associte';
 import { getUserFromRequest } from '@/lib/auth';
+import {
+  ASSOCIATE_QUOTATION_SERVICE_CATEGORIES,
+  generateAssociateQuotationNo,
+  isAssociateQuotationServiceCategory,
+  resolveCountryAbbreviationFromValue,
+} from '@/lib/associate-quotation-number';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -124,6 +130,11 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     await connectDB();
+    const existingQuotation = await AssociateQuotation.findById(id).lean();
+    if (!existingQuotation || !existingQuotation.isActive) {
+      return NextResponse.json({ error: 'Associate quotation not found' }, { status: 404 });
+    }
+
     const body = await req.json();
     const updatePayload: Record<string, any> = {};
 
@@ -154,27 +165,97 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       updatePayload.status = body.status;
     }
 
+    if (body?.serviceCategory !== undefined) {
+      const serviceCategory = String(body.serviceCategory || '').trim();
+      if (!isAssociateQuotationServiceCategory(serviceCategory)) {
+        return NextResponse.json(
+          {
+            error: `Service category must be one of: ${ASSOCIATE_QUOTATION_SERVICE_CATEGORIES.join(
+              ', '
+            )}`,
+          },
+          { status: 400 }
+        );
+      }
+      updatePayload.serviceCategory = serviceCategory;
+    }
+
     if (body?.associateId !== undefined) {
       if (typeof body.associateId === 'string' && mongoose.Types.ObjectId.isValid(body.associateId)) {
         const associateId = new mongoose.Types.ObjectId(body.associateId);
         updatePayload.associateId = associateId;
         const associte = await Associte.findById(associateId).lean();
-        if (associte && associte.isActive) {
-          updatePayload.associateSnapshot = {
-            associteName: associte.associteName,
-            email: associte.email,
-            associteType: associte.associteType,
-            contact: associte.contact,
-            address: associte.address,
-            notes: associte.notes,
-          };
+        if (!associte || !associte.isActive) {
+          return NextResponse.json({ error: 'Associate not found' }, { status: 404 });
         }
+
+        const countryAbbreviation = await resolveCountryAbbreviationFromValue(associte.country);
+        if (!countryAbbreviation) {
+          return NextResponse.json(
+            { error: 'Associate country is required to generate quotation reference number' },
+            { status: 400 }
+          );
+        }
+
+        updatePayload.countryAbbreviation = countryAbbreviation;
+        updatePayload.associateSnapshot = {
+          associteName: associte.associteName,
+          email: associte.email,
+          associteType: associte.associteType,
+          contact: associte.contact,
+          address: associte.address,
+          country: associte.country,
+          notes: associte.notes,
+        };
       } else if (body.associateId === null || body.associateId === '') {
-        updatePayload.associateId = undefined;
-        updatePayload.associateSnapshot = undefined;
+        return NextResponse.json({ error: 'Associate is required' }, { status: 400 });
       } else {
         return NextResponse.json({ error: 'Invalid associateId' }, { status: 400 });
       }
+    }
+
+    const nextServiceCategoryRaw =
+      updatePayload.serviceCategory ?? existingQuotation.serviceCategory;
+
+    if (!isAssociateQuotationServiceCategory(nextServiceCategoryRaw)) {
+      return NextResponse.json(
+        {
+          error: `Service category is required and must be one of: ${ASSOCIATE_QUOTATION_SERVICE_CATEGORIES.join(
+            ', '
+          )}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    const nextCountryAbbreviation =
+      updatePayload.countryAbbreviation ?? existingQuotation.countryAbbreviation;
+
+    if (!nextCountryAbbreviation) {
+      return NextResponse.json(
+        { error: 'Country abbreviation is required to generate quotation reference number' },
+        { status: 400 }
+      );
+    }
+
+    const referenceFormatRegex = /^[TPCDL]\s\d{4}-\d{4}\s[A-Z0-9]{2,3}$/;
+    const serviceChanged =
+      updatePayload.serviceCategory !== undefined &&
+      updatePayload.serviceCategory !== existingQuotation.serviceCategory;
+    const countryChanged =
+      updatePayload.countryAbbreviation !== undefined &&
+      updatePayload.countryAbbreviation !== existingQuotation.countryAbbreviation;
+
+    if (
+      serviceChanged ||
+      countryChanged ||
+      !referenceFormatRegex.test(String(existingQuotation.quotationNo || ''))
+    ) {
+      updatePayload.quotationNo = await generateAssociateQuotationNo({
+        serviceCategory: nextServiceCategoryRaw,
+        countryAbbreviation: String(nextCountryAbbreviation),
+        excludeId: id,
+      });
     }
 
     const associateQuotation = await AssociateQuotation.findByIdAndUpdate(
@@ -189,6 +270,18 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(associateQuotation);
   } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      'code' in err &&
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (err as any).code === 11000
+    ) {
+      return NextResponse.json(
+        { error: 'Duplicate quotation reference generated. Please retry.' },
+        { status: 409 }
+      );
+    }
     if (err instanceof mongoose.Error.ValidationError) {
       return NextResponse.json(toErrorPayload('Invalid associate quotation payload', err), { status: 400 });
     }

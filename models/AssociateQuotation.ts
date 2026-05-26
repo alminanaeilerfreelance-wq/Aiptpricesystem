@@ -18,6 +18,8 @@ export interface IAssociateQuotationServiceItem {
 
 export interface IAssociateQuotation extends Document {
   quotationNo: string;
+  serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  countryAbbreviation: string;
   associateId?: mongoose.Types.ObjectId;
   associateSnapshot?: {
     associteName?: string;
@@ -25,6 +27,7 @@ export interface IAssociateQuotation extends Document {
     associteType?: string;
     contact?: string;
     address?: string;
+    country?: string;
     notes?: string;
   };
   inquiryProject: string;
@@ -61,7 +64,18 @@ const serviceItemSchema = new mongoose.Schema<IAssociateQuotationServiceItem>(
 
 const associateQuotationSchema = new mongoose.Schema<IAssociateQuotation>(
   {
-    quotationNo: { type: String, unique: true },
+    quotationNo: { type: String, unique: true, required: true, trim: true },
+    serviceCategory: {
+      type: String,
+      enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'],
+      required: true,
+    },
+    countryAbbreviation: {
+      type: String,
+      required: true,
+      trim: true,
+      uppercase: true,
+    },
     associateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Associte' },
     associateSnapshot: {
       associteName: { type: String, trim: true },
@@ -69,6 +83,7 @@ const associateQuotationSchema = new mongoose.Schema<IAssociateQuotation>(
       associteType: { type: String, trim: true },
       contact: { type: String, trim: true },
       address: { type: String, trim: true },
+      country: { type: String, trim: true },
       notes: { type: String, trim: true },
     },
     inquiryProject: { type: String, required: true, trim: true },
@@ -84,17 +99,10 @@ const associateQuotationSchema = new mongoose.Schema<IAssociateQuotation>(
   { timestamps: true }
 );
 
-associateQuotationSchema.pre('save', async function (next) {
-  if (!this.quotationNo) {
-    const year = new Date().getFullYear();
-    const count = await mongoose.model('AssociateQuotation').countDocuments();
-    this.quotationNo = `AQ-${year}-${String(count + 1).padStart(4, '0')}`;
-  }
-  next();
-});
-
 associateQuotationSchema.index({ quotationNo: 1 });
 associateQuotationSchema.index({ associateId: 1 });
+associateQuotationSchema.index({ serviceCategory: 1 });
+associateQuotationSchema.index({ countryAbbreviation: 1 });
 associateQuotationSchema.index({ inquiryProject: 1 });
 associateQuotationSchema.index({ createdAt: -1 });
 

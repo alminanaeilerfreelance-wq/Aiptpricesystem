@@ -11,6 +11,26 @@ git branch -M main
 git remote add origin https://github.com/alminanaeilerfreelance-wq/Aiptpricesystem.git
 git push -u origin main
 
+associte page 
+create a page name associte 
+add pagination, searhing to all fields, use material ui
+import, export, pdf,
+action : view, edit, update, delete
+fields:
+        Assigned ID
+        associte Name
+        Country
+        Continent
+        company name
+        Address
+        Email
+        Contact
+        Notes
+        associte Type-get the data in client data model
+        Status - Big, small, new, banned,
+
+
+
 client page 
 create a page name client 
 add pagination, searhing to all fields, use material ui
@@ -34,42 +54,124 @@ All Quotations - fix the Request failed with status code 500
                  add pagination, searhing to all fields, use material ui
                  import, export, pdf,
                  action : view, edit, update, delete
-New Quotation - get the data into client model 
-                  - after select auto display the client email,client type,email,notes
-                 Procedure -get the data into procedure model  
-Services page -  add pagination, searhing to all fields, use material ui
+
+create a page name own officies  
+    add,edit, update, delete
+    fields: country , company name, address, tax,
+    material ui pagination card, searching,
+
+   client Quotation 
+                  Associte Information card
+
+                  - get the data into associte model 
+                  - after select auto display the client email,associte type,email,notes,notes
+                  - add input name inquires project
+                  user can input multi project  example project1, project2, projectr3 an so on
+                  get inquires project select from asssocite Quotation required
+
+                  Service Details card
+   
+                  Procedure -get the data into Pricing Rules model 
+                  after select the procedure add to the cart and manually input the office fee, atty fee and the total
+
+                  add inputbox for the offices fees 
+                  optional for add discount inputbox 
+                  this is optional if the client have a multi or single class if 
+                  the user select single no need to display the input additional fees for additional class
+                  official fees user manual input
+
+                  else if the user select multi class the user required to input additional fees for additional class
+                  inputbox for qty * number of classes = total of official fees  
+
+                  atty fees input box 
+
+                  total amount
+
+                  other fees + total of official fees + atty fee = grand total 
+                  display on the table the total of class 
+
+   asssocite Quotation  
+                  Associte Information card
+
+                  - get the data into associte model 
+                  - after select auto display the client email,associte type,email,notes,notes
+                  - add input name inquires project
+
+                  Service Details card
+                  
+                  Procedure -get the data into Pricing Rules model 
+                  after select the procedure add to the cart and manuly input the office fee, atty fee and the total
+                  add inputbox for othe fees 
+
+                  this is optional if the associte have a multi or single class if 
+                  the user select single no need to display the input additional fees for additional class
+                  official fees user manual input
+
+                  else if the user select multi class the user required to input additional fees for additional class
+                  inputbox for qty * number of class = total of official fees  
+
+                  atty fees input box 
+
+                  total amount
+
+                  other fees + total of official fees + atty fee = grand total 
+                  display on the table the total of class
+
+   profit or loss analysis
+                  match the inquires project from client Quotation  to asssocite Quotation  
+                  display the total of 
+                  client Quotation - asssocite Quotation = profit or loss analysis 
+                  display total of profit or loss 
+                  
+                 
+Services page -  fix the add,edit,update,delete 
+                 modifiy into proffesional design
+                 add pagination, searhing to all fields, use material ui
                  import, export, pdf,
                  action : view, edit, update, delete
-Department    - create a page name Department 
+Department    - 
+                  fix the add,edit,update,delete 
+                 modifiy into proffesional design
                   fileds: Department, country 
                  add pagination, searhing to all fields, use material ui
                  import, export, pdf,
                  action : view, edit, update, delete
-Countries pages- add pagination, searhing to all fields, use material ui
+Countries pages- fix the add,edit,update,delete 
+                 modifiy into proffesional design
+                 add pagination, searhing to all fields, use material ui
                  import, export, pdf,
                  action : view, edit, update, delete
-Procedures- add pagination, searhing to all fields, use material ui in every tab
+Procedures-      fix the add,edit,update,delete 
+                 modifiy into proffesional design
+                 add pagination, searhing to all fields, use material ui in every tab
                  import, export, pdf,in every tab
                  action : view, edit, update, delete in every tab
-Classification of Fees-  add pagination, searhing to all fields, use material ui
+Classification of Fees-  fix the add,edit,update,delete 
+                 modifiy into proffesional design
+                 add pagination, searhing to all fields, use material ui
                  import, export, pdf,
                  action : view, edit, update, delete
-Client Types -   add pagination, searhing to all fields, use material ui
+Client Types -   fix the add,edit,update,delete 
+                 modifiy into proffesional design
+                 add pagination, searhing to all fields, use material ui
                  import, export, pdf,
                  action : view, edit, update, delete
- Pricing Rules-  add pagination, searhing to all fields, use material ui
+ Pricing Rules-  fix the add,edit,update,delete 
+                 modifiy into proffesional design
+                 add pagination, searhing to all fields, use material ui
                  import, export, pdf,
                  action : view, edit, update, delete       
 Quotations Report - add the link in every card to the corresponding data
 
-requirment page  - create a add, edit, update delete
+requirment page  - fix the add,edit,update,delete 
+                    modifiy into proffesional design
                  - fields: 
                     -country - get the data in the country model
                     requirements - add textbox with WYSIWYG editor 
                  - add pagination, searching to all fields, use material ui
                  - import, export, pdf,
                  -after created display in the tablle use material ui ,pagination, seearching
-
+                - can multiple country
  New Quotation page -modify the 
 Client Information card- client name: get the data in clients model
                                - after selected the client name it must be display 

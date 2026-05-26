@@ -29,7 +29,8 @@ import {
   Typography,
   Snackbar,
 } from '@mui/material';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, MuiDataTable } from '@/components/ui';
+import type { MuiDataTableColumn } from '@/components/ui';
 import { countriesService } from '@/services/countries.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
@@ -55,6 +56,15 @@ export default function CountriesPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  const [openForm, setOpenForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    abbreviation: '',
+    flagCode: '',
+  });
+
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingCountry, setViewingCountry] = useState<Country | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -64,27 +74,30 @@ export default function CountriesPage() {
     setMounted(true);
   }, []);
 
-  const fetchCountries = useCallback(async (params?: { nextPage?: number; nextSearch?: string }) => {
-    const nextPage = params?.nextPage ?? page;
-    const nextSearch = params?.nextSearch ?? debouncedSearch;
-    try {
-      setLoading(true);
-      setError('');
-      const response = await countriesService.list({
-        page: nextPage,
-        limit,
-        search: nextSearch || undefined,
-      });
-      setCountries(Array.isArray(response?.countries) ? response.countries : []);
-      setTotal(response?.total || 0);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch countries');
-      setCountries([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [debouncedSearch, limit, page]);
+  const fetchCountries = useCallback(
+    async (params?: { nextPage?: number; nextSearch?: string }) => {
+      const nextPage = params?.nextPage ?? page;
+      const nextSearch = params?.nextSearch ?? debouncedSearch;
+      try {
+        setLoading(true);
+        setError('');
+        const response = await countriesService.list({
+          page: nextPage,
+          limit,
+          search: nextSearch || undefined,
+        });
+        setCountries(Array.isArray(response?.countries) ? response.countries : []);
+        setTotal(response?.total || 0);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch countries');
+        setCountries([]);
+        setTotal(0);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [debouncedSearch, limit, page]
+  );
 
   useEffect(() => {
     fetchCountries({ nextPage: page, nextSearch: debouncedSearch });
@@ -93,6 +106,70 @@ export default function CountriesPage() {
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch]);
+
+  const handleAdd = () => {
+    setEditingId(null);
+    setFormData({ name: '', abbreviation: '', flagCode: '' });
+    setOpenForm(true);
+  };
+
+  const handleEdit = (country: Country) => {
+    setEditingId(country._id);
+    setFormData({
+      name: country.name,
+      abbreviation: country.abbreviation,
+      flagCode: country.flagCode || '',
+    });
+    setOpenForm(true);
+  };
+
+  const handleCloseForm = () => {
+    setOpenForm(false);
+    setEditingId(null);
+    setFormData({ name: '', abbreviation: '', flagCode: '' });
+  };
+
+  const handleSubmitForm = async () => {
+    if (!formData.name.trim()) {
+      setError('Country name is required');
+      return;
+    }
+
+    if (!formData.abbreviation.trim()) {
+      setError('Country abbreviation is required');
+      return;
+    }
+
+    const abbreviation = formData.abbreviation.trim().toUpperCase();
+    const flagCode = (formData.flagCode.trim() || abbreviation).toLowerCase();
+
+    try {
+      setLoading(true);
+      setError('');
+
+      const payload = {
+        name: formData.name.trim(),
+        abbreviation,
+        flagCode,
+      };
+
+      if (editingId) {
+        await countriesService.update(editingId, payload);
+        setSuccessMessage('Country updated successfully');
+      } else {
+        await countriesService.create(payload);
+        setSuccessMessage('Country created successfully');
+      }
+
+      handleCloseForm();
+      if (page !== 1) setPage(1);
+      else await fetchCountries({ nextPage: 1 });
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to save country');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleView = (country: Country) => {
     setViewingCountry(country);
@@ -137,21 +214,26 @@ export default function CountriesPage() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, raw: false });
-      const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell ?? '').trim()));
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, {
+        header: 1,
+        raw: false,
+      });
+      const dataRows = rows
+        .slice(1)
+        .filter((row) => row.some((cell) => String(cell ?? '').trim()));
 
       let importedCount = 0;
       const importErrors: string[] = [];
 
       for (const row of dataRows) {
         const name = String(row[0] ?? '').trim();
-        const abbreviation = String(row[1] ?? '').trim();
-        const flagCode = String(row[2] ?? '').trim();
+        const abbreviation = String(row[1] ?? '').trim().toUpperCase();
+        const flagCode = String(row[2] ?? '').trim().toLowerCase() || abbreviation.toLowerCase();
 
         if (!name || !abbreviation) continue;
 
         try {
-          await countriesService.create({ name, abbreviation, flagCode: flagCode || undefined });
+          await countriesService.create({ name, abbreviation, flagCode });
           importedCount += 1;
         } catch {
           importErrors.push(`Failed to import "${name}"`);
@@ -164,7 +246,11 @@ export default function CountriesPage() {
         setSuccessMessage(`Imported ${importedCount} countries`);
       }
       if (importErrors.length > 0) {
-        setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
+        setError(
+          `Errors: ${importErrors.slice(0, 3).join(' | ')}${
+            importErrors.length > 3 ? '...' : ''
+          }`
+        );
       }
     } catch {
       setError('Failed to import file');
@@ -199,7 +285,9 @@ export default function CountriesPage() {
     }
 
     const remainingResponses = await Promise.all(remainingRequests);
-    const remainingData = remainingResponses.flatMap((r) => (Array.isArray(r?.countries) ? r.countries : []));
+    const remainingData = remainingResponses.flatMap((r) =>
+      Array.isArray(r?.countries) ? r.countries : []
+    );
 
     return [...firstData, ...remainingData];
   }, [debouncedSearch]);
@@ -211,12 +299,14 @@ export default function CountriesPage() {
       return;
     }
     const XLSX = await import('xlsx');
-    const ws = XLSX.utils.json_to_sheet(records.map((c) => ({
-      Name: c.name,
-      Abbreviation: c.abbreviation,
-      'Flag Code': c.flagCode || '',
-      Created: new Date(c.createdAt).toLocaleDateString(),
-    })));
+    const ws = XLSX.utils.json_to_sheet(
+      records.map((c) => ({
+        Name: c.name,
+        Abbreviation: c.abbreviation,
+        'Flag Code': c.flagCode || '',
+        Created: new Date(c.createdAt).toLocaleDateString(),
+      }))
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Countries');
     XLSX.writeFile(wb, 'countries.csv');
@@ -230,12 +320,14 @@ export default function CountriesPage() {
       return;
     }
     const XLSX = await import('xlsx');
-    const ws = XLSX.utils.json_to_sheet(records.map((c) => ({
-      Name: c.name,
-      Abbreviation: c.abbreviation,
-      'Flag Code': c.flagCode || '',
-      Created: new Date(c.createdAt).toLocaleDateString(),
-    })));
+    const ws = XLSX.utils.json_to_sheet(
+      records.map((c) => ({
+        Name: c.name,
+        Abbreviation: c.abbreviation,
+        'Flag Code': c.flagCode || '',
+        Created: new Date(c.createdAt).toLocaleDateString(),
+      }))
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Countries');
     XLSX.writeFile(wb, 'countries.xlsx');
@@ -271,22 +363,88 @@ export default function CountriesPage() {
 
   if (!mounted) return null;
 
+  const countryColumns: MuiDataTableColumn<Country>[] = [
+    {
+      id: 'name',
+      label: 'Name',
+      sortable: true,
+      searchValue: (row) => row.name,
+      render: (row) => row.name,
+    },
+    {
+      id: 'abbreviation',
+      label: 'Code',
+      sortable: true,
+      searchValue: (row) => row.abbreviation,
+      render: (row) => row.abbreviation,
+    },
+    {
+      id: 'flagCode',
+      label: 'Flag',
+      sortable: true,
+      searchValue: (row) => row.flagCode || '',
+      render: (row) => row.flagCode || '-',
+    },
+    {
+      id: 'createdAt',
+      label: 'Created',
+      sortable: true,
+      sortValue: (row) => new Date(row.createdAt).getTime(),
+      render: (row) => new Date(row.createdAt).toLocaleDateString(),
+    },
+    {
+      id: 'actions',
+      label: 'Actions',
+      align: 'right',
+      sortable: false,
+      render: (row) => (
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
+            View
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
+            Edit
+          </Button>
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            onClick={() => handleDeleteClick(row._id)}
+          >
+            Delete
+          </Button>
+        </Stack>
+      ),
+    },
+  ];
+
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 3,
+        }}
+      >
         <Typography variant="h4">Countries</Typography>
-        <Button variant="contained" disabled>
-          + Add Country (Form Coming Soon)
+        <Button variant="contained" onClick={handleAdd}>
+          + Add Country
         </Button>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
-              placeholder="Search countries..."
+              placeholder="Search all fields..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               size="small"
@@ -311,17 +469,35 @@ export default function CountriesPage() {
           </Stack>
 
           <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-            <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportCSV().catch(() => setError('Export failed'))}
+            >
               Export CSV
             </Button>
-            <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportExcel().catch(() => setError('Export failed'))}
+            >
               Export Excel
             </Button>
-            <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportPDF().catch(() => setError('Export failed'))}
+            >
               Export PDF
             </Button>
-            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportCSV} style={{ display: 'none' }} id="import-csv-input" />
-            <label htmlFor="import-csv-input" style={{ margin: 0 }}>
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={handleImportCSV}
+              style={{ display: 'none' }}
+              id="import-countries-input"
+            />
+            <label htmlFor="import-countries-input" style={{ margin: 0 }}>
               <Button size="small" variant="outlined" component="span">
                 Import CSV
               </Button>
@@ -340,86 +516,92 @@ export default function CountriesPage() {
         <EmptyState
           title="No countries found"
           description="Start by adding your first country"
-          onAction={() => {}}
+          onAction={handleAdd}
           actionLabel="Add Country"
         />
       ) : (
         !loading && (
           <>
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                    <TableCell><strong>Name</strong></TableCell>
-                    <TableCell><strong>Code</strong></TableCell>
-                    <TableCell><strong>Flag</strong></TableCell>
-                    <TableCell><strong>Created</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {countries.map((country) => (
-                    <TableRow
-                      key={country._id}
-                      sx={{ '&:hover': { backgroundColor: '#f9f9f9' }, '&:last-child td, &:last-child th': { border: 0 } }}
-                    >
-                      <TableCell>{country.name}</TableCell>
-                      <TableCell>{country.abbreviation}</TableCell>
-                      <TableCell>{country.flagCode || '-'}</TableCell>
-                      <TableCell>{new Date(country.createdAt).toLocaleDateString()}</TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                          <Button size="small" variant="outlined" onClick={() => handleView(country)}>
-                            View
-                          </Button>
-                          <Button size="small" variant="outlined" disabled>
-                            Edit
-                          </Button>
-                          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(country._id)}>
-                            Delete
-                          </Button>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, px: 2 }}>
-              <Typography variant="body2" color="textSecondary">
-                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-              </Typography>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={(e, newPage) => setPage(newPage)}
-                color="primary"
-                size="small"
-              />
-            </Box>
+            <MuiDataTable
+              rows={countries}
+              columns={countryColumns}
+              rowKey={(row) => row._id}
+              page={page}
+              rowsPerPage={limit}
+              total={total}
+              onPageChange={setPage}
+              showToolbar={false}
+              loading={false}
+            />
           </>
         )
       )}
 
-      {/* View Dialog */}
+      <Dialog open={openForm} onClose={handleCloseForm} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingId ? 'Edit Country' : 'Add Country'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Country Name"
+              value={formData.name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+              required
+            />
+            <TextField
+              label="Abbreviation"
+              value={formData.abbreviation}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, abbreviation: e.target.value.toUpperCase() }))
+              }
+              helperText="Example: SA"
+              required
+            />
+            <TextField
+              label="Flag Code"
+              value={formData.flagCode}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, flagCode: e.target.value.toLowerCase() }))
+              }
+              helperText="Example: sa"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseForm}>Cancel</Button>
+          <Button
+            onClick={() =>
+              handleSubmitForm().catch(() => setError('Failed to save country'))
+            }
+            variant="contained"
+          >
+            {editingId ? 'Update' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>View Country</DialogTitle>
         <DialogContent>
           {viewingCountry && (
             <Box sx={{ pt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>Name</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>{viewingCountry.name}</Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Name
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                {viewingCountry.name}
+              </Typography>
 
-              <Typography variant="subtitle2" gutterBottom>Abbreviation</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>{viewingCountry.abbreviation}</Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Abbreviation
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                {viewingCountry.abbreviation}
+              </Typography>
 
-              {viewingCountry.flagCode && (
-                <>
-                  <Typography variant="subtitle2" gutterBottom>Flag Code</Typography>
-                  <Typography variant="body2">{viewingCountry.flagCode}</Typography>
-                </>
-              )}
+              <Typography variant="subtitle2" gutterBottom>
+                Flag Code
+              </Typography>
+              <Typography variant="body2">{viewingCountry.flagCode || '-'}</Typography>
             </Box>
           )}
         </DialogContent>
@@ -428,11 +610,12 @@ export default function CountriesPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Country</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete this country? This action cannot be undone.</Typography>
+          <Typography>
+            Are you sure you want to delete this country? This action cannot be undone.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
@@ -447,7 +630,6 @@ export default function CountriesPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Success Message */}
       <Snackbar
         open={!!successMessage}
         autoHideDuration={6000}

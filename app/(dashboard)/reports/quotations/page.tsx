@@ -104,13 +104,23 @@ export default function QuotationsReportPage() {
           data={lineChartData}
           title="Monthly Quotations Trend"
         />
+        <div className="card p-3 -mt-3">
+          <Link href="/quotations" className="text-sm font-medium text-primary hover:underline">
+            Open all quotations
+          </Link>
+        </div>
 
         {/* By Service and By Country Tables */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* By Service */}
           <Card padding="p-0">
             <div className="px-4 py-3 border-b border-border">
-              <h3 className="text-sm font-semibold text-gray-900">By Service</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-gray-900">By Service</h3>
+                <Link href="/services" className="text-xs font-medium text-primary hover:underline">
+                  Go to Services
+                </Link>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-full border-collapse">
@@ -152,7 +162,12 @@ export default function QuotationsReportPage() {
           {/* By Country */}
           <Card padding="p-0">
             <div className="px-4 py-3 border-b border-border">
-              <h3 className="text-sm font-semibold text-gray-900">By Country</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-gray-900">By Country</h3>
+                <Link href="/countries" className="text-xs font-medium text-primary hover:underline">
+                  Go to Countries
+                </Link>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-full border-collapse">

@@ -10,9 +10,11 @@ export interface IQuotationFees {
 export interface IQuotation extends Document {
   quotationNo: string;
   clientId?: mongoose.Types.ObjectId;
+  associteId?: mongoose.Types.ObjectId;
   clientName: string;
   clientEmail?: string;
   clientType?: string;
+  inquiriesProject?: string;
   service: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   procedure: string;
   country: string;
@@ -37,9 +39,11 @@ const quotationSchema = new mongoose.Schema<IQuotation>(
   {
     quotationNo: { type: String, unique: true },
     clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client' },
+    associteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Associte' },
     clientName: { type: String, required: true, trim: true },
     clientEmail: { type: String, trim: true },
     clientType: { type: String },
+    inquiriesProject: { type: String, trim: true },
     service: {
       type: String,
       enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'],
@@ -94,6 +98,7 @@ quotationSchema.pre('save', async function (next) {
 });
 
 quotationSchema.index({ clientId: 1 });
+quotationSchema.index({ associteId: 1 });
 quotationSchema.index({ status: 1 });
 quotationSchema.index({ createdAt: -1 });
 

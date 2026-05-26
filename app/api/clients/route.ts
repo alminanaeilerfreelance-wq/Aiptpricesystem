@@ -3,6 +3,11 @@ import connectDB from '@/lib/mongodb';
 import Client from '@/models/Client';
 import { getUserFromRequest } from '@/lib/auth';
 
+const toErrorPayload = (fallback: string, err: unknown) => {
+  const message = err instanceof Error ? err.message : fallback;
+  return { error: fallback, details: message };
+};
+
 export async function GET(req: NextRequest) {
   try {
     const user = getUserFromRequest(req);
@@ -13,7 +18,7 @@ export async function GET(req: NextRequest) {
     await connectDB();
 
     const { searchParams } = new URL(req.url);
-    const search = searchParams.get('search');
+    const search = (searchParams.get('search') || '').trim();
     const pageParam = Number(searchParams.get('page') ?? '1');
     const limitParam = Number(searchParams.get('limit') ?? '10');
 
@@ -32,10 +37,15 @@ export async function GET(req: NextRequest) {
         { email: { $regex: safeSearch, $options: 'i' } },
         { phone: { $regex: safeSearch, $options: 'i' } },
         { country: { $regex: safeSearch, $options: 'i' } },
+        { continent: { $regex: safeSearch, $options: 'i' } },
         { city: { $regex: safeSearch, $options: 'i' } },
+        { companyName: { $regex: safeSearch, $options: 'i' } },
+        { type: { $regex: safeSearch, $options: 'i' } },
         { registrationNumber: { $regex: safeSearch, $options: 'i' } },
+        { taxId: { $regex: safeSearch, $options: 'i' } },
         { address: { $regex: safeSearch, $options: 'i' } },
         { notes: { $regex: safeSearch, $options: 'i' } },
+        { status: { $regex: safeSearch, $options: 'i' } },
       ];
     }
 
@@ -48,8 +58,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ clients, total, page, limit, totalPages });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Operation failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(toErrorPayload('Failed to load clients', err), { status: 500 });
   }
 }
 
@@ -63,11 +72,13 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const body = await req.json();
+    if (!body?.name || !String(body.name).trim()) {
+      return NextResponse.json({ error: 'Client name is required' }, { status: 400 });
+    }
     const client = await Client.create(body);
 
     return NextResponse.json(client, { status: 201 });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Operation failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(toErrorPayload('Failed to create client', err), { status: 500 });
   }
 }

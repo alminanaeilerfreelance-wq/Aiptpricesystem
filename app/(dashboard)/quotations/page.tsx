@@ -59,7 +59,10 @@ export default function QuotationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const params: Record<string, string> = {};
+      const params: Record<string, string | number> = {
+        page: currentPage,
+        limit: PAGE_SIZE,
+      };
       if (statusFilter) params.status = statusFilter;
       if (serviceFilter) params.service = serviceFilter;
       if (countryFilter) params.country = countryFilter;
@@ -72,7 +75,7 @@ export default function QuotationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, serviceFilter, countryFilter, debouncedSearch]);
+  }, [statusFilter, serviceFilter, countryFilter, debouncedSearch, currentPage]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -82,11 +85,6 @@ export default function QuotationsPage() {
     fetchQuotations();
   }, [fetchQuotations]);
 
-  const paginatedData = quotations.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
-  );
-
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const handleDeleteConfirm = async () => {
@@ -95,7 +93,11 @@ export default function QuotationsPage() {
     try {
       await quotationsService.delete(deleteTarget._id);
       setDeleteTarget(null);
-      await fetchQuotations();
+      if (quotations.length === 1 && currentPage > 1) {
+        setCurrentPage((prev) => prev - 1);
+      } else {
+        await fetchQuotations();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete quotation');
     } finally {
@@ -155,6 +157,11 @@ export default function QuotationsPage() {
           <Link href={`/quotations/${row._id}`}>
             <Button variant="secondary" size="sm">
               View
+            </Button>
+          </Link>
+          <Link href={`/quotations/${row._id}/edit`}>
+            <Button variant="secondary" size="sm">
+              Edit
             </Button>
           </Link>
           <Button
@@ -238,7 +245,7 @@ export default function QuotationsPage() {
         <div className="card overflow-hidden">
           <DataTable
             columns={columns}
-            data={paginatedData}
+            data={quotations}
             loading={loading}
             emptyMessage="No quotations found"
             emptyDescription="Try adjusting your filters or create a new quotation."

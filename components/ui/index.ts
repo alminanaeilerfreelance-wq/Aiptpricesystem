@@ -13,6 +13,9 @@ export type { MultiSelectProps, MultiSelectOption } from './MultiSelect';
 export { default as Card } from './Card';
 export type { CardProps } from './Card';
 
+export { default as MuiDataTable } from './MuiDataTable';
+export type { MuiDataTableColumn, MuiDataTableProps } from './MuiDataTable';
+
 export { default as Modal } from './Modal';
 export type { ModalProps, ModalSize } from './Modal';
 

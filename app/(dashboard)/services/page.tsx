@@ -29,7 +29,8 @@ import {
   Typography,
   Snackbar,
 } from '@mui/material';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, MuiDataTable } from '@/components/ui';
+import type { MuiDataTableColumn } from '@/components/ui';
 import { servicesService } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
@@ -65,12 +66,16 @@ export default function ServicesPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [sortBy, setSortBy] = useState<'createdAt' | 'name' | 'category'>('createdAt');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    category: 'Trademark' as Service['category'],
+    description: '',
+    basePrice: '0',
+  });
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingService, setViewingService] = useState<Service | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -114,11 +119,23 @@ export default function ServicesPage() {
 
   const handleAdd = () => {
     setEditingId(null);
+    setFormData({
+      name: '',
+      category: 'Trademark',
+      description: '',
+      basePrice: '0',
+    });
     setOpenForm(true);
   };
 
   const handleEdit = (service: Service) => {
     setEditingId(service._id);
+    setFormData({
+      name: service.name,
+      category: service.category,
+      description: service.description || '',
+      basePrice: String(service.basePrice ?? 0),
+    });
     setOpenForm(true);
   };
 
@@ -312,6 +329,131 @@ export default function ServicesPage() {
     setPage(1);
   };
 
+  const serviceColumns: MuiDataTableColumn<Service>[] = [
+    {
+      id: 'name',
+      label: 'Name',
+      sortable: true,
+      searchValue: (row) => row.name,
+      render: (row) => row.name,
+    },
+    {
+      id: 'category',
+      label: 'Category',
+      sortable: true,
+      searchValue: (row) => row.category,
+      render: (row) => (
+        <Box
+          sx={{
+            display: 'inline-block',
+            backgroundColor: categoryColors[row.category]?.bg || '#f0f0f0',
+            color: categoryColors[row.category]?.text || '#000',
+            px: 2,
+            py: 0.5,
+            borderRadius: 1,
+            fontSize: '0.85rem',
+            fontWeight: 500,
+          }}
+        >
+          {row.category}
+        </Box>
+      ),
+    },
+    {
+      id: 'basePrice',
+      label: 'Price',
+      align: 'right',
+      sortable: true,
+      sortValue: (row) => row.basePrice || 0,
+      render: (row) => `$${row.basePrice || 0}`,
+    },
+    {
+      id: 'createdAt',
+      label: 'Created',
+      sortable: true,
+      sortValue: (row) => new Date(row.createdAt).getTime(),
+      render: (row) => new Date(row.createdAt).toLocaleDateString(),
+    },
+    {
+      id: 'actions',
+      label: 'Actions',
+      align: 'right',
+      sortable: false,
+      render: (row) => (
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
+            View
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
+            Edit
+          </Button>
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            onClick={() => handleDeleteClick(row._id)}
+          >
+            Delete
+          </Button>
+        </Stack>
+      ),
+    },
+  ];
+
+  const handleCloseForm = () => {
+    setOpenForm(false);
+    setEditingId(null);
+    setFormData({
+      name: '',
+      category: 'Trademark',
+      description: '',
+      basePrice: '0',
+    });
+  };
+
+  const handleSubmitForm = async () => {
+    if (!formData.name.trim()) {
+      setError('Service name is required');
+      return;
+    }
+
+    const parsedBasePrice = Number(formData.basePrice || '0');
+    if (!Number.isFinite(parsedBasePrice) || parsedBasePrice < 0) {
+      setError('Base price must be a valid non-negative number');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+      const payload = {
+        name: formData.name.trim(),
+        category: formData.category,
+        description: formData.description.trim() || undefined,
+        basePrice: parsedBasePrice,
+      };
+
+      if (editingId) {
+        await servicesService.update(editingId, payload);
+        setSuccessMessage('Service updated successfully');
+      } else {
+        await servicesService.create(payload);
+        setSuccessMessage('Service created successfully');
+      }
+
+      handleCloseForm();
+      if (page !== 1) {
+        setPage(1);
+      } else {
+        await fetchServices({ nextPage: 1 });
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to save service');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!mounted) return null;
 
   return (
@@ -405,76 +547,72 @@ export default function ServicesPage() {
       ) : (
         !loading && (
           <>
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                    <TableCell><strong>Name</strong></TableCell>
-                    <TableCell><strong>Category</strong></TableCell>
-                    <TableCell align="right"><strong>Price</strong></TableCell>
-                    <TableCell><strong>Created</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {services.map((service) => (
-                    <TableRow
-                      key={service._id}
-                      sx={{ '&:hover': { backgroundColor: '#f9f9f9' }, '&:last-child td, &:last-child th': { border: 0 } }}
-                    >
-                      <TableCell>{service.name}</TableCell>
-                      <TableCell>
-                        <Box
-                          sx={{
-                            display: 'inline-block',
-                            backgroundColor: categoryColors[service.category]?.bg || '#f0f0f0',
-                            color: categoryColors[service.category]?.text || '#000',
-                            px: 2,
-                            py: 0.5,
-                            borderRadius: 1,
-                            fontSize: '0.85rem',
-                            fontWeight: 500,
-                          }}
-                        >
-                          {service.category}
-                        </Box>
-                      </TableCell>
-                      <TableCell align="right">${service.basePrice || 0}</TableCell>
-                      <TableCell>{new Date(service.createdAt).toLocaleDateString()}</TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                          <Button size="small" variant="outlined" onClick={() => handleView(service)}>
-                            View
-                          </Button>
-                          <Button size="small" variant="outlined" onClick={() => handleEdit(service)}>
-                            Edit
-                          </Button>
-                          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(service._id)}>
-                            Delete
-                          </Button>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, px: 2 }}>
-              <Typography variant="body2" color="textSecondary">
-                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-              </Typography>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={(e, newPage) => setPage(newPage)}
-                color="primary"
-                size="small"
-              />
-            </Box>
+            <MuiDataTable
+              rows={services}
+              columns={serviceColumns}
+              rowKey={(row) => row._id}
+              page={page}
+              rowsPerPage={limit}
+              total={total}
+              onPageChange={setPage}
+              showToolbar={false}
+              loading={false}
+            />
           </>
         )
       )}
+
+      <Dialog open={openForm} onClose={handleCloseForm} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingId ? 'Edit Service' : 'Add Service'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Service Name"
+              value={formData.name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+              required
+            />
+            <FormControl fullWidth>
+              <InputLabel>Category</InputLabel>
+              <Select
+                value={formData.category}
+                label="Category"
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    category: e.target.value as Service['category'],
+                  }))
+                }
+              >
+                {CATEGORY_OPTIONS.map((category) => (
+                  <MenuItem key={category} value={category}>
+                    {category}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Base Price"
+              type="number"
+              value={formData.basePrice}
+              onChange={(e) => setFormData((prev) => ({ ...prev, basePrice: e.target.value }))}
+            />
+            <TextField
+              label="Description"
+              value={formData.description}
+              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+              multiline
+              minRows={3}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseForm}>Cancel</Button>
+          <Button onClick={() => handleSubmitForm().catch(() => setError('Failed to save service'))} variant="contained">
+            {editingId ? 'Update' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* View Dialog */}
       <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>

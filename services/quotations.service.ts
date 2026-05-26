@@ -21,9 +21,11 @@ export interface Quotation {
   _id: string;
   quotationNo: string;
   clientId?: string;
+  associteId?: string;
   clientName: string;
   clientEmail?: string;
   clientType?: string;
+  inquiriesProject?: string;
   service: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   procedure: string;
   country: string;
@@ -47,9 +49,11 @@ export interface Quotation {
 
 export interface CreateQuotationDto {
   clientId?: string;
+  associteId?: string;
   clientName: string;
   clientEmail?: string;
   clientType?: string;
+  inquiriesProject?: string;
   service: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   procedure: string;
   country: string;
@@ -66,6 +70,10 @@ export interface CreateQuotationDto {
 export interface QuotationListParams {
   status?: string;
   search?: string;
+  service?: string;
+  country?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface QuotationListResponse {

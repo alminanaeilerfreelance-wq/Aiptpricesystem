@@ -5,7 +5,6 @@ import { Input, Select, Card } from '@/components/ui';
 import MultiSelect from '@/components/ui/MultiSelect';
 import { Country } from '@/services/countries.service';
 import { Procedure } from '@/services/procedures.service';
-import { PricingRule } from '@/services/pricing-rules.service';
 import requirementsService from '@/services/requirements.service';
 
 interface Requirement {
@@ -22,12 +21,17 @@ interface ServiceDetailsCardProps {
   requirementIds: string[];
   procedures: Procedure[];
   countries: Country[];
-  selectedPricingRule: PricingRule | null;
+  officialFee: number;
+  attorneyFee: number;
+  totalFee: number;
   onServiceChange: (value: string) => void;
   onProcedureChange: (value: string) => void;
   onCountryChange: (value: string) => void;
   onNumberOfClassesChange: (value: number) => void;
   onRequirementsChange: (values: string[]) => void;
+  onOfficialFeeChange: (value: number) => void;
+  onAttorneyFeeChange: (value: number) => void;
+  onTotalFeeChange: (value: number) => void;
   errors: Record<string, string>;
   onAddToCart: () => void;
 }
@@ -48,12 +52,17 @@ export const ServiceDetailsCard: React.FC<ServiceDetailsCardProps> = ({
   requirementIds,
   procedures,
   countries,
-  selectedPricingRule,
+  officialFee,
+  attorneyFee,
+  totalFee,
   onServiceChange,
   onProcedureChange,
   onCountryChange,
   onNumberOfClassesChange,
   onRequirementsChange,
+  onOfficialFeeChange,
+  onAttorneyFeeChange,
+  onTotalFeeChange,
   errors,
   onAddToCart,
 }) => {
@@ -136,13 +145,9 @@ export const ServiceDetailsCard: React.FC<ServiceDetailsCardProps> = ({
         value={procedureId}
         options={procedureOptions}
         onChange={(e) => onProcedureChange(e.target.value)}
-        disabled={!service || !countryId}
+        disabled={!service}
         error={errors.procedure}
-        helperText={
-          service && countryId && procedures.length === 0
-            ? 'No procedure is configured in Pricing Rules for this service/country.'
-            : undefined
-        }
+        helperText={service && procedures.length === 0 ? 'No procedures found for this service.' : undefined}
       />
 
       {/* Number of Classes - Trademark only */}
@@ -174,36 +179,38 @@ export const ServiceDetailsCard: React.FC<ServiceDetailsCardProps> = ({
         searchable
       />
 
-      {/* Pricing Rules Display */}
-      {selectedPricingRule && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h3 className="font-semibold text-sm text-blue-900 mb-3">
-            Pricing Details
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-            <div>
-              <span className="text-gray-600">Official Fee:</span>
-              <span className="ml-2 font-medium text-gray-900">
-                {selectedPricingRule.officialFee}
-              </span>
-            </div>
-            <div>
-              <span className="text-gray-600">Attorney Fee:</span>
-              <span className="ml-2 font-medium text-gray-900">
-                {selectedPricingRule.attorneyFee}
-              </span>
-            </div>
-            {showClassField && (
-              <div>
-                <span className="text-gray-600">Per Class Fee:</span>
-                <span className="ml-2 font-medium text-gray-900">
-                  {selectedPricingRule.classFee}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <Input
+        label="Official Fee *"
+        type="number"
+        min={0}
+        step="0.01"
+        value={officialFee}
+        onChange={(e) => onOfficialFeeChange(parseFloat(e.target.value) || 0)}
+        error={errors.officialFee}
+        helperText="Manual input"
+      />
+
+      <Input
+        label="Attorney Fee *"
+        type="number"
+        min={0}
+        step="0.01"
+        value={attorneyFee}
+        onChange={(e) => onAttorneyFeeChange(parseFloat(e.target.value) || 0)}
+        error={errors.attorneyFee}
+        helperText="Manual input"
+      />
+
+      <Input
+        label="Total *"
+        type="number"
+        min={0}
+        step="0.01"
+        value={totalFee}
+        onChange={(e) => onTotalFeeChange(parseFloat(e.target.value) || 0)}
+        error={errors.total}
+        helperText="Manual input"
+      />
 
       {/* Add to Cart Button */}
       <button

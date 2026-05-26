@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
       filter.$or = [
         { name: { $regex: safeSearch, $options: 'i' } },
         { abbreviation: { $regex: safeSearch, $options: 'i' } },
+        { flagCode: { $regex: safeSearch, $options: 'i' } },
       ];
     }
 

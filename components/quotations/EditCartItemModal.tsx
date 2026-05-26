@@ -132,6 +132,25 @@ export const EditCartItemModal: React.FC<EditCartItemModalProps> = ({
             <p className="text-xs text-gray-500 mt-1">Per mark per class</p>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Total ({currency})
+            </label>
+            <input
+              type="number"
+              value={formData.total}
+              onChange={(e) => {
+                handleInputChange('total', parseFloat(e.target.value) || 0);
+                handleInputChange('isManualTotal', true);
+              }}
+              onFocus={(e) => e.target.select()}
+              step="0.01"
+              min="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">Manual total amount</p>
+          </div>
+
           {isClassApplicable && (
             <>
               <div>
@@ -186,6 +205,15 @@ export const EditCartItemModal: React.FC<EditCartItemModalProps> = ({
                 maximumFractionDigits: 2,
               })}
             </p>
+            {formData.isManualTotal && (
+              <p className="text-xs text-blue-600 mt-1">
+                Manual total is active: {currency}{' '}
+                {formData.total.toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            )}
           </div>
         </div>
 

@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search');
+    const country = searchParams.get('country');
     const pageParam = Number(searchParams.get('page') ?? '1');
     const limitParam = Number(searchParams.get('limit') ?? '10');
 
@@ -32,6 +33,11 @@ export async function GET(req: NextRequest) {
         { country: { $regex: safeSearch, $options: 'i' } },
         { description: { $regex: safeSearch, $options: 'i' } },
       ];
+    }
+
+    if (country) {
+      const safeCountry = country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.country = { $regex: `^${safeCountry}$`, $options: 'i' };
     }
 
     const [departments, total] = await Promise.all([

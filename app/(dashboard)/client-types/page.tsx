@@ -29,7 +29,8 @@ import {
   Typography,
   Snackbar,
 } from '@mui/material';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, MuiDataTable } from '@/components/ui';
+import type { MuiDataTableColumn } from '@/components/ui';
 import { clientTypesService } from '@/services/client-types.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
@@ -39,6 +40,7 @@ interface ClientType {
   _id: string;
   name: string;
   description?: string;
+  multiplier?: number;
   createdAt: string;
 }
 
@@ -53,6 +55,15 @@ export default function ClientTypesPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  const [openForm, setOpenForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    multiplier: '1',
+  });
+
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingItem, setViewingItem] = useState<ClientType | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -62,27 +73,30 @@ export default function ClientTypesPage() {
     setMounted(true);
   }, []);
 
-  const fetchItems = useCallback(async (params?: { nextPage?: number; nextSearch?: string }) => {
-    const nextPage = params?.nextPage ?? page;
-    const nextSearch = params?.nextSearch ?? debouncedSearch;
-    try {
-      setLoading(true);
-      setError('');
-      const response = await clientTypesService.list({
-        page: nextPage,
-        limit,
-        search: nextSearch || undefined,
-      });
-      setItems(Array.isArray(response?.clientTypes) ? response.clientTypes : []);
-      setTotal(response?.total || 0);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch data');
-      setItems([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [debouncedSearch, limit, page]);
+  const fetchItems = useCallback(
+    async (params?: { nextPage?: number; nextSearch?: string }) => {
+      const nextPage = params?.nextPage ?? page;
+      const nextSearch = params?.nextSearch ?? debouncedSearch;
+      try {
+        setLoading(true);
+        setError('');
+        const response = await clientTypesService.list({
+          page: nextPage,
+          limit,
+          search: nextSearch || undefined,
+        });
+        setItems(Array.isArray(response?.clientTypes) ? response.clientTypes : []);
+        setTotal(response?.total || 0);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch data');
+        setItems([]);
+        setTotal(0);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [debouncedSearch, limit, page]
+  );
 
   useEffect(() => {
     fetchItems({ nextPage: page, nextSearch: debouncedSearch });
@@ -91,6 +105,68 @@ export default function ClientTypesPage() {
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch]);
+
+  const handleAdd = () => {
+    setEditingId(null);
+    setFormData({ name: '', description: '', multiplier: '1' });
+    setOpenForm(true);
+  };
+
+  const handleEdit = (item: ClientType) => {
+    setEditingId(item._id);
+    setFormData({
+      name: item.name,
+      description: item.description || '',
+      multiplier: String(item.multiplier ?? 1),
+    });
+    setOpenForm(true);
+  };
+
+  const handleCloseForm = () => {
+    setOpenForm(false);
+    setEditingId(null);
+    setFormData({ name: '', description: '', multiplier: '1' });
+  };
+
+  const handleSubmitForm = async () => {
+    if (!formData.name.trim()) {
+      setError('Client type name is required');
+      return;
+    }
+
+    const parsedMultiplier = Number(formData.multiplier || '1');
+    if (!Number.isFinite(parsedMultiplier) || parsedMultiplier <= 0) {
+      setError('Multiplier must be a valid positive number');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+
+      const payload = {
+        name: formData.name.trim(),
+        description: formData.description.trim() || undefined,
+        multiplier: parsedMultiplier,
+      };
+
+      if (editingId) {
+        await clientTypesService.update(editingId, payload);
+        setSuccessMessage('Client type updated successfully');
+      } else {
+        await clientTypesService.create(payload);
+        setSuccessMessage('Client type created successfully');
+      }
+
+      handleCloseForm();
+      if (page !== 1) setPage(1);
+      else await fetchItems({ nextPage: 1 });
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to save client type');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleView = (item: ClientType) => {
     setViewingItem(item);
@@ -135,8 +211,13 @@ export default function ClientTypesPage() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, raw: false });
-      const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell ?? '').trim()));
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, {
+        header: 1,
+        raw: false,
+      });
+      const dataRows = rows
+        .slice(1)
+        .filter((row) => row.some((cell) => String(cell ?? '').trim()));
 
       let importedCount = 0;
       const importErrors: string[] = [];
@@ -144,11 +225,16 @@ export default function ClientTypesPage() {
       for (const row of dataRows) {
         const name = String(row[0] ?? '').trim();
         const description = String(row[1] ?? '').trim();
+        const multiplier = row[2] ? Number(row[2]) : 1;
 
         if (!name) continue;
 
         try {
-          await clientTypesService.create({ name, description: description || undefined });
+          await clientTypesService.create({
+            name,
+            description: description || undefined,
+            multiplier: Number.isFinite(multiplier) ? multiplier : 1,
+          });
           importedCount += 1;
         } catch {
           importErrors.push(`Failed to import "${name}"`);
@@ -161,7 +247,11 @@ export default function ClientTypesPage() {
         setSuccessMessage(`Imported ${importedCount} items`);
       }
       if (importErrors.length > 0) {
-        setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
+        setError(
+          `Errors: ${importErrors.slice(0, 3).join(' | ')}${
+            importErrors.length > 3 ? '...' : ''
+          }`
+        );
       }
     } catch {
       setError('Failed to import file');
@@ -179,7 +269,9 @@ export default function ClientTypesPage() {
       search: debouncedSearch || undefined,
     });
 
-    const firstData = Array.isArray(firstResponse?.clientTypes) ? firstResponse.clientTypes : [];
+    const firstData = Array.isArray(firstResponse?.clientTypes)
+      ? firstResponse.clientTypes
+      : [];
     const totalPages = Math.ceil((firstResponse?.total || 0) / pageSize);
 
     if (totalPages <= 1) return firstData;
@@ -196,7 +288,9 @@ export default function ClientTypesPage() {
     }
 
     const remainingResponses = await Promise.all(remainingRequests);
-    const remainingData = remainingResponses.flatMap((r) => (Array.isArray(r?.clientTypes) ? r.clientTypes : []));
+    const remainingData = remainingResponses.flatMap((r) =>
+      Array.isArray(r?.clientTypes) ? r.clientTypes : []
+    );
 
     return [...firstData, ...remainingData];
   }, [debouncedSearch]);
@@ -208,11 +302,14 @@ export default function ClientTypesPage() {
       return;
     }
     const XLSX = await import('xlsx');
-    const ws = XLSX.utils.json_to_sheet(records.map((i) => ({
-      Name: i.name,
-      Description: i.description || '',
-      Created: new Date(i.createdAt).toLocaleDateString(),
-    })));
+    const ws = XLSX.utils.json_to_sheet(
+      records.map((i) => ({
+        Name: i.name,
+        Description: i.description || '',
+        Multiplier: i.multiplier ?? 1,
+        Created: new Date(i.createdAt).toLocaleDateString(),
+      }))
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Client Types');
     XLSX.writeFile(wb, 'client-types.csv');
@@ -226,11 +323,14 @@ export default function ClientTypesPage() {
       return;
     }
     const XLSX = await import('xlsx');
-    const ws = XLSX.utils.json_to_sheet(records.map((i) => ({
-      Name: i.name,
-      Description: i.description || '',
-      Created: new Date(i.createdAt).toLocaleDateString(),
-    })));
+    const ws = XLSX.utils.json_to_sheet(
+      records.map((i) => ({
+        Name: i.name,
+        Description: i.description || '',
+        Multiplier: i.multiplier ?? 1,
+        Created: new Date(i.createdAt).toLocaleDateString(),
+      }))
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Client Types');
     XLSX.writeFile(wb, 'client-types.xlsx');
@@ -248,10 +348,11 @@ export default function ClientTypesPage() {
     const doc = new jsPDF.jsPDF();
 
     autoTable.default(doc, {
-      head: [['Name', 'Description', 'Created']],
+      head: [['Name', 'Description', 'Multiplier', 'Created']],
       body: records.map((i) => [
         i.name,
-        i.description || '',
+        (i.description || '').slice(0, 48),
+        String(i.multiplier ?? 1),
         new Date(i.createdAt).toLocaleDateString(),
       ]),
       startY: 10,
@@ -265,22 +366,89 @@ export default function ClientTypesPage() {
 
   if (!mounted) return null;
 
+  const clientTypeColumns: MuiDataTableColumn<ClientType>[] = [
+    {
+      id: 'name',
+      label: 'Name',
+      sortable: true,
+      searchValue: (row) => row.name,
+      render: (row) => row.name,
+    },
+    {
+      id: 'description',
+      label: 'Description',
+      sortable: true,
+      searchValue: (row) => row.description || '',
+      render: (row) => row.description || '-',
+    },
+    {
+      id: 'multiplier',
+      label: 'Multiplier',
+      align: 'right',
+      sortable: true,
+      sortValue: (row) => row.multiplier ?? 1,
+      render: (row) => row.multiplier ?? 1,
+    },
+    {
+      id: 'createdAt',
+      label: 'Created',
+      sortable: true,
+      sortValue: (row) => new Date(row.createdAt).getTime(),
+      render: (row) => new Date(row.createdAt).toLocaleDateString(),
+    },
+    {
+      id: 'actions',
+      label: 'Actions',
+      align: 'right',
+      sortable: false,
+      render: (row) => (
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
+            View
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
+            Edit
+          </Button>
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            onClick={() => handleDeleteClick(row._id)}
+          >
+            Delete
+          </Button>
+        </Stack>
+      ),
+    },
+  ];
+
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 3,
+        }}
+      >
         <Typography variant="h4">Client Types</Typography>
-        <Button variant="contained" disabled>
-          + Add Type (Form Coming Soon)
+        <Button variant="contained" onClick={handleAdd}>
+          + Add Type
         </Button>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
-              placeholder="Search client types..."
+              placeholder="Search all fields..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               size="small"
@@ -305,17 +473,35 @@ export default function ClientTypesPage() {
           </Stack>
 
           <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-            <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportCSV().catch(() => setError('Export failed'))}
+            >
               Export CSV
             </Button>
-            <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportExcel().catch(() => setError('Export failed'))}
+            >
               Export Excel
             </Button>
-            <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportPDF().catch(() => setError('Export failed'))}
+            >
               Export PDF
             </Button>
-            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportCSV} style={{ display: 'none' }} id="import-csv-input" />
-            <label htmlFor="import-csv-input" style={{ margin: 0 }}>
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={handleImportCSV}
+              style={{ display: 'none' }}
+              id="import-client-types-input"
+            />
+            <label htmlFor="import-client-types-input" style={{ margin: 0 }}>
               <Button size="small" variant="outlined" component="span">
                 Import CSV
               </Button>
@@ -334,81 +520,92 @@ export default function ClientTypesPage() {
         <EmptyState
           title="No client types found"
           description="Start by adding your first client type"
-          onAction={() => {}}
+          onAction={handleAdd}
           actionLabel="Add Client Type"
         />
       ) : (
         !loading && (
           <>
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                    <TableCell><strong>Name</strong></TableCell>
-                    <TableCell><strong>Description</strong></TableCell>
-                    <TableCell><strong>Created</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {items.map((item) => (
-                    <TableRow
-                      key={item._id}
-                      sx={{ '&:hover': { backgroundColor: '#f9f9f9' }, '&:last-child td, &:last-child th': { border: 0 } }}
-                    >
-                      <TableCell>{item.name}</TableCell>
-                      <TableCell>{item.description || '-'}</TableCell>
-                      <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                          <Button size="small" variant="outlined" onClick={() => handleView(item)}>
-                            View
-                          </Button>
-                          <Button size="small" variant="outlined" disabled>
-                            Edit
-                          </Button>
-                          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(item._id)}>
-                            Delete
-                          </Button>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, px: 2 }}>
-              <Typography variant="body2" color="textSecondary">
-                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-              </Typography>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={(e, newPage) => setPage(newPage)}
-                color="primary"
-                size="small"
-              />
-            </Box>
+            <MuiDataTable
+              rows={items}
+              columns={clientTypeColumns}
+              rowKey={(row) => row._id}
+              page={page}
+              rowsPerPage={limit}
+              total={total}
+              onPageChange={setPage}
+              showToolbar={false}
+              loading={false}
+            />
           </>
         )
       )}
 
-      {/* View Dialog */}
+      <Dialog open={openForm} onClose={handleCloseForm} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingId ? 'Edit Client Type' : 'Add Client Type'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Client Type Name"
+              value={formData.name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+              required
+            />
+            <TextField
+              label="Description"
+              value={formData.description}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, description: e.target.value }))
+              }
+              multiline
+              minRows={3}
+            />
+            <TextField
+              label="Multiplier"
+              type="number"
+              value={formData.multiplier}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, multiplier: e.target.value }))
+              }
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseForm}>Cancel</Button>
+          <Button
+            onClick={() =>
+              handleSubmitForm().catch(() => setError('Failed to save client type'))
+            }
+            variant="contained"
+          >
+            {editingId ? 'Update' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>View Client Type</DialogTitle>
         <DialogContent>
           {viewingItem && (
             <Box sx={{ pt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>Name</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>{viewingItem.name}</Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Name
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                {viewingItem.name}
+              </Typography>
 
-              {viewingItem.description && (
-                <>
-                  <Typography variant="subtitle2" gutterBottom>Description</Typography>
-                  <Typography variant="body2">{viewingItem.description}</Typography>
-                </>
-              )}
+              <Typography variant="subtitle2" gutterBottom>
+                Description
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                {viewingItem.description || '-'}
+              </Typography>
+
+              <Typography variant="subtitle2" gutterBottom>
+                Multiplier
+              </Typography>
+              <Typography variant="body2">{viewingItem.multiplier ?? 1}</Typography>
             </Box>
           )}
         </DialogContent>
@@ -417,11 +614,12 @@ export default function ClientTypesPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Client Type</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete this client type? This action cannot be undone.</Typography>
+          <Typography>
+            Are you sure you want to delete this client type? This action cannot be undone.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
@@ -436,7 +634,6 @@ export default function ClientTypesPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Success Message */}
       <Snackbar
         open={!!successMessage}
         autoHideDuration={6000}

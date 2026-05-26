@@ -2,14 +2,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import Client from '@/models/Client';
 import { getUserFromRequest } from '@/lib/auth';
+import mongoose from 'mongoose';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+const toErrorPayload = (fallback: string, err: unknown) => {
+  const message = err instanceof Error ? err.message : fallback;
+  return { error: fallback, details: message };
+};
+
 export async function GET(req: NextRequest, { params }: RouteContext) {
   const { id } = await params;
   try {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ error: 'Invalid client id' }, { status: 400 });
+    }
+
     const user = getUserFromRequest(req);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -24,14 +34,17 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(client);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Operation failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(toErrorPayload('Failed to fetch client', err), { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteContext) {
   const { id } = await params;
   try {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ error: 'Invalid client id' }, { status: 400 });
+    }
+
     const user = getUserFromRequest(req);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -40,6 +53,9 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     await connectDB();
 
     const body = await req.json();
+    if (body?.name !== undefined && !String(body.name).trim()) {
+      return NextResponse.json({ error: 'Client name cannot be empty' }, { status: 400 });
+    }
     const client = await Client.findByIdAndUpdate(
       id,
       { $set: body },
@@ -52,14 +68,17 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json(client);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Operation failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(toErrorPayload('Failed to update client', err), { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: RouteContext) {
   const { id } = await params;
   try {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ error: 'Invalid client id' }, { status: 400 });
+    }
+
     const user = getUserFromRequest(req);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -80,7 +99,6 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
 
     return NextResponse.json({ message: 'Client deleted successfully' });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Operation failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(toErrorPayload('Failed to delete client', err), { status: 500 });
   }
 }

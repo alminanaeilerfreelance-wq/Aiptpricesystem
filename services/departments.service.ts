@@ -3,10 +3,10 @@ import apiClient from './apiClient';
 export interface Department {
   _id: string;
   name: string;
-  country: {
-    _id: string;
-    name: string;
-  };
+  country?: string | {
+    _id?: string;
+    name?: string;
+  } | null;
   description?: string;
   isActive: boolean;
   createdAt: string;

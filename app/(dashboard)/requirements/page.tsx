@@ -16,21 +16,14 @@ import {
   FormControl,
   InputLabel,
   MenuItem,
-  Pagination,
   Select,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
   TextField,
   Typography,
   Snackbar,
 } from '@mui/material';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, MuiDataTable } from '@/components/ui';
+import type { MuiDataTableColumn } from '@/components/ui';
 import requirementsService from '@/services/requirements.service';
 import { countriesService } from '@/services/countries.service';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -378,8 +371,6 @@ export default function RequirementsPage() {
     setSuccessMessage('Import template downloaded');
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-
   const applyCountryFilter = (nextCountry: string) => {
     setCountryFilter(nextCountry);
     setPage(1);
@@ -392,6 +383,56 @@ export default function RequirementsPage() {
     setSortOrder('desc');
     setPage(1);
   };
+
+  const requirementColumns: MuiDataTableColumn<Requirement>[] = [
+    {
+      id: 'country',
+      label: 'Country',
+      sortable: true,
+      render: (row) => row.country.name,
+      sortValue: (row) => row.country.name,
+      searchValue: (row) => row.country.name,
+    },
+    {
+      id: 'requirements',
+      label: 'Requirements',
+      sortable: false,
+      minWidth: 320,
+      render: (row) => (
+        <Typography noWrap sx={{ maxWidth: 320 }}>
+          {stripHtml(row.requirements)}
+        </Typography>
+      ),
+      searchValue: (row) => stripHtml(row.requirements),
+    },
+    {
+      id: 'createdAt',
+      label: 'Created',
+      sortable: true,
+      render: (row) => new Date(row.createdAt).toLocaleDateString(),
+      sortValue: (row) => new Date(row.createdAt).getTime(),
+      searchValue: (row) => new Date(row.createdAt).toLocaleDateString(),
+    },
+    {
+      id: 'actions',
+      label: 'Actions',
+      align: 'right',
+      sortable: false,
+      render: (row) => (
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
+            View
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
+            Edit
+          </Button>
+          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(row._id)}>
+            Delete
+          </Button>
+        </Stack>
+      ),
+    },
+  ];
 
   if (!mounted) {
     return null;
@@ -524,53 +565,26 @@ export default function RequirementsPage() {
       ) : (
         !loading && (
           <>
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                    <TableCell><strong>Country</strong></TableCell>
-                    <TableCell><strong>Requirements</strong></TableCell>
-                    <TableCell><strong>Created</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {requirements.map((requirement) => (
-                    <TableRow key={requirement._id} sx={{ '&:hover': { backgroundColor: '#f9f9f9' } }}>
-                      <TableCell>{requirement.country.name}</TableCell>
-                      <TableCell>
-                        <Typography noWrap sx={{ maxWidth: 320 }}>
-                          {stripHtml(requirement.requirements)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell>{new Date(requirement.createdAt).toLocaleDateString()}</TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                          <Button size="small" variant="outlined" onClick={() => handleView(requirement)}>View</Button>
-                          <Button size="small" variant="outlined" onClick={() => handleEdit(requirement)}>Edit</Button>
-                          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(requirement._id)}>Delete</Button>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, px: 2 }}>
-              <Typography variant="body2" color="textSecondary">
-                Showing {total === 0 ? 0 : (page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-              </Typography>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={(_, newPage) => {
-                  setPage(newPage);
-                }}
-                color="primary"
-                size="small"
-              />
-            </Box>
+            <MuiDataTable
+              rows={requirements}
+              columns={requirementColumns}
+              rowKey={(row) => row._id}
+              page={page}
+              rowsPerPage={limit}
+              total={total}
+              onPageChange={setPage}
+              sortBy={sortBy}
+              sortOrder={sortOrder}
+              onSortChange={(nextSortBy, nextSortOrder) => {
+                if (nextSortBy === 'country' || nextSortBy === 'createdAt') {
+                  setSortBy(nextSortBy);
+                  setSortOrder(nextSortOrder);
+                  setPage(1);
+                }
+              }}
+              showToolbar={false}
+              loading={false}
+            />
           </>
         )
       )}

@@ -12,9 +12,35 @@ export async function GET(req: NextRequest) {
 
     await connectDB();
 
-    const clientTypes = await ClientType.find({ isActive: true }).sort({ name: 1 });
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get('search');
+    const pageParam = Number(searchParams.get('page') ?? '1');
+    const limitParam = Number(searchParams.get('limit') ?? '10');
 
-    return NextResponse.json({ clientTypes, total: clientTypes.length });
+    const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1;
+    const limit =
+      Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 100) : 10;
+    const skip = (page - 1) * limit;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const filter: Record<string, any> = { isActive: true };
+
+    if (search) {
+      const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { description: { $regex: safeSearch, $options: 'i' } },
+      ];
+    }
+
+    const [clientTypes, total] = await Promise.all([
+      ClientType.find(filter).sort({ name: 1 }).skip(skip).limit(limit),
+      ClientType.countDocuments(filter),
+    ]);
+
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    return NextResponse.json({ clientTypes, total, page, limit, totalPages });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });

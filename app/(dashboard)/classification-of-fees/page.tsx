@@ -29,7 +29,8 @@ import {
   Typography,
   Snackbar,
 } from '@mui/material';
-import { EmptyState } from '@/components/ui';
+import { EmptyState, MuiDataTable } from '@/components/ui';
+import type { MuiDataTableColumn } from '@/components/ui';
 import { classificationOfFeesService } from '@/services/classification-of-fees.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
@@ -39,8 +40,6 @@ interface ClassificationOfFee {
   _id: string;
   name: string;
   description?: string;
-  minFee: number;
-  maxFee: number;
   createdAt: string;
 }
 
@@ -55,6 +54,14 @@ export default function ClassificationOfFeesPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+
+  const [openForm, setOpenForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+  });
+
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingItem, setViewingItem] = useState<ClassificationOfFee | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -64,27 +71,30 @@ export default function ClassificationOfFeesPage() {
     setMounted(true);
   }, []);
 
-  const fetchItems = useCallback(async (params?: { nextPage?: number; nextSearch?: string }) => {
-    const nextPage = params?.nextPage ?? page;
-    const nextSearch = params?.nextSearch ?? debouncedSearch;
-    try {
-      setLoading(true);
-      setError('');
-      const response = await classificationOfFeesService.list({
-        page: nextPage,
-        limit,
-        search: nextSearch || undefined,
-      });
-      setItems(Array.isArray(response?.classifications) ? response.classifications : []);
-      setTotal(response?.total || 0);
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch data');
-      setItems([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [debouncedSearch, limit, page]);
+  const fetchItems = useCallback(
+    async (params?: { nextPage?: number; nextSearch?: string }) => {
+      const nextPage = params?.nextPage ?? page;
+      const nextSearch = params?.nextSearch ?? debouncedSearch;
+      try {
+        setLoading(true);
+        setError('');
+        const response = await classificationOfFeesService.list({
+          page: nextPage,
+          limit,
+          search: nextSearch || undefined,
+        });
+        setItems(Array.isArray(response?.classifications) ? response.classifications : []);
+        setTotal(response?.total || 0);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch data');
+        setItems([]);
+        setTotal(0);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [debouncedSearch, limit, page]
+  );
 
   useEffect(() => {
     fetchItems({ nextPage: page, nextSearch: debouncedSearch });
@@ -93,6 +103,58 @@ export default function ClassificationOfFeesPage() {
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch]);
+
+  const handleAdd = () => {
+    setEditingId(null);
+    setFormData({ name: '', description: '' });
+    setOpenForm(true);
+  };
+
+  const handleEdit = (item: ClassificationOfFee) => {
+    setEditingId(item._id);
+    setFormData({ name: item.name, description: item.description || '' });
+    setOpenForm(true);
+  };
+
+  const handleCloseForm = () => {
+    setOpenForm(false);
+    setEditingId(null);
+    setFormData({ name: '', description: '' });
+  };
+
+  const handleSubmitForm = async () => {
+    if (!formData.name.trim()) {
+      setError('Classification name is required');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+
+      const payload = {
+        name: formData.name.trim(),
+        description: formData.description.trim() || undefined,
+        remarks: formData.description.trim() || undefined,
+      };
+
+      if (editingId) {
+        await classificationOfFeesService.update(editingId, payload);
+        setSuccessMessage('Classification updated successfully');
+      } else {
+        await classificationOfFeesService.create(payload);
+        setSuccessMessage('Classification created successfully');
+      }
+
+      handleCloseForm();
+      if (page !== 1) setPage(1);
+      else await fetchItems({ nextPage: 1 });
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to save classification');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleView = (item: ClassificationOfFee) => {
     setViewingItem(item);
@@ -137,22 +199,29 @@ export default function ClassificationOfFeesPage() {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, raw: false });
-      const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell ?? '').trim()));
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, {
+        header: 1,
+        raw: false,
+      });
+      const dataRows = rows
+        .slice(1)
+        .filter((row) => row.some((cell) => String(cell ?? '').trim()));
 
       let importedCount = 0;
       const importErrors: string[] = [];
 
       for (const row of dataRows) {
         const name = String(row[0] ?? '').trim();
-        const minFee = row[1] ? Number(row[1]) : 0;
-        const maxFee = row[2] ? Number(row[2]) : 0;
-        const description = String(row[3] ?? '').trim();
+        const remarks = String(row[1] ?? '').trim();
 
         if (!name) continue;
 
         try {
-          await classificationOfFeesService.create({ name, minFee, maxFee, description: description || undefined });
+          await classificationOfFeesService.create({
+            name,
+            description: remarks || undefined,
+            remarks: remarks || undefined,
+          });
           importedCount += 1;
         } catch {
           importErrors.push(`Failed to import "${name}"`);
@@ -165,7 +234,11 @@ export default function ClassificationOfFeesPage() {
         setSuccessMessage(`Imported ${importedCount} items`);
       }
       if (importErrors.length > 0) {
-        setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
+        setError(
+          `Errors: ${importErrors.slice(0, 3).join(' | ')}${
+            importErrors.length > 3 ? '...' : ''
+          }`
+        );
       }
     } catch {
       setError('Failed to import file');
@@ -183,7 +256,9 @@ export default function ClassificationOfFeesPage() {
       search: debouncedSearch || undefined,
     });
 
-    const firstData = Array.isArray(firstResponse?.classifications) ? firstResponse.classifications : [];
+    const firstData = Array.isArray(firstResponse?.classifications)
+      ? firstResponse.classifications
+      : [];
     const totalPages = Math.ceil((firstResponse?.total || 0) / pageSize);
 
     if (totalPages <= 1) return firstData;
@@ -200,7 +275,9 @@ export default function ClassificationOfFeesPage() {
     }
 
     const remainingResponses = await Promise.all(remainingRequests);
-    const remainingData = remainingResponses.flatMap((r) => (Array.isArray(r?.classifications) ? r.classifications : []));
+    const remainingData = remainingResponses.flatMap((r) =>
+      Array.isArray(r?.classifications) ? r.classifications : []
+    );
 
     return [...firstData, ...remainingData];
   }, [debouncedSearch]);
@@ -212,13 +289,13 @@ export default function ClassificationOfFeesPage() {
       return;
     }
     const XLSX = await import('xlsx');
-    const ws = XLSX.utils.json_to_sheet(records.map((i) => ({
-      Name: i.name,
-      'Min Fee': i.minFee,
-      'Max Fee': i.maxFee,
-      Description: i.description || '',
-      Created: new Date(i.createdAt).toLocaleDateString(),
-    })));
+    const ws = XLSX.utils.json_to_sheet(
+      records.map((i) => ({
+        Name: i.name,
+        Remarks: i.description || '',
+        Created: new Date(i.createdAt).toLocaleDateString(),
+      }))
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Classifications');
     XLSX.writeFile(wb, 'classifications.csv');
@@ -232,13 +309,13 @@ export default function ClassificationOfFeesPage() {
       return;
     }
     const XLSX = await import('xlsx');
-    const ws = XLSX.utils.json_to_sheet(records.map((i) => ({
-      Name: i.name,
-      'Min Fee': i.minFee,
-      'Max Fee': i.maxFee,
-      Description: i.description || '',
-      Created: new Date(i.createdAt).toLocaleDateString(),
-    })));
+    const ws = XLSX.utils.json_to_sheet(
+      records.map((i) => ({
+        Name: i.name,
+        Remarks: i.description || '',
+        Created: new Date(i.createdAt).toLocaleDateString(),
+      }))
+    );
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Classifications');
     XLSX.writeFile(wb, 'classifications.xlsx');
@@ -256,11 +333,10 @@ export default function ClassificationOfFeesPage() {
     const doc = new jsPDF.jsPDF();
 
     autoTable.default(doc, {
-      head: [['Name', 'Min Fee', 'Max Fee', 'Created']],
+      head: [['Name', 'Remarks', 'Created']],
       body: records.map((i) => [
         i.name,
-        `$${i.minFee}`,
-        `$${i.maxFee}`,
+        (i.description || '').slice(0, 60),
         new Date(i.createdAt).toLocaleDateString(),
       ]),
       startY: 10,
@@ -274,22 +350,81 @@ export default function ClassificationOfFeesPage() {
 
   if (!mounted) return null;
 
+  const classificationColumns: MuiDataTableColumn<ClassificationOfFee>[] = [
+    {
+      id: 'name',
+      label: 'Name',
+      sortable: true,
+      searchValue: (row) => row.name,
+      render: (row) => row.name,
+    },
+    {
+      id: 'description',
+      label: 'Remarks',
+      sortable: true,
+      searchValue: (row) => row.description || '',
+      render: (row) => row.description || '-',
+    },
+    {
+      id: 'createdAt',
+      label: 'Created',
+      sortable: true,
+      sortValue: (row) => new Date(row.createdAt).getTime(),
+      render: (row) => new Date(row.createdAt).toLocaleDateString(),
+    },
+    {
+      id: 'actions',
+      label: 'Actions',
+      align: 'right',
+      sortable: false,
+      render: (row) => (
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
+            View
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
+            Edit
+          </Button>
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            onClick={() => handleDeleteClick(row._id)}
+          >
+            Delete
+          </Button>
+        </Stack>
+      ),
+    },
+  ];
+
   return (
     <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          mb: 3,
+        }}
+      >
         <Typography variant="h4">Classification of Fees</Typography>
-        <Button variant="contained" disabled>
-          + Add Classification (Form Coming Soon)
+        <Button variant="contained" onClick={handleAdd}>
+          + Add Classification
         </Button>
       </Box>
 
-      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
             <TextField
-              placeholder="Search classifications..."
+              placeholder="Search all fields..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               size="small"
@@ -314,17 +449,35 @@ export default function ClassificationOfFeesPage() {
           </Stack>
 
           <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-            <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportCSV().catch(() => setError('Export failed'))}
+            >
               Export CSV
             </Button>
-            <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportExcel().catch(() => setError('Export failed'))}
+            >
               Export Excel
             </Button>
-            <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportPDF().catch(() => setError('Export failed'))}
+            >
               Export PDF
             </Button>
-            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportCSV} style={{ display: 'none' }} id="import-csv-input" />
-            <label htmlFor="import-csv-input" style={{ margin: 0 }}>
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={handleImportCSV}
+              style={{ display: 'none' }}
+              id="import-classifications-input"
+            />
+            <label htmlFor="import-classifications-input" style={{ margin: 0 }}>
               <Button size="small" variant="outlined" component="span">
                 Import CSV
               </Button>
@@ -343,89 +496,77 @@ export default function ClassificationOfFeesPage() {
         <EmptyState
           title="No classifications found"
           description="Start by adding your first classification"
-          onAction={() => {}}
+          onAction={handleAdd}
           actionLabel="Add Classification"
         />
       ) : (
         !loading && (
           <>
-            <TableContainer component={Paper}>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                    <TableCell><strong>Name</strong></TableCell>
-                    <TableCell align="right"><strong>Min Fee</strong></TableCell>
-                    <TableCell align="right"><strong>Max Fee</strong></TableCell>
-                    <TableCell><strong>Created</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {items.map((item) => (
-                    <TableRow
-                      key={item._id}
-                      sx={{ '&:hover': { backgroundColor: '#f9f9f9' }, '&:last-child td, &:last-child th': { border: 0 } }}
-                    >
-                      <TableCell>{item.name}</TableCell>
-                      <TableCell align="right">${item.minFee}</TableCell>
-                      <TableCell align="right">${item.maxFee}</TableCell>
-                      <TableCell>{new Date(item.createdAt).toLocaleDateString()}</TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                          <Button size="small" variant="outlined" onClick={() => handleView(item)}>
-                            View
-                          </Button>
-                          <Button size="small" variant="outlined" disabled>
-                            Edit
-                          </Button>
-                          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(item._id)}>
-                            Delete
-                          </Button>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, px: 2 }}>
-              <Typography variant="body2" color="textSecondary">
-                Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-              </Typography>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={(e, newPage) => setPage(newPage)}
-                color="primary"
-                size="small"
-              />
-            </Box>
+            <MuiDataTable
+              rows={items}
+              columns={classificationColumns}
+              rowKey={(row) => row._id}
+              page={page}
+              rowsPerPage={limit}
+              total={total}
+              onPageChange={setPage}
+              showToolbar={false}
+              loading={false}
+            />
           </>
         )
       )}
 
-      {/* View Dialog */}
+      <Dialog open={openForm} onClose={handleCloseForm} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingId ? 'Edit Classification' : 'Add Classification'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Classification Name"
+              value={formData.name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+              required
+            />
+            <TextField
+              label="Remarks"
+              value={formData.description}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, description: e.target.value }))
+              }
+              multiline
+              minRows={3}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseForm}>Cancel</Button>
+          <Button
+            onClick={() =>
+              handleSubmitForm().catch(() => setError('Failed to save classification'))
+            }
+            variant="contained"
+          >
+            {editingId ? 'Update' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>View Classification</DialogTitle>
         <DialogContent>
           {viewingItem && (
             <Box sx={{ pt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>Name</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>{viewingItem.name}</Typography>
+              <Typography variant="subtitle2" gutterBottom>
+                Name
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                {viewingItem.name}
+              </Typography>
 
-              <Typography variant="subtitle2" gutterBottom>Min Fee</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>${viewingItem.minFee}</Typography>
-
-              <Typography variant="subtitle2" gutterBottom>Max Fee</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>${viewingItem.maxFee}</Typography>
-
-              {viewingItem.description && (
-                <>
-                  <Typography variant="subtitle2" gutterBottom>Description</Typography>
-                  <Typography variant="body2">{viewingItem.description}</Typography>
-                </>
-              )}
+              <Typography variant="subtitle2" gutterBottom>
+                Remarks
+              </Typography>
+              <Typography variant="body2">{viewingItem.description || '-'}</Typography>
             </Box>
           )}
         </DialogContent>
@@ -434,11 +575,12 @@ export default function ClassificationOfFeesPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Classification</DialogTitle>
         <DialogContent>
-          <Typography>Are you sure you want to delete this classification? This action cannot be undone.</Typography>
+          <Typography>
+            Are you sure you want to delete this classification? This action cannot be undone.
+          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
@@ -453,7 +595,6 @@ export default function ClassificationOfFeesPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Success Message */}
       <Snackbar
         open={!!successMessage}
         autoHideDuration={6000}

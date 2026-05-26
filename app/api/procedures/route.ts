@@ -14,6 +14,14 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
+    const search = searchParams.get('search');
+    const pageParam = Number(searchParams.get('page') ?? '1');
+    const limitParam = Number(searchParams.get('limit') ?? '10');
+
+    const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1;
+    const limit =
+      Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 100) : 10;
+    const skip = (page - 1) * limit;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = { isActive: true };
@@ -22,9 +30,26 @@ export async function GET(req: NextRequest) {
       filter.serviceCategory = category;
     }
 
-    const procedures = await Procedure.find(filter).sort({ serviceCategory: 1, sortOrder: 1, name: 1 });
+    if (search) {
+      const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { name: { $regex: safeSearch, $options: 'i' } },
+        { serviceCategory: { $regex: safeSearch, $options: 'i' } },
+        { description: { $regex: safeSearch, $options: 'i' } },
+      ];
+    }
 
-    return NextResponse.json({ procedures, total: procedures.length });
+    const [procedures, total] = await Promise.all([
+      Procedure.find(filter)
+        .sort({ serviceCategory: 1, sortOrder: 1, name: 1 })
+        .skip(skip)
+        .limit(limit),
+      Procedure.countDocuments(filter),
+    ]);
+
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    return NextResponse.json({ procedures, total, page, limit, totalPages });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });

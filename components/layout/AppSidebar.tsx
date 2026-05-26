@@ -128,15 +128,20 @@ const mainNavItems: NavItem[] = [
     icon: <ListIcon />,
     isActive: (pathname) => pathname.startsWith('/quotations') && pathname !== '/quotations/new',
   },
+  { label: 'Client Quotations', href: '/client-quotations', icon: <ListIcon /> },
+  { label: 'Associate Quotations', href: '/associate-quotations', icon: <ListIcon /> },
   { label: 'Procedures', href: '/procedures', icon: <ClipboardIcon /> },
   { label: 'Requirements', href: '/requirements', icon: <TagIcon /> },
   { label: 'Pricing Rules', href: '/pricing-rules', icon: <TagIcon /> },
   { label: 'Quotations Report', href: '/reports/quotations', icon: <ChartBarIcon /> },
+  { label: 'Profit/Loss Analysis', href: '/profit-loss-analysis', icon: <ChartBarIcon /> },
   { label: 'Revenue Report', href: '/reports/revenue', icon: <CurrencyIcon /> },
 ];
 
 const masterDataItems: NavItem[] = [
   { label: 'Client', href: '/clients', icon: <UsersIcon /> },
+  { label: 'Associte', href: '/associte', icon: <UsersIcon /> },
+  { label: 'Own Offices', href: '/own-offices', icon: <BriefcaseIcon /> },
   { label: 'Department', href: '/departments', icon: <BriefcaseIcon /> },
   { label: 'Services', href: '/services', icon: <BriefcaseIcon /> },
   { label: 'Countries', href: '/countries', icon: <GlobeIcon /> },

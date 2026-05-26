@@ -21,6 +21,7 @@ export interface CartItem {
   classFee: number;
   requirementIds: string[];
   total: number;
+  isManualTotal?: boolean;
 }
 
 interface QuotationCartTableProps {
@@ -44,6 +45,10 @@ export const QuotationCartTable: React.FC<QuotationCartTableProps> = ({
   currency,
 }) => {
   const calculateTotal = (item: CartItem): number => {
+    if (item.isManualTotal) {
+      return item.total;
+    }
+
     const classFeesTotal = item.serviceCategory === 'Trademark'
       ? item.classFee * Math.max(1, item.numberOfClasses)
       : 0;

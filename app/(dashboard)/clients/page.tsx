@@ -1,574 +1,637 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
-import Link from 'next/link';
-import Topbar from '@/components/layout/Topbar';
-import { DataTable } from '@/components/tables';
-import { StatusBadge } from '@/components/tables';
-import { TablePagination } from '@/components/tables';
-import { Button } from '@/components/ui';
-import { Input } from '@/components/ui';
-import { Modal } from '@/components/ui';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  MenuItem,
+  Snackbar,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
+import { EmptyState, MuiDataTable } from '@/components/ui';
+import type { MuiDataTableColumn } from '@/components/ui';
 import { clientsService, Client } from '@/services/clients.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
-const PAGE_SIZE = 10;
+export const dynamic = 'force-dynamic';
 
 interface ClientForm {
   name: string;
   email: string;
   phone: string;
-  country: string;
   address: string;
-  type: 'Individual' | 'Company' | 'Organization';
-  registrationNumber: string;
-  taxId: string;
+  country: string;
+  companyName: string;
   notes: string;
 }
 
-const CLIENT_TYPES = ['Individual', 'Company', 'Organization'];
-const CLIENT_STATUSES = ['Big', 'Small', 'New', 'Banned'];
+const defaultForm: ClientForm = {
+  name: '',
+  email: '',
+  phone: '',
+  address: '',
+  country: '',
+  companyName: '',
+  notes: '',
+};
 
 export default function ClientsPage() {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [total, setTotal] = useState(0);
+  const [mounted, setMounted] = useState(false);
+  const [items, setItems] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 400);
+  const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
-  const [searchInput, setSearchInput] = useState('');
-  const debouncedSearch = useDebounce(searchInput, 400);
+  const [openForm, setOpenForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState<ClientForm>(defaultForm);
 
-  const [currentPage, setCurrentPage] = useState(1);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [viewingItem, setViewingItem] = useState<Client | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Modal states
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingClient, setEditingClient] = useState<Client | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  const [formData, setFormData] = useState<ClientForm>({
-    name: '',
-    email: '',
-    phone: '',
-    country: '',
-    address: '',
-    type: 'Company',
-    registrationNumber: '',
-    taxId: '',
-    notes: '',
-  });
-
-  const fetchClients = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const fetchItems = useCallback(async (params?: { nextPage?: number; nextSearch?: string }) => {
+    const nextPage = params?.nextPage ?? page;
+    const nextSearch = params?.nextSearch ?? debouncedSearch;
     try {
-      const params: Record<string, any> = {
-        page: currentPage,
-        limit: PAGE_SIZE,
-      };
-      if (debouncedSearch) params.search = debouncedSearch;
-      const data = await clientsService.list(params);
-      setClients(data.clients);
-      setTotal(data.total);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load clients');
+      setLoading(true);
+      setError('');
+      const response = await clientsService.list({
+        page: nextPage,
+        limit,
+        search: nextSearch || undefined,
+      });
+      setItems(Array.isArray(response?.clients) ? response.clients : []);
+      setTotal(response?.total || 0);
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to fetch clients');
+      setItems([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [currentPage, debouncedSearch]);
+  }, [debouncedSearch, limit, page]);
 
   useEffect(() => {
-    setCurrentPage(1);
+    fetchItems({ nextPage: page, nextSearch: debouncedSearch });
+  }, [debouncedSearch, fetchItems, page]);
+
+  useEffect(() => {
+    setPage(1);
   }, [debouncedSearch]);
 
-  useEffect(() => {
-    fetchClients();
-  }, [fetchClients]);
+  const handleAdd = () => {
+    setEditingId(null);
+    setFormData(defaultForm);
+    setOpenForm(true);
+  };
 
-  const paginatedData = clients;
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-
-  const resetForm = () => {
+  const handleEdit = (item: Client) => {
+    setEditingId(item._id);
     setFormData({
-      name: '',
-      email: '',
-      phone: '',
-      country: '',
-      address: '',
-      type: 'Company',
-      registrationNumber: '',
-      taxId: '',
-      notes: '',
+      name: item.name || '',
+      email: item.email || '',
+      phone: item.phone || '',
+      address: item.address || '',
+      country: item.country || '',
+      companyName: item.companyName || '',
+      notes: item.notes || '',
     });
+    setOpenForm(true);
   };
 
-  const handleCreateClick = () => {
-    resetForm();
-    setEditingClient(null);
-    setShowCreateModal(true);
+  const handleView = (item: Client) => {
+    setViewingItem(item);
+    setViewDialogOpen(true);
   };
 
-  const handleEditClick = (client: Client) => {
-    setEditingClient(client);
-    setFormData({
-      name: client.name || '',
-      email: client.email || '',
-      phone: client.phone || '',
-      country: client.country || '',
-      address: client.address || '',
-      type: client.type || 'Company',
-      registrationNumber: client.registrationNumber || '',
-      taxId: client.taxId || '',
-      notes: client.notes || '',
-    });
-    setShowEditModal(true);
+  const handleDeleteClick = (id: string) => {
+    setDeletingId(id);
+    setDeleteDialogOpen(true);
   };
 
-  const handleSave = async () => {
+  const handleCloseForm = () => {
+    setOpenForm(false);
+    setEditingId(null);
+    setFormData(defaultForm);
+  };
+
+  const handleSubmitForm = async () => {
     if (!formData.name.trim()) {
       setError('Client name is required');
       return;
     }
 
-    setSaving(true);
     try {
-      if (editingClient) {
-        await clientsService.update(editingClient._id, formData);
-        setShowEditModal(false);
+      setLoading(true);
+      setError('');
+
+      const payload = {
+        name: formData.name.trim(),
+        email: formData.email.trim() || undefined,
+        phone: formData.phone.trim() || undefined,
+        address: formData.address.trim() || undefined,
+        country: formData.country.trim() || undefined,
+        companyName: formData.companyName.trim() || undefined,
+        notes: formData.notes.trim() || undefined,
+      };
+
+      if (editingId) {
+        await clientsService.update(editingId, payload);
+        setSuccessMessage('Client updated successfully');
       } else {
-        await clientsService.create(formData);
-        setShowCreateModal(false);
+        await clientsService.create(payload);
+        setSuccessMessage('Client created successfully');
       }
-      setError(null);
-      resetForm();
-      await fetchClients();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Operation failed');
+
+      handleCloseForm();
+      if (page !== 1) setPage(1);
+      else await fetchItems({ nextPage: 1 });
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to save client');
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
   const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
-    setDeleting(true);
+    if (!deletingId) return;
+
     try {
-      await clientsService.delete(deleteTarget._id);
-      setDeleteTarget(null);
-      await fetchClients();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete client');
+      setLoading(true);
+      await clientsService.delete(deletingId);
+      const targetPage = items.length === 1 && page > 1 ? page - 1 : page;
+      setDeleteDialogOpen(false);
+      setDeletingId(null);
+      if (targetPage !== page) {
+        setPage(targetPage);
+      } else {
+        await fetchItems({ nextPage: targetPage });
+      }
+      setSuccessMessage('Client deleted successfully');
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || 'Failed to delete client');
     } finally {
-      setDeleting(false);
+      setLoading(false);
     }
   };
 
-  const handleExportCSV = () => {
-    const headers = ['ID', 'Name', 'Email', 'Phone', 'Country', 'Type', 'Address', 'Status', 'Created'];
-    const rows = clients.map(client => [
-      client._id,
-      client.name,
-      client.email || '',
-      client.phone || '',
-      client.country || '',
-      client.type || '',
-      client.address || '',
-      'Active',
-      new Date(client.createdAt).toLocaleDateString(),
-    ]);
-
-    const csv = [headers, ...rows].map(row =>
-      row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-    ).join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `clients-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const handleImportCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const csv = event.target?.result as string;
-        const lines = csv.split('\n');
-        const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase());
+    try {
+      setLoading(true);
+      setError('');
 
-        for (let i = 1; i < lines.length; i++) {
-          if (!lines[i].trim()) continue;
-          const values = lines[i].split(',').map(v => v.replace(/"/g, '').trim());
-          const client = headers.reduce((obj, header, idx) => {
-            obj[header] = values[idx] || '';
-            return obj;
-          }, {} as Record<string, string>);
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<(string | number)[]>(firstSheet, { header: 1, raw: false });
+      const dataRows = rows.slice(1).filter((row) => row.some((cell) => String(cell ?? '').trim()));
 
-          if (client.name) {
-            await clientsService.create({
-              name: client.name,
-              email: client.email,
-              phone: client.phone,
-              country: client.country,
-              address: client.address,
-              type: client.type || 'Company',
-              registrationNumber: client.registrationnumber,
-              taxId: client.taxid,
-              notes: client.notes,
-            });
-          }
+      let importedCount = 0;
+      const importErrors: string[] = [];
+
+      for (const row of dataRows) {
+        const name = String(row[0] ?? '').trim();
+        const email = String(row[1] ?? '').trim();
+        const phone = String(row[2] ?? '').trim();
+        const address = String(row[3] ?? '').trim();
+        const country = String(row[4] ?? '').trim();
+        const companyName = String(row[5] ?? '').trim();
+        const notes = String(row[6] ?? '').trim();
+
+        if (!name) continue;
+
+        try {
+          await clientsService.create({
+            name,
+            email: email || undefined,
+            phone: phone || undefined,
+            address: address || undefined,
+            country: country || undefined,
+            companyName: companyName || undefined,
+            notes: notes || undefined,
+          });
+          importedCount += 1;
+        } catch {
+          importErrors.push(`Failed to import "${name}"`);
         }
-        await fetchClients();
-        setError(null);
-      } catch (err) {
-        setError(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
       }
-    };
-    reader.readAsText(file);
+
+      if (importedCount > 0) {
+        if (page !== 1) setPage(1);
+        else await fetchItems({ nextPage: 1 });
+        setSuccessMessage(`Imported ${importedCount} client records`);
+      }
+      if (importErrors.length > 0) {
+        setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
+      }
+    } catch {
+      setError('Failed to import file');
+    } finally {
+      setLoading(false);
+      event.target.value = '';
+    }
   };
 
-  const columns = [
+  const getAllFiltered = useCallback(async () => {
+    const pageSize = 100;
+    const firstResponse = await clientsService.list({
+      page: 1,
+      limit: pageSize,
+      search: debouncedSearch || undefined,
+    });
+
+    const firstData = Array.isArray(firstResponse?.clients) ? firstResponse.clients : [];
+    const totalPages = Math.ceil((firstResponse?.total || 0) / pageSize);
+
+    if (totalPages <= 1) return firstData;
+
+    const remainingRequests: Array<Promise<any>> = [];
+    for (let p = 2; p <= totalPages; p += 1) {
+      remainingRequests.push(
+        clientsService.list({
+          page: p,
+          limit: pageSize,
+          search: debouncedSearch || undefined,
+        })
+      );
+    }
+
+    const remainingResponses = await Promise.all(remainingRequests);
+    const remainingData = remainingResponses.flatMap((r) => (Array.isArray(r?.clients) ? r.clients : []));
+
+    return [...firstData, ...remainingData];
+  }, [debouncedSearch]);
+
+  const handleExportCSV = async () => {
+    const records = await getAllFiltered();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(records.map((item) => ({
+      'Client Name': item.name,
+      Email: item.email || '',
+      Phone: item.phone || '',
+      Address: item.address || '',
+      Country: item.country || '',
+      'Company Name': item.companyName || '',
+      Notes: item.notes || '',
+      Created: new Date(item.createdAt).toLocaleDateString(),
+      Updated: new Date(item.updatedAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clients');
+    XLSX.writeFile(wb, 'clients.csv');
+    setSuccessMessage(`CSV exported (${records.length} rows)`);
+  };
+
+  const handleExportExcel = async () => {
+    const records = await getAllFiltered();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+
+    const XLSX = await import('xlsx');
+    const ws = XLSX.utils.json_to_sheet(records.map((item) => ({
+      'Client Name': item.name,
+      Email: item.email || '',
+      Phone: item.phone || '',
+      Address: item.address || '',
+      Country: item.country || '',
+      'Company Name': item.companyName || '',
+      Notes: item.notes || '',
+      Created: new Date(item.createdAt).toLocaleDateString(),
+      Updated: new Date(item.updatedAt).toLocaleDateString(),
+    })));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Clients');
+    XLSX.writeFile(wb, 'clients.xlsx');
+    setSuccessMessage(`Excel exported (${records.length} rows)`);
+  };
+
+  const handleExportPDF = async () => {
+    const records = await getAllFiltered();
+    if (records.length === 0) {
+      setError('No data available to export');
+      return;
+    }
+
+    const jsPDF = await import('jspdf');
+    const autoTable = await import('jspdf-autotable');
+    const doc = new jsPDF.jsPDF({ orientation: 'landscape' });
+
+    autoTable.default(doc, {
+      head: [['Client Name', 'Email', 'Phone', 'Country', 'Company Name', 'Created']],
+      body: records.map((item) => [
+        item.name,
+        item.email || '-',
+        item.phone || '-',
+        item.country || '-',
+        item.companyName || '-',
+        new Date(item.createdAt).toLocaleDateString(),
+      ]),
+      startY: 10,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [33, 150, 243] },
+    });
+
+    doc.save('clients.pdf');
+    setSuccessMessage(`PDF exported (${records.length} rows)`);
+  };
+
+  const clientColumns: MuiDataTableColumn<Client>[] = [
     {
-      key: '_id',
-      label: 'ID',
-      render: (row: Client) => <span className="text-xs text-gray-500">{row._id.slice(-8)}</span>,
+      id: 'name',
+      label: 'Client Name',
+      sortable: true,
+      searchValue: (row) => row.name,
+      render: (row) => row.name,
     },
-    { key: 'name', label: 'Client Name' },
-    { key: 'email', label: 'Email' },
-    { key: 'phone', label: 'Contact' },
-    { key: 'country', label: 'Country' },
-    { key: 'type', label: 'Client Type' },
-    { key: 'address', label: 'Address' },
     {
-      key: 'createdAt',
-      label: 'Created',
-      render: (row: Client) =>
-        new Date(row.createdAt).toLocaleDateString('en-GB', {
-          day: '2-digit',
-          month: 'short',
-          year: 'numeric',
-        }),
+      id: 'email',
+      label: 'Email',
+      sortable: true,
+      minWidth: 180,
+      searchValue: (row) => row.email || '',
+      render: (row) => row.email || '-',
     },
     {
-      key: 'actions',
+      id: 'phone',
+      label: 'Phone',
+      sortable: true,
+      searchValue: (row) => row.phone || '',
+      render: (row) => row.phone || '-',
+    },
+    {
+      id: 'country',
+      label: 'Country',
+      sortable: true,
+      searchValue: (row) => row.country || '',
+      render: (row) => row.country || '-',
+    },
+    {
+      id: 'companyName',
+      label: 'Company Name',
+      sortable: true,
+      minWidth: 160,
+      searchValue: (row) => row.companyName || '',
+      render: (row) => row.companyName || '-',
+    },
+    {
+      id: 'createdAt',
+      label: 'Created At',
+      sortable: true,
+      sortValue: (row) => new Date(row.createdAt).getTime(),
+      render: (row) => new Date(row.createdAt).toLocaleDateString(),
+    },
+    {
+      id: 'updatedAt',
+      label: 'Updated At',
+      sortable: true,
+      sortValue: (row) => new Date(row.updatedAt).getTime(),
+      render: (row) => new Date(row.updatedAt).toLocaleDateString(),
+    },
+    {
+      id: 'actions',
       label: 'Actions',
-      render: (row: Client) => (
-        <div className="flex items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => handleEditClick(row)}
-          >
+      align: 'right',
+      sortable: false,
+      render: (row) => (
+        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
+            View
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
             Edit
           </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() => setDeleteTarget(row)}
-          >
+          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(row._id)}>
             Delete
           </Button>
-        </div>
+        </Stack>
       ),
     },
   ];
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Topbar title="Clients" />
-      <div className="p-6">
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            {error}
-          </div>
-        )}
+  if (!mounted) return null;
 
-        {/* Header */}
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <Input
-            type="text"
-            placeholder="Search clients by name, email, country..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="flex-1"
-          />
-          <div className="flex items-center gap-2">
-            <Button variant="primary" onClick={handleCreateClick}>
-              + New Client
-            </Button>
-            <Button variant="secondary" onClick={handleExportCSV} disabled={clients.length === 0}>
+  return (
+    <Box sx={{ p: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4">Clients</Typography>
+        <Button variant="contained" onClick={handleAdd}>
+          + Add Client
+        </Button>
+      </Box>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      <Card sx={{ mb: 3 }}>
+        <CardContent>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <TextField
+              placeholder="Search all fields..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              size="small"
+              sx={{ flex: 1 }}
+            />
+
+            <TextField
+              select
+              label="Rows"
+              value={String(limit)}
+              onChange={(e) => {
+                setLimit(Number(e.target.value));
+                setPage(1);
+              }}
+              size="small"
+              sx={{ width: 120 }}
+            >
+              <MenuItem value="10">10</MenuItem>
+              <MenuItem value="25">25</MenuItem>
+              <MenuItem value="50">50</MenuItem>
+            </TextField>
+          </Stack>
+
+          <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
+            <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
               Export CSV
             </Button>
-            <label>
-              <input
-                type="file"
-                accept=".csv"
-                onChange={handleImportCSV}
-                className="hidden"
-              />
-              <span className="inline-block cursor-pointer px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                Import CSV
-              </span>
+            <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
+              Export Excel
+            </Button>
+            <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
+              Export PDF
+            </Button>
+            <input
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={handleImportFile}
+              style={{ display: 'none' }}
+              id="clients-import-input"
+            />
+            <label htmlFor="clients-import-input" style={{ margin: 0 }}>
+              <Button size="small" variant="outlined" component="span">
+                Import File
+              </Button>
             </label>
-          </div>
-        </div>
+          </Stack>
+        </CardContent>
+      </Card>
 
-        {/* Loading state */}
-        {loading && (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-gray-500">Loading clients...</div>
-          </div>
-        )}
+      {loading && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+          <CircularProgress />
+        </Box>
+      )}
 
-        {/* Data Table */}
-        {!loading && clients.length > 0 && (
-          <>
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-              <DataTable columns={columns} data={paginatedData} />
-            </div>
-            <div className="mt-4">
-              <TablePagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalItems={total}
-                itemsPerPage={PAGE_SIZE}
-                onPageChange={setCurrentPage}
-              />
-            </div>
-          </>
-        )}
+      {!loading && items.length === 0 ? (
+        <EmptyState
+          title="No clients found"
+          description="Start by adding your first client"
+          onAction={handleAdd}
+          actionLabel="Add Client"
+        />
+      ) : (
+        !loading && (
+          <MuiDataTable
+            rows={items}
+            columns={clientColumns}
+            rowKey={(row) => row._id}
+            page={page}
+            rowsPerPage={limit}
+            total={total}
+            onPageChange={setPage}
+            showToolbar={false}
+            loading={false}
+          />
+        )
+      )}
 
-        {/* Empty state */}
-        {!loading && clients.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-500 mb-4">No clients found</p>
-            <Button variant="primary" onClick={handleCreateClick}>
-              Create First Client
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Create Modal */}
-      <Modal
-        isOpen={showCreateModal}
-        onClose={() => {
-          setShowCreateModal(false);
-          resetForm();
-        }}
-        title="Create New Client"
-      >
-        <div className="space-y-4">
-          <Input
-            label="Client Name *"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="Enter client name"
-          />
-          <Input
-            label="Email"
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            placeholder="client@example.com"
-          />
-          <Input
-            label="Phone"
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-            placeholder="+1 (555) 000-0000"
-          />
-          <Input
-            label="Country"
-            value={formData.country}
-            onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-            placeholder="Country"
-          />
-          <Input
-            label="Address"
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-            placeholder="Street address"
-          />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-            <select
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-            >
-              {CLIENT_TYPES.map(type => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-          </div>
-          <Input
-            label="Registration Number"
-            value={formData.registrationNumber}
-            onChange={(e) => setFormData({ ...formData, registrationNumber: e.target.value })}
-            placeholder="Registration number"
-          />
-          <Input
-            label="Tax ID"
-            value={formData.taxId}
-            onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
-            placeholder="Tax ID"
-          />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder="Additional notes"
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+      <Dialog open={openForm} onClose={handleCloseForm} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingId ? 'Edit Client' : 'Add Client'}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Client Name"
+              value={formData.name}
+              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+              required
             />
-          </div>
-          <div className="flex gap-2 justify-end pt-4">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setShowCreateModal(false);
-                resetForm();
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? 'Saving...' : 'Create Client'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Edit Modal */}
-      <Modal
-        isOpen={showEditModal}
-        onClose={() => setShowEditModal(false)}
-        title={`Edit Client: ${editingClient?.name}`}
-      >
-        <div className="space-y-4">
-          <Input
-            label="Client Name *"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            placeholder="Enter client name"
-          />
-          <Input
-            label="Email"
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            placeholder="client@example.com"
-          />
-          <Input
-            label="Phone"
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-            placeholder="+1 (555) 000-0000"
-          />
-          <Input
-            label="Country"
-            value={formData.country}
-            onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-            placeholder="Country"
-          />
-          <Input
-            label="Address"
-            value={formData.address}
-            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-            placeholder="Street address"
-          />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-            <select
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value as any })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
-            >
-              {CLIENT_TYPES.map(type => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-          </div>
-          <Input
-            label="Registration Number"
-            value={formData.registrationNumber}
-            onChange={(e) => setFormData({ ...formData, registrationNumber: e.target.value })}
-            placeholder="Registration number"
-          />
-          <Input
-            label="Tax ID"
-            value={formData.taxId}
-            onChange={(e) => setFormData({ ...formData, taxId: e.target.value })}
-            placeholder="Tax ID"
-          />
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder="Additional notes"
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+            <TextField
+              label="Email"
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
             />
-          </div>
-          <div className="flex gap-2 justify-end pt-4">
-            <Button
-              variant="secondary"
-              onClick={() => setShowEditModal(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleSave}
-              disabled={saving}
-            >
-              {saving ? 'Saving...' : 'Update Client'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+            <TextField
+              label="Phone"
+              value={formData.phone}
+              onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+            />
+            <TextField
+              label="Address"
+              value={formData.address}
+              onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
+              multiline
+              minRows={2}
+            />
+            <TextField
+              label="Country"
+              value={formData.country}
+              onChange={(e) => setFormData((prev) => ({ ...prev, country: e.target.value }))}
+            />
+            <TextField
+              label="Company Name"
+              value={formData.companyName}
+              onChange={(e) => setFormData((prev) => ({ ...prev, companyName: e.target.value }))}
+            />
+            <TextField
+              label="Notes"
+              value={formData.notes}
+              onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+              multiline
+              minRows={3}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseForm}>Cancel</Button>
+          <Button onClick={() => handleSubmitForm().catch(() => setError('Failed to save client'))} variant="contained">
+            {editingId ? 'Update' : 'Create'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        title="Delete Client"
-      >
-        <div>
-          <p className="text-gray-700 mb-4">
-            Are you sure you want to delete <strong>{deleteTarget?.name}</strong>? This action cannot be undone.
-          </p>
-          <div className="flex gap-2 justify-end">
-            <Button
-              variant="secondary"
-              onClick={() => setDeleteTarget(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onClick={handleDeleteConfirm}
-              disabled={deleting}
-            >
-              {deleting ? 'Deleting...' : 'Delete Client'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-    </div>
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>View Client</DialogTitle>
+        <DialogContent>
+          {viewingItem && (
+            <Stack spacing={1.5} sx={{ pt: 1 }}>
+              <Typography><strong>Client Name:</strong> {viewingItem.name}</Typography>
+              <Typography><strong>Email:</strong> {viewingItem.email || '-'}</Typography>
+              <Typography><strong>Phone:</strong> {viewingItem.phone || '-'}</Typography>
+              <Typography><strong>Address:</strong> {viewingItem.address || '-'}</Typography>
+              <Typography><strong>Country:</strong> {viewingItem.country || '-'}</Typography>
+              <Typography><strong>Company Name:</strong> {viewingItem.companyName || '-'}</Typography>
+              <Typography><strong>Notes:</strong> {viewingItem.notes || '-'}</Typography>
+              <Typography><strong>Created At:</strong> {new Date(viewingItem.createdAt).toLocaleString()}</Typography>
+              <Typography><strong>Updated At:</strong> {new Date(viewingItem.updatedAt).toLocaleString()}</Typography>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Client</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to delete this client? This action cannot be undone.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={loading}>
+            Delete
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={!!successMessage}
+        autoHideDuration={5000}
+        onClose={() => setSuccessMessage('')}
+        message={successMessage}
+      />
+    </Box>
   );
 }

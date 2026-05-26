@@ -2,15 +2,24 @@
 
 import React from 'react';
 import { Input, Card } from '@/components/ui';
-import { Client } from '@/services/clients.service';
+
+export interface AssociateSuggestion {
+  _id: string;
+  associteName: string;
+  email?: string;
+  associteType?: string;
+  contact?: string;
+  address?: string;
+  notes?: string;
+}
 
 interface ClientInformationCardProps {
   clientSearch: string;
   onClientSearchChange: (value: string) => void;
-  clientSuggestions: Client[];
+  clientSuggestions: AssociateSuggestion[];
   showSuggestions: boolean;
   onShowSuggestions: (show: boolean) => void;
-  onSelectClient: (client: Client) => void;
+  onSelectClient: (client: AssociateSuggestion) => void;
   selectedClient: {
     name: string;
     email: string;
@@ -19,6 +28,8 @@ interface ClientInformationCardProps {
     address?: string;
     notes?: string;
   };
+  inquiriesProject: string;
+  onInquiriesProjectChange: (value: string) => void;
   errors: Record<string, string>;
   suggestionsRef: React.RefObject<HTMLDivElement>;
 }
@@ -31,25 +42,27 @@ export const ClientInformationCard: React.FC<ClientInformationCardProps> = ({
   onShowSuggestions,
   onSelectClient,
   selectedClient,
+  inquiriesProject,
+  onInquiriesProjectChange,
   errors,
   suggestionsRef,
 }) => {
   return (
     <Card className="space-y-4">
       <h2 className="text-base font-semibold text-gray-900 mb-4">
-        Client Information
+        Associte Information
       </h2>
 
-      {/* Client Name with search dropdown */}
+      {/* Associte Name with search dropdown */}
       <div className="relative" ref={suggestionsRef}>
         <Input
-          label="Client Name *"
+          label="Associte Name *"
           value={clientSearch}
           onChange={(e) => {
             onClientSearchChange(e.target.value);
           }}
           onFocus={() => onShowSuggestions(true)}
-          placeholder="Type to search or enter new name"
+          placeholder="Type to search associte or enter name"
           error={errors.clientName}
           autoComplete="off"
         />
@@ -63,10 +76,10 @@ export const ClientInformationCard: React.FC<ClientInformationCardProps> = ({
                 onMouseDown={() => onSelectClient(c)}
               >
                 <div className="flex justify-between items-start">
-                  <span className="font-medium text-gray-900">{c.name}</span>
-                  {c.type && (
+                  <span className="font-medium text-gray-900">{c.associteName}</span>
+                  {c.associteType && (
                     <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                      {c.type}
+                      {c.associteType}
                     </span>
                   )}
                 </div>
@@ -79,38 +92,45 @@ export const ClientInformationCard: React.FC<ClientInformationCardProps> = ({
         )}
       </div>
 
-      {/* Client Email */}
+      {/* Associte Email */}
       <Input
-        label="Client Email"
+        label="Associte Email"
         type="email"
         value={selectedClient.email}
-        placeholder="client@example.com"
+        placeholder="associte@example.com"
         readOnly
       />
 
-      {/* Client Type (from selected client model) */}
+      {/* Associte Type */}
       <Input
-        label="Client Type"
+        label="Associte Type"
         value={selectedClient.type || ''}
-        placeholder="Client type"
+        placeholder="Associte type"
         readOnly
       />
 
-      {/* Client Phone (Contact) */}
+      {/* Associte Contact */}
       <Input
         label="Contact"
         type="tel"
         value={selectedClient.phone || ''}
-        placeholder="Client contact"
+        placeholder="Associte contact"
         readOnly
       />
 
-      {/* Client Address */}
+      {/* Associte Address */}
       <Input
         label="Address"
         value={selectedClient.address || ''}
-        placeholder="Client address"
+        placeholder="Associte address"
         readOnly
+      />
+
+      <Input
+        label="Inquiries Project"
+        value={inquiriesProject}
+        onChange={(e) => onInquiriesProjectChange(e.target.value)}
+        placeholder="Enter inquiries project name"
       />
 
       {/* Notes */}
@@ -120,7 +140,7 @@ export const ClientInformationCard: React.FC<ClientInformationCardProps> = ({
           className="input resize-none bg-gray-50"
           rows={3}
           value={selectedClient.notes || ''}
-          placeholder="Client note"
+          placeholder="Associte note"
           readOnly
         />
       </div>

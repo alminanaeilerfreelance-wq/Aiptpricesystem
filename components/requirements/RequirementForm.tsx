@@ -5,8 +5,10 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Checkbox,
   FormControl,
   InputLabel,
+  ListItemText,
   Select,
   MenuItem,
   CircularProgress,
@@ -52,8 +54,9 @@ const normalizeHtml = (html: string) => {
 };
 
 const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSuccess, editingId }) => {
+  const isEditing = Boolean(editingId);
   const [formData, setFormData] = useState({
-    country: '',
+    countries: [] as string[],
     requirements: '',
   });
   const [countries, setCountries] = useState<Country[]>([]);
@@ -101,7 +104,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         const response = await requirementsService.getById(editingId);
         const requirementHtml = response.data.requirements || '';
         setFormData({
-          country: response.data.country._id,
+          countries: [response.data.country._id],
           requirements: requirementHtml,
         });
         syncEditorHtml(requirementHtml);
@@ -116,7 +119,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
     if (open && editingId) {
       fetchRequirement();
     } else if (open && !editingId) {
-      setFormData({ country: '', requirements: '' });
+      setFormData({ countries: [], requirements: '' });
       syncEditorHtml('');
       setError('');
     }
@@ -206,8 +209,8 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
     const latestHtml = normalizeHtml(editorRef.current?.innerHTML || formData.requirements);
     const latestPlain = getPlainText(latestHtml);
 
-    if (!formData.country) {
-      setError('Country is required');
+    if (formData.countries.length === 0) {
+      setError(isEditing ? 'Country is required' : 'At least one country is required');
       return;
     }
 
@@ -221,14 +224,30 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
       setError('');
 
       const payload = {
-        country: formData.country,
+        country: formData.countries[0],
         requirements: latestHtml,
       };
 
       if (editingId) {
         await requirementsService.update(editingId, payload);
       } else {
-        await requirementsService.create(payload);
+        const failedCountries: string[] = [];
+        for (const countryId of formData.countries) {
+          try {
+            await requirementsService.create({
+              country: countryId,
+              requirements: latestHtml,
+              upsertByCountry: true,
+            });
+          } catch {
+            const countryName = countries.find((item) => item._id === countryId)?.name || countryId;
+            failedCountries.push(countryName);
+          }
+        }
+
+        if (failedCountries.length > 0) {
+          throw new Error(`Failed to save countries: ${failedCountries.join(', ')}`);
+        }
       }
 
       onSuccess();
@@ -241,7 +260,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   };
 
   const handleClose = () => {
-    setFormData({ country: '', requirements: '' });
+    setFormData({ countries: [], requirements: '' });
     syncEditorHtml('');
     setError('');
     onClose();
@@ -256,22 +275,55 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
             <FormControl fullWidth disabled={countriesLoading || loading}>
-              <InputLabel>Country *</InputLabel>
-              <Select
-                value={formData.country}
-                onChange={(e) => {
-                  setFormData({ ...formData, country: e.target.value });
-                  setError('');
-                }}
-                label="Country *"
-              >
-                <MenuItem value="">Select a country</MenuItem>
-                {countries.map((country) => (
-                  <MenuItem key={country._id} value={country._id}>
-                    {country.name}
-                  </MenuItem>
-                ))}
-              </Select>
+              <InputLabel>{isEditing ? 'Country *' : 'Countries *'}</InputLabel>
+              {isEditing ? (
+                <Select
+                  value={formData.countries[0] || ''}
+                  onChange={(e) => {
+                    setFormData({ ...formData, countries: [e.target.value] });
+                    setError('');
+                  }}
+                  label="Country *"
+                >
+                  <MenuItem value="">Select a country</MenuItem>
+                  {countries.map((country) => (
+                    <MenuItem key={country._id} value={country._id}>
+                      {country.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              ) : (
+                <Select
+                  multiple
+                  value={formData.countries}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setFormData({
+                      ...formData,
+                      countries: Array.isArray(value) ? value : String(value).split(','),
+                    });
+                    setError('');
+                  }}
+                  label="Countries *"
+                  renderValue={(selected) => {
+                    const selectedIds = selected as string[];
+                    if (selectedIds.length === 0) return 'Select countries';
+                    return selectedIds
+                      .map((countryId) => countries.find((country) => country._id === countryId)?.name || countryId)
+                      .join(', ');
+                  }}
+                >
+                  {countries.map((country) => {
+                    const checked = formData.countries.includes(country._id);
+                    return (
+                      <MenuItem key={country._id} value={country._id}>
+                        <Checkbox checked={checked} size="small" />
+                        <ListItemText primary={country.name} />
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              )}
             </FormControl>
 
             <Box>
@@ -328,7 +380,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         <DialogActions>
           <Button onClick={handleClose} disabled={loading}>Cancel</Button>
           <Button type="submit" variant="contained" disabled={loading || countriesLoading}>
-            {loading ? <CircularProgress size={20} /> : editingId ? 'Update' : 'Add'}
+            {loading ? <CircularProgress size={20} /> : editingId ? 'Update' : 'Save'}
           </Button>
         </DialogActions>
       </form>

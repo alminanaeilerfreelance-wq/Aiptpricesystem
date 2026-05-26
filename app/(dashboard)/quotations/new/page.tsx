@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
 import Topbar from '@/components/layout/Topbar';
@@ -12,12 +12,12 @@ import {
   EditCartItemModal,
   CartItem,
 } from '@/components/quotations';
+import type { AssociateSuggestion } from '@/components/quotations/ClientInformationCard';
 import { useToast } from '@/components/feedback/ToastProvider';
 import { quotationsService } from '@/services/quotations.service';
-import { clientsService, Client } from '@/services/clients.service';
+import associteService from '@/services/associte.service';
 import { countriesService, Country } from '@/services/countries.service';
 import { proceduresService, Procedure } from '@/services/procedures.service';
-import { pricingRulesService, PricingRule } from '@/services/pricing-rules.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
 const SERVICES = [
@@ -34,11 +34,11 @@ export default function NewQuotationPage() {
   const toast = useToast();
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  // CLIENT INFO STATE
+  // ASSOCITE INFO STATE
   const [clientSearch, setClientSearch] = useState('');
-  const [clientSuggestions, setClientSuggestions] = useState<Client[]>([]);
+  const [clientSuggestions, setClientSuggestions] = useState<AssociateSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [selectedClientId, setSelectedClientId] = useState('');
+  const [selectedAssociteId, setSelectedAssociteId] = useState('');
   const [selectedClient, setSelectedClient] = useState({
     name: '',
     email: '',
@@ -47,6 +47,7 @@ export default function NewQuotationPage() {
     address: '',
     notes: '',
   });
+  const [inquiriesProject, setInquiriesProject] = useState('');
   const [globalNotes, setGlobalNotes] = useState('');
 
   // SERVICE DETAILS STATE
@@ -55,11 +56,13 @@ export default function NewQuotationPage() {
   const [countryId, setCountryId] = useState('');
   const [numberOfClasses, setNumberOfClasses] = useState(1);
   const [requirementIds, setRequirementIds] = useState<string[]>([]);
+  const [officialFee, setOfficialFee] = useState(0);
+  const [attorneyFee, setAttorneyFee] = useState(0);
+  const [manualTotal, setManualTotal] = useState(0);
 
   // LOOKUP DATA
   const [countries, setCountries] = useState<Country[]>([]);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
-  const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
 
   // CART STATE
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -78,12 +81,8 @@ export default function NewQuotationPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [cRes, prRes] = await Promise.all([
-          countriesService.list(),
-          pricingRulesService.list(),
-        ]);
+        const cRes = await countriesService.list();
         setCountries(cRes.countries);
-        setPricingRules(prRes.pricingRules);
       } catch (err) {
         toast.error('Failed to load form data');
       }
@@ -91,15 +90,15 @@ export default function NewQuotationPage() {
     loadData();
   }, []);
 
-  // SEARCH CLIENTS
+  // SEARCH ASSOCITE
   useEffect(() => {
     if (!debouncedClientSearch || debouncedClientSearch.length < 2) {
       setClientSuggestions([]);
       return;
     }
-    clientsService
-      .list({ search: debouncedClientSearch })
-      .then((res) => setClientSuggestions(res.clients.slice(0, 8)))
+    associteService
+      .list({ search: debouncedClientSearch, page: 1, limit: 8 })
+      .then((res) => setClientSuggestions((res.assocites || []).slice(0, 8)))
       .catch(() => setClientSuggestions([]));
   }, [debouncedClientSearch]);
 
@@ -117,54 +116,11 @@ export default function NewQuotationPage() {
     setProcedureId('');
   }, [service]);
 
-  const selectedCountry = useMemo(
-    () => countries.find((c) => c._id === countryId) || null,
-    [countries, countryId]
-  );
-
-  // Procedure options must match Procedure page + Pricing Rules for selected service/country
-  const filteredProcedures = useMemo(() => {
-    if (!service || !selectedCountry) return [];
-
-    const procedureNameSet = new Set(
-      pricingRules
-        .filter((rule) =>
-          rule.serviceCategory === service &&
-          (rule.countryName === selectedCountry.name ||
-            rule.countryAbbreviation === selectedCountry.abbreviation)
-        )
-        .map((rule) => rule.procedureName.trim().toLowerCase())
-    );
-
-    return procedures.filter((procedure) =>
-      procedureNameSet.has(procedure.name.trim().toLowerCase())
-    );
-  }, [pricingRules, procedures, selectedCountry, service]);
-
-  const selectedProcedure = useMemo(
-    () => filteredProcedures.find((p) => p._id === procedureId) || null,
-    [filteredProcedures, procedureId]
-  );
-
-  const selectedPricingRule = useMemo(() => {
-    if (!service || !selectedCountry || !selectedProcedure) return null;
-
-    return (
-      pricingRules.find(
-        (rule) =>
-          rule.serviceCategory === service &&
-          rule.procedureName.trim().toLowerCase() === selectedProcedure.name.trim().toLowerCase() &&
-          (rule.countryName === selectedCountry.name ||
-            rule.countryAbbreviation === selectedCountry.abbreviation)
-      ) || null
-    );
-  }, [pricingRules, selectedCountry, selectedProcedure, service]);
-
   useEffect(() => {
-    if (procedureId && !filteredProcedures.some((p) => p._id === procedureId)) {
+    if (procedureId && !procedures.some((p) => p._id === procedureId)) {
       setProcedureId('');
     }
-  }, [filteredProcedures, procedureId]);
+  }, [procedures, procedureId]);
 
   // DISMISS SUGGESTIONS ON OUTSIDE CLICK
   useEffect(() => {
@@ -181,16 +137,16 @@ export default function NewQuotationPage() {
   }, []);
 
   // HANDLERS
-  const handleSelectClient = (client: Client) => {
-    setSelectedClientId(client._id);
-    setClientSearch(client.name);
+  const handleSelectClient = (associte: AssociateSuggestion) => {
+    setSelectedAssociteId(associte._id);
+    setClientSearch(associte.associteName);
     setSelectedClient({
-      name: client.name,
-      email: client.email || '',
-      type: client.type || client.clientType || '',
-      phone: client.phone || '',
-      address: client.address || '',
-      notes: client.notes || '',
+      name: associte.associteName,
+      email: associte.email || '',
+      type: associte.associteType || '',
+      phone: associte.contact || '',
+      address: associte.address || '',
+      notes: associte.notes || '',
     });
     setShowSuggestions(false);
   };
@@ -198,7 +154,7 @@ export default function NewQuotationPage() {
   const handleClientSearchChange = (value: string) => {
     setClientSearch(value);
     setShowSuggestions(true);
-    setSelectedClientId('');
+    setSelectedAssociteId('');
     setSelectedClient({
       name: value,
       email: '',
@@ -215,6 +171,9 @@ export default function NewQuotationPage() {
     setProcedureId('');
     setRequirementIds([]);
     setNumberOfClasses(1);
+    setOfficialFee(0);
+    setAttorneyFee(0);
+    setManualTotal(0);
     setErrors((prev) => ({ ...prev, service: '', country: '', procedure: '' }));
   };
 
@@ -230,6 +189,12 @@ export default function NewQuotationPage() {
     if (!service) newErrors.service = 'Service is required';
     if (!procedureId) newErrors.procedure = 'Procedure is required';
     if (!countryId) newErrors.country = 'Country is required';
+    if (officialFee < 0) newErrors.officialFee = 'Official fee must be non-negative';
+    if (attorneyFee < 0) newErrors.attorneyFee = 'Attorney fee must be non-negative';
+    if (manualTotal < 0) newErrors.total = 'Total must be non-negative';
+    if (manualTotal > 0 && manualTotal < officialFee + attorneyFee) {
+      newErrors.total = 'Total must be at least Official Fee + Attorney Fee';
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -237,14 +202,16 @@ export default function NewQuotationPage() {
       return;
     }
 
-    const procedure = filteredProcedures.find((p) => p._id === procedureId);
+    const procedure = procedures.find((p) => p._id === procedureId);
     const country = countries.find((c) => c._id === countryId);
-    const pricingRule = selectedPricingRule;
 
-    if (!procedure || !country || !pricingRule) {
+    if (!procedure || !country) {
       toast.error('Unable to add item. Please check your selections.');
       return;
     }
+
+    const calculatedTotal = officialFee + attorneyFee;
+    const finalTotal = manualTotal > 0 ? manualTotal : calculatedTotal;
 
     const newCartItem: CartItem = {
       id: uuidv4(),
@@ -254,11 +221,12 @@ export default function NewQuotationPage() {
       countryId,
       serviceCategory: service as ServiceType,
       numberOfClasses: service === 'Trademark' ? numberOfClasses : 1,
-      officialFee: pricingRule.officialFee,
-      attorneyFee: pricingRule.attorneyFee,
-      classFee: pricingRule.classFee,
+      officialFee,
+      attorneyFee,
+      classFee: 0,
       requirementIds,
-      total: 0, // Will be calculated in table
+      total: finalTotal,
+      isManualTotal: true,
     };
 
     setCartItems([...cartItems, newCartItem]);
@@ -270,6 +238,9 @@ export default function NewQuotationPage() {
     setCountryId('');
     setNumberOfClasses(1);
     setRequirementIds([]);
+    setOfficialFee(0);
+    setAttorneyFee(0);
+    setManualTotal(0);
     setErrors({});
   };
 
@@ -298,7 +269,8 @@ export default function NewQuotationPage() {
     e.preventDefault();
 
     const newErrors: Record<string, string> = {};
-    if (!selectedClient.name.trim()) newErrors.clientName = 'Client name is required';
+    if (!selectedClient.name.trim()) newErrors.clientName = 'Associte name is required';
+    if (!selectedAssociteId) newErrors.clientName = 'Please select associte from suggestions';
     if (cartItems.length === 0) newErrors.cart = 'At least one item must be added to cart';
 
     if (Object.keys(newErrors).length > 0) {
@@ -310,27 +282,38 @@ export default function NewQuotationPage() {
     try {
       const created = await Promise.all(
         cartItems.map((item) =>
-          quotationsService.create({
-            clientId: selectedClientId || undefined,
+        {
+          const classFee =
+            item.serviceCategory === 'Trademark' ? item.classFee : 0;
+          const numberOfClasses =
+            item.serviceCategory === 'Trademark' ? item.numberOfClasses : 1;
+          const baseSubtotal = item.officialFee + item.attorneyFee + classFee * numberOfClasses;
+          const targetTotal = item.isManualTotal ? item.total : baseSubtotal;
+          const procedureFee = Math.max(0, targetTotal - baseSubtotal);
+
+          return quotationsService.create({
+            associteId: selectedAssociteId || undefined,
             clientName: selectedClient.name.trim(),
             clientEmail: selectedClient.email.trim() || undefined,
             clientType: selectedClient.type || undefined,
+            inquiriesProject: inquiriesProject.trim() || undefined,
             service: item.serviceCategory,
             procedure: item.procedureName,
             country: item.countryName,
-            numberOfClasses: item.serviceCategory === 'Trademark' ? item.numberOfClasses : 1,
+            numberOfClasses,
             requirementIds: item.requirementIds,
             fees: {
               governmentFee: item.officialFee,
               serviceFee: item.attorneyFee,
-              classFee: item.serviceCategory === 'Trademark' ? item.classFee : 0,
-              procedureFee: 0,
+              classFee,
+              procedureFee,
             },
             multiplier: 1,
             currency,
             notes: globalNotes.trim() || undefined,
             status: 'Draft',
-          })
+          });
+        }
         )
       );
 
@@ -374,6 +357,8 @@ export default function NewQuotationPage() {
             onShowSuggestions={setShowSuggestions}
             onSelectClient={handleSelectClient}
             selectedClient={selectedClient}
+            inquiriesProject={inquiriesProject}
+            onInquiriesProjectChange={setInquiriesProject}
             errors={errors}
             suggestionsRef={suggestionsRef}
           />
@@ -384,14 +369,19 @@ export default function NewQuotationPage() {
             countryId={countryId}
             numberOfClasses={numberOfClasses}
             requirementIds={requirementIds}
-            procedures={filteredProcedures}
+            procedures={procedures}
             countries={countries}
-            selectedPricingRule={selectedPricingRule}
+            officialFee={officialFee}
+            attorneyFee={attorneyFee}
+            totalFee={manualTotal}
             onServiceChange={handleServiceChange}
             onProcedureChange={setProcedureId}
             onCountryChange={handleCountryChange}
             onNumberOfClassesChange={setNumberOfClasses}
             onRequirementsChange={setRequirementIds}
+            onOfficialFeeChange={setOfficialFee}
+            onAttorneyFeeChange={setAttorneyFee}
+            onTotalFeeChange={setManualTotal}
             errors={errors}
             onAddToCart={handleAddToCart}
           />

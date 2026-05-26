@@ -409,6 +409,7 @@ export default function QuotationDetailPage() {
               <InfoRow label="Name" value={quotation.clientName} />
               <InfoRow label="Email" value={quotation.clientEmail ?? '—'} />
               <InfoRow label="Client Type" value={quotation.clientType ?? '—'} />
+              <InfoRow label="Inquiries Project" value={quotation.inquiriesProject ?? '—'} />
               <InfoRow label="Country" value={quotation.country} />
             </dl>
           </Card>

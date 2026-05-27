@@ -495,16 +495,21 @@ Service Details - card - get the data. in Pricing Rules data model
    ----------------------------------------------------------------------------------------
    | procedure name |goverment fees        | atty fees             |total                 |
    ----------------------------------------------------------------------------------------  
-   inquires page - create a add, edit, update, delete
-use material ui, pagination datatable, sorting,searching to all data
-date  
-service - get the data onto service model 
-reference format -  year-country example   2026-SA/AE/KW
-procedure - get the data onto procedure model 
-country - get the data onto country model  
-              -can select multi country
-client-get the data onto client model
-remarks
+  clear and rebuild 
+  inquires page - create a add, edit, update, delete
+  use material ui, pagination datatable, sorting,searching to all data
+  date  
+  service - get the data in the service model 
+  reference auto - 
+  procedure - get the data in procedure model  
+               -can select multi procedure
+               -force save 
+  country - get the data onto country model  
+                -can select multi country
+  client-get the data onto client model
+  remarks
+  add validation
+  display in the table all multi procedure like country
 
 
 
@@ -724,7 +729,7 @@ Client Quotations     after created dispaly in the datatable using material ui
                       use modal pop up to select price rules
                       - price rules - get the data onto price rules model 
                       - the user can select by country, services auto requirements on select 2 option after select add into the cart 
-                       
+
 
                       - Service Details after select add into the cart 
                         For trademark only  computation

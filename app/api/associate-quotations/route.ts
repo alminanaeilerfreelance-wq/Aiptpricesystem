@@ -36,6 +36,16 @@ const toErrorPayload = (fallback: string, err: unknown) => {
 
 const VALID_STATUS = new Set(['Draft', 'Submitted', 'Approved', 'Rejected']);
 
+const getInquiryProcedureName = (inquiry: any): string => {
+  if (Array.isArray(inquiry?.procedureIds) && inquiry.procedureIds.length > 0) {
+    const names = inquiry.procedureIds
+      .map((procedure: any) => procedure?.name || '')
+      .filter(Boolean);
+    if (names.length > 0) return names.join(', ');
+  }
+  return inquiry?.procedureId?.name || '';
+};
+
 const calculateServices = (services: RawServiceItem[]) => {
   const normalized = services.map((service) => {
     const classType = service.classType === 'multi' ? 'multi' : 'single';
@@ -156,14 +166,15 @@ export async function POST(req: NextRequest) {
     let inquirySnapshot: { referenceNo?: string; procedureName?: string; countryNames?: string[] } | undefined;
     if (typeof body?.inquiryId === 'string' && mongoose.Types.ObjectId.isValid(body.inquiryId)) {
       inquiryId = new mongoose.Types.ObjectId(body.inquiryId);
-      const inquiry: any = await Inquire.findById(inquiryId)
+      const inquiry: any = await Inquire.findOne({ _id: inquiryId, isActive: { $ne: false } })
         .populate({ path: 'procedureId', select: 'name', strictPopulate: false })
+        .populate({ path: 'procedureIds', select: 'name', strictPopulate: false })
         .populate({ path: 'countryIds', select: 'name', strictPopulate: false })
         .lean();
       if (inquiry) {
         inquirySnapshot = {
           referenceNo: inquiry.referenceNo,
-          procedureName: inquiry.procedureId?.name || '',
+          procedureName: getInquiryProcedureName(inquiry),
           countryNames: Array.isArray(inquiry.countryIds) ? inquiry.countryIds.map((c: any) => c?.name).filter(Boolean) : [],
         };
       }

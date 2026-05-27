@@ -13,6 +13,35 @@ const toErrorPayload = (fallback: string, err: unknown) => {
   return { error: fallback, details: message };
 };
 
+const INQUIRE_POPULATE = [
+  { path: 'serviceId', select: 'name category', strictPopulate: false },
+  { path: 'procedureId', select: 'name serviceCategory', strictPopulate: false },
+  { path: 'procedureIds', select: 'name serviceCategory countryName', strictPopulate: false },
+  { path: 'countryIds', select: 'name abbreviation', strictPopulate: false },
+  { path: 'clientId', select: 'name email companyName country type', strictPopulate: false },
+];
+
+const withArrayFallback = <T extends Record<string, unknown>>(
+  record: T,
+  arrayField: string,
+  singleField: string
+): T => {
+  const arrayValue = record[arrayField];
+  const singleValue = record[singleField];
+  const hasArrayValue = Array.isArray(arrayValue) && arrayValue.length > 0;
+  if (hasArrayValue || !singleValue) return record;
+
+  return {
+    ...record,
+    [arrayField]: [singleValue],
+  };
+};
+
+const normalizeInquireRecord = <T extends Record<string, unknown>>(inquire: T): T => {
+  const withProcedures = withArrayFallback(inquire, 'procedureIds', 'procedureId');
+  return withArrayFallback(withProcedures, 'countryIds', 'countryId');
+};
+
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const toValidDate = (value: unknown): Date | null => {
@@ -21,12 +50,51 @@ const toValidDate = (value: unknown): Date | null => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const extractObjectIdString = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (typeof record._id === 'string') return record._id;
+    if (typeof record.id === 'string') return record.id;
+    if (typeof record.value === 'string') return record.value;
+  }
+  return '';
+};
+
+const toArrayInput = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        // Fallback to comma-based parsing.
+      }
+    }
+
+    if (trimmed.includes(',')) {
+      return trimmed
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+
+    return [trimmed];
+  }
+  return value ? [value] : [];
+};
+
 const toUniqueObjectIdStrings = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
+  const values = toArrayInput(value);
   const set = new Set<string>();
-  for (const item of value) {
-    if (typeof item === 'string' && mongoose.Types.ObjectId.isValid(item)) {
-      set.add(item);
+  for (const item of values) {
+    const id = extractObjectIdString(item);
+    if (id && mongoose.Types.ObjectId.isValid(id)) {
+      set.add(id);
     }
   }
   return Array.from(set);
@@ -72,7 +140,7 @@ export async function GET(req: NextRequest) {
     const skip = (page - 1) * limit;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const filter: Record<string, any> = { isActive: true };
+    const filter: Record<string, any> = { isActive: { $ne: false } };
 
     if (search) {
       const safeSearch = escapeRegex(search);
@@ -133,6 +201,7 @@ export async function GET(req: NextRequest) {
       }
       if (procedures.length > 0) {
         orFilters.push({ procedureId: { $in: procedures.map((item) => item._id) } });
+        orFilters.push({ procedureIds: { $in: procedures.map((item) => item._id) } });
       }
       if (countries.length > 0) {
         orFilters.push({ countryIds: { $in: countries.map((item) => item._id) } });
@@ -157,10 +226,7 @@ export async function GET(req: NextRequest) {
 
     const [inquires, total] = await Promise.all([
       Inquire.find(filter)
-        .populate({ path: 'serviceId', select: 'name category' })
-        .populate({ path: 'procedureId', select: 'name serviceCategory' })
-        .populate({ path: 'countryIds', select: 'name abbreviation' })
-        .populate({ path: 'clientId', select: 'name email companyName country type' })
+        .populate(INQUIRE_POPULATE)
         .sort({ inquiryDate: -1, createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -168,8 +234,12 @@ export async function GET(req: NextRequest) {
       Inquire.countDocuments(filter),
     ]);
 
+    const normalizedInquires = inquires.map((inquire) =>
+      normalizeInquireRecord(inquire as unknown as Record<string, unknown>)
+    );
+
     return NextResponse.json({
-      inquires,
+      inquires: normalizedInquires,
       total,
       page,
       limit,
@@ -195,14 +265,21 @@ export async function POST(req: NextRequest) {
 
     const serviceId = typeof body?.serviceId === 'string' ? body.serviceId : '';
     const procedureId = typeof body?.procedureId === 'string' ? body.procedureId : '';
+    const procedureIdStrings = toUniqueObjectIdStrings(body?.procedureIds);
+    const finalProcedureIdStrings =
+      procedureIdStrings.length > 0
+        ? procedureIdStrings
+        : mongoose.Types.ObjectId.isValid(procedureId)
+          ? [procedureId]
+          : [];
     const clientId = typeof body?.clientId === 'string' ? body.clientId : '';
     const countryIdStrings = toUniqueObjectIdStrings(body?.countryIds);
 
     if (!mongoose.Types.ObjectId.isValid(serviceId)) {
       return NextResponse.json({ error: 'Valid service is required' }, { status: 400 });
     }
-    if (!mongoose.Types.ObjectId.isValid(procedureId)) {
-      return NextResponse.json({ error: 'Valid procedure is required' }, { status: 400 });
+    if (finalProcedureIdStrings.length === 0) {
+      return NextResponse.json({ error: 'At least one valid procedure is required' }, { status: 400 });
     }
     if (!mongoose.Types.ObjectId.isValid(clientId)) {
       return NextResponse.json({ error: 'Valid client is required' }, { status: 400 });
@@ -211,9 +288,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'At least one country is required' }, { status: 400 });
     }
 
-    const [service, procedure, client, countries] = await Promise.all([
+    const [service, procedures, client, countries] = await Promise.all([
       Service.findOne({ _id: serviceId, isActive: true }).lean(),
-      Procedure.findOne({ _id: procedureId, isActive: true }).lean(),
+      Procedure.find({ _id: { $in: finalProcedureIdStrings }, isActive: true }).lean(),
       Client.findOne({ _id: clientId, isActive: true }).lean(),
       Country.find({ _id: { $in: countryIdStrings }, isActive: true })
         .select('_id abbreviation')
@@ -221,15 +298,10 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (!service) return NextResponse.json({ error: 'Service not found' }, { status: 404 });
-    if (!procedure) return NextResponse.json({ error: 'Procedure not found' }, { status: 404 });
-    if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
-
-    if (procedure.serviceCategory !== service.category) {
-      return NextResponse.json(
-        { error: 'Procedure category does not match selected service category' },
-        { status: 400 }
-      );
+    if (procedures.length !== finalProcedureIdStrings.length) {
+      return NextResponse.json({ error: 'One or more selected procedures are invalid' }, { status: 404 });
     }
+    if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
 
     if (countries.length !== countryIdStrings.length) {
       return NextResponse.json({ error: 'One or more selected countries are invalid' }, { status: 400 });
@@ -252,7 +324,8 @@ export async function POST(req: NextRequest) {
     const created = await Inquire.create({
       inquiryDate,
       serviceId: new mongoose.Types.ObjectId(serviceId),
-      procedureId: new mongoose.Types.ObjectId(procedureId),
+      procedureId: new mongoose.Types.ObjectId(finalProcedureIdStrings[0]),
+      procedureIds: finalProcedureIdStrings.map((id) => new mongoose.Types.ObjectId(id)),
       countryIds: countryIdStrings.map((id) => new mongoose.Types.ObjectId(id)),
       countryCodes,
       clientId: new mongoose.Types.ObjectId(clientId),
@@ -260,12 +333,7 @@ export async function POST(req: NextRequest) {
       remarks: typeof body?.remarks === 'string' ? body.remarks.trim() : undefined,
     });
 
-    const populated = await created.populate([
-      { path: 'serviceId', select: 'name category' },
-      { path: 'procedureId', select: 'name serviceCategory' },
-      { path: 'countryIds', select: 'name abbreviation' },
-      { path: 'clientId', select: 'name email companyName country type' },
-    ]);
+    const populated = await created.populate(INQUIRE_POPULATE);
 
     return NextResponse.json(populated, { status: 201 });
   } catch (err: unknown) {

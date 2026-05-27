@@ -134,6 +134,23 @@ const toCurrency = (value: number) =>
     maximumFractionDigits: 2,
   });
 
+const getInquireProcedureNames = (inquiry: Inquire | null | undefined): string[] => {
+  if (!inquiry) return [];
+  if (Array.isArray(inquiry.procedureIds) && inquiry.procedureIds.length > 0) {
+    return inquiry.procedureIds
+      .map((procedure) => (typeof procedure === 'string' ? procedure : procedure?.name || ''))
+      .filter(Boolean);
+  }
+  const fallback =
+    typeof inquiry.procedureId === 'string'
+      ? inquiry.procedureId
+      : inquiry.procedureId?.name || '';
+  return fallback ? [fallback] : [];
+};
+
+const getInquireProcedureLabel = (inquiry: Inquire | null | undefined): string =>
+  getInquireProcedureNames(inquiry).join(', ');
+
 const normalizeAssociate = (associateId: AssociateQuotation['associateId']): string | undefined => {
   if (!associateId) return undefined;
   if (typeof associateId === 'string') return associateId;
@@ -700,14 +717,18 @@ export default function AssociateQuotationsPage() {
                       const nextCategory = ((value?.serviceId as any)?.category || selectedServiceCategory) as ServiceCategory;
                       setSelectedServiceCategory(nextCategory);
                       setInquiryProject(value?.referenceNo || '');
-                      setServiceDraft((prev) => ({ ...prev, procedureName: ((value?.procedureId as any)?.name || prev.procedureName) }));
+                      const inquiryProcedureNames = getInquireProcedureNames(value || null);
+                      setServiceDraft((prev) => ({
+                        ...prev,
+                        procedureName: inquiryProcedureNames[0] || prev.procedureName,
+                      }));
                     }}
                     getOptionLabel={(option) => option.referenceNo || ''}
                     renderInput={(params) => <TextField {...params} label="Inquiry Project *" />}
                   />
                   <Grid container spacing={2}>
                     <Grid size={{ xs: 12, md: 6 }}>
-                      <TextField label="Procedure" value={((selectedInquiry?.procedureId as any)?.name || '')} fullWidth slotProps={{ input: { readOnly: true } }} sx={{ '& .MuiInputBase-input': { color: '#7E57C2' } }} />
+                      <TextField label="Procedure" value={getInquireProcedureLabel(selectedInquiry)} fullWidth slotProps={{ input: { readOnly: true } }} sx={{ '& .MuiInputBase-input': { color: '#7E57C2' } }} />
                     </Grid>
                   </Grid>
                 </Stack>

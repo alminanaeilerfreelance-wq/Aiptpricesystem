@@ -34,6 +34,16 @@ const toErrorPayload = (fallback: string, err: unknown) => {
 
 const VALID_STATUS = new Set(['Draft', 'Submitted', 'Approved', 'Rejected']);
 
+const getInquiryProcedureName = (inquiry: any): string => {
+  if (Array.isArray(inquiry?.procedureIds) && inquiry.procedureIds.length > 0) {
+    const names = inquiry.procedureIds
+      .map((procedure: any) => procedure?.name || '')
+      .filter(Boolean);
+    if (names.length > 0) return names.join(', ');
+  }
+  return inquiry?.procedureId?.name || '';
+};
+
 const calculateServices = (services: RawServiceItem[], serviceCategory: ServiceCategory) => {
   const isTrademark = serviceCategory === 'Trademark';
   const normalized = services.map((service) => {
@@ -162,9 +172,10 @@ export async function POST(req: NextRequest) {
 
     const [client, inquiry] = await Promise.all([
       Client.findOne({ _id: body.clientId, isActive: true }).lean(),
-      Inquire.findOne({ _id: body.inquiryId, isActive: true })
+      Inquire.findOne({ _id: body.inquiryId, isActive: { $ne: false } })
         .populate({ path: 'serviceId', select: 'category', strictPopulate: false })
         .populate({ path: 'procedureId', select: 'name', strictPopulate: false })
+        .populate({ path: 'procedureIds', select: 'name', strictPopulate: false })
         .populate({ path: 'countryIds', select: 'name', strictPopulate: false })
         .lean(),
     ]);
@@ -216,7 +227,7 @@ export async function POST(req: NextRequest) {
       inquiryId: inquiry._id,
       inquirySnapshot: {
         referenceNo: inquiry.referenceNo,
-        procedureName: (inquiry.procedureId as any)?.name || '',
+        procedureName: getInquiryProcedureName(inquiry),
         countryNames: Array.isArray(inquiry.countryIds) ? inquiry.countryIds.map((c: any) => c?.name).filter(Boolean) : [],
         serviceCategory,
       },

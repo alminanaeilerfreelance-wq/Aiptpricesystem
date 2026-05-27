@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed": "node scripts/seed.mjs"
+    "seed": "node scripts/seed.mjs",
+    "seed:inquires": "node scripts/seed-inquires.mjs",
+    "migrate:inquire:procedure-ids": "node scripts/migrate-inquire-procedure-ids.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

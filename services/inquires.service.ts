@@ -10,6 +10,7 @@ export interface InquireProcedureRef {
   _id: string;
   name: string;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  countryName?: string;
 }
 
 export interface InquireCountryRef {
@@ -32,7 +33,8 @@ export interface Inquire {
   inquiryDate: string;
   referenceNo: string;
   serviceId: string | InquireServiceRef;
-  procedureId: string | InquireProcedureRef;
+  procedureId?: string | InquireProcedureRef;
+  procedureIds: Array<string | InquireProcedureRef>;
   countryIds: Array<string | InquireCountryRef>;
   countryCodes: string[];
   clientId: string | InquireClientRef;
@@ -59,7 +61,7 @@ export interface InquireListResponse {
 export interface CreateInquireDto {
   inquiryDate: string;
   serviceId: string;
-  procedureId: string;
+  procedureIds: string[];
   countryIds: string[];
   clientId: string;
   remarks?: string;
@@ -92,4 +94,3 @@ export const inquiresService = {
 };
 
 export default inquiresService;
-

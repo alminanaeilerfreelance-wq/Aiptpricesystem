@@ -6,15 +6,12 @@ import {
   Autocomplete,
   Box,
   Button,
-  Card,
-  CardContent,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Grid,
-  MenuItem,
   Snackbar,
   Stack,
   TextField,
@@ -37,11 +34,13 @@ export const dynamic = 'force-dynamic';
 interface InquireFormData {
   inquiryDate: string;
   serviceId: string;
-  procedureId: string;
+  procedureIds: string[];
   countryIds: string[];
   clientId: string;
   remarks: string;
 }
+
+type InquireFormErrors = Partial<Record<keyof InquireFormData, string>>;
 
 const getTodayIso = () => new Date().toISOString().slice(0, 10);
 const defaultReferenceSerial = '00001';
@@ -49,23 +48,83 @@ const defaultReferenceSerial = '00001';
 const defaultFormData: InquireFormData = {
   inquiryDate: getTodayIso(),
   serviceId: '',
-  procedureId: '',
+  procedureIds: [],
   countryIds: [],
   clientId: '',
   remarks: '',
 };
 
-const SERVICE_COLOR_MAP: Record<string, string> = {
-  Trademark: '#2563EB',
-  Patent: '#16A34A',
-  Design: '#9333EA',
-  Copyright: '#F59E0B',
-  Litigation: '#DC2626',
+const FETCH_BATCH_SIZE = 500;
+
+const loadAllPages = async <T,>(
+  fetchPage: (page: number, limit: number) => Promise<{ total?: number; totalPages?: number; [key: string]: unknown }>,
+  dataKey: string,
+  pageSize = 100
+): Promise<T[]> => {
+  const collected: T[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  while (page <= totalPages) {
+    const response = await fetchPage(page, pageSize);
+    const pageRows = (Array.isArray(response[dataKey]) ? response[dataKey] : []) as T[];
+    collected.push(...pageRows);
+
+    if (page === 1) {
+      totalPages =
+        typeof response.totalPages === 'number' && response.totalPages > 0
+          ? response.totalPages
+          : Math.ceil(Number(response.total || 0) / pageSize) || 1;
+    }
+
+    page += 1;
+  }
+
+  return collected;
 };
 
-const getServiceCategory = (item: Inquire): string => {
-  if (typeof item.serviceId === 'string') return '';
-  return item.serviceId?.category || '';
+const SERVICE_COLOR_MAP: Record<string, string> = {
+  trademark: '#2563EB',
+  patent: '#16A34A',
+  design: '#9333EA',
+  copyright: '#F59E0B',
+  litigation: '#DC2626',
+};
+
+const normalizeCategory = (value: string): string => value.trim().toLowerCase();
+
+const getServiceCategory = (item: Inquire): string =>
+  typeof item.serviceId === 'string' ? '' : item.serviceId?.category || '';
+
+const getServiceColor = (category: string): string | undefined =>
+  SERVICE_COLOR_MAP[normalizeCategory(category)];
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const toObjectIdString = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { toString?: unknown }).toString === 'function'
+  ) {
+    const raw = String((value as { toString: () => string }).toString());
+    if (/^[a-fA-F0-9]{24}$/.test(raw)) {
+      return raw;
+    }
+  }
+  if (!isRecord(value)) return '';
+
+  const directId = value._id;
+  if (typeof directId === 'string') return directId;
+  if (isRecord(directId) && typeof directId.toString === 'function') {
+    return directId.toString();
+  }
+
+  const genericId = value.id;
+  if (typeof genericId === 'string') return genericId;
+  return '';
 };
 
 const EyeIcon = () => (
@@ -97,22 +156,57 @@ const TrashIcon = () => (
 
 const toServiceId = (value: Inquire['serviceId']) =>
   typeof value === 'string' ? value : value?._id || '';
-const toProcedureId = (value: Inquire['procedureId']) =>
-  typeof value === 'string' ? value : value?._id || '';
+const toProcedureIds = (item: Inquire) => {
+  if (Array.isArray(item.procedureIds) && item.procedureIds.length > 0) {
+    return item.procedureIds.map((procedure) => toObjectIdString(procedure)).filter(Boolean);
+  }
+  const fallback = toObjectIdString(item.procedureId);
+  return fallback ? [fallback] : [];
+};
 const toClientId = (value: Inquire['clientId']) =>
   typeof value === 'string' ? value : value?._id || '';
 const toCountryIds = (value: Inquire['countryIds']) =>
-  Array.isArray(value)
-    ? value.map((item) => (typeof item === 'string' ? item : item?._id || '')).filter(Boolean)
-    : [];
+  Array.isArray(value) ? value.map((item) => toObjectIdString(item)).filter(Boolean) : [];
 
 const getServiceLabel = (item: Inquire) =>
   typeof item.serviceId === 'string'
     ? item.serviceId
     : `${item.serviceId.name} (${item.serviceId.category})`;
 
-const getProcedureLabel = (item: Inquire) =>
-  typeof item.procedureId === 'string' ? item.procedureId : item.procedureId.name;
+const getProcedureNameFromId = (
+  procedureId: string,
+  procedureById?: Map<string, Procedure>
+) => {
+  const matched = procedureById?.get(procedureId);
+  if (!matched) return procedureId;
+  return `${matched.name}${matched.countryName ? ` (${matched.countryName})` : ''}`;
+};
+
+const getProcedureLabel = (item: Inquire, procedureById?: Map<string, Procedure>) => {
+  const list =
+    Array.isArray(item.procedureIds) && item.procedureIds.length > 0
+      ? item.procedureIds
+      : item.procedureId
+        ? [item.procedureId]
+        : [];
+
+  return list
+    .map((procedure) => {
+      if (typeof procedure === 'string') {
+        return getProcedureNameFromId(procedure, procedureById);
+      }
+
+      const procedureName = (procedure?.name || '').trim();
+      if (procedureName) {
+        return `${procedureName}${procedure?.countryName ? ` (${procedure.countryName})` : ''}`;
+      }
+
+      const fallbackId = toObjectIdString(procedure);
+      return fallbackId ? getProcedureNameFromId(fallbackId, procedureById) : '';
+    })
+    .filter(Boolean)
+    .join(', ');
+};
 
 const getClientLabel = (item: Inquire) =>
   typeof item.clientId === 'string'
@@ -137,7 +231,7 @@ export default function InquiresPage() {
   const [items, setItems] = useState<Inquire[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(25);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
@@ -153,6 +247,7 @@ export default function InquiresPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [referenceSerial, setReferenceSerial] = useState(defaultReferenceSerial);
   const [formData, setFormData] = useState<InquireFormData>(defaultFormData);
+  const [formErrors, setFormErrors] = useState<InquireFormErrors>({});
 
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingItem, setViewingItem] = useState<Inquire | null>(null);
@@ -164,50 +259,74 @@ export default function InquiresPage() {
   }, []);
 
   const fetchItems = useCallback(
-    async (params?: { nextPage?: number; nextSearch?: string }) => {
-      const nextPage = params?.nextPage ?? page;
+    async (params?: { nextSearch?: string }) => {
       const nextSearch = params?.nextSearch ?? debouncedSearch;
       try {
         setLoading(true);
         setError('');
-        const response = await inquiresService.list({
-          page: nextPage,
-          limit,
-          search: nextSearch || undefined,
-        });
-        setItems(Array.isArray(response.inquires) ? response.inquires : []);
-        setTotal(response.total || 0);
+        const allRows: Inquire[] = [];
+        let nextPage = 1;
+        let totalPages = 1;
+
+        while (nextPage <= totalPages) {
+          const response = await inquiresService.list({
+            page: nextPage,
+            limit: FETCH_BATCH_SIZE,
+            search: nextSearch || undefined,
+          });
+
+          const currentRows = Array.isArray(response.inquires) ? response.inquires : [];
+          allRows.push(...currentRows);
+
+          if (nextPage === 1) {
+            totalPages =
+              typeof response.totalPages === 'number' && response.totalPages > 0
+                ? response.totalPages
+                : Math.ceil((response.total || 0) / FETCH_BATCH_SIZE);
+          }
+
+          nextPage += 1;
+        }
+
+        setItems(allRows);
+        setTotal(allRows.length);
+        return allRows.length;
       } catch (err: any) {
         setError(err.response?.data?.error || err.message || 'Failed to load inquires');
         setItems([]);
         setTotal(0);
+        return 0;
       } finally {
         setLoading(false);
       }
     },
-    [debouncedSearch, limit, page]
+    [debouncedSearch]
   );
 
   const loadLookups = useCallback(async () => {
-    const [servicesRes, proceduresRes, countriesRes, clientsRes] = await Promise.all([
-      servicesService.list({ page: 1, limit: 1000 }),
-      proceduresService.list({ page: 1, limit: 1000 }),
-      countriesService.list({ page: 1, limit: 1000 }),
-      clientsService.list({ page: 1, limit: 1000 }),
+    const [allServices, allProcedures, allCountries, allClients] = await Promise.all([
+      loadAllPages<Service>(
+        (nextPage, nextLimit) => servicesService.list({ page: nextPage, limit: nextLimit }) as Promise<{ services?: Service[]; total?: number; totalPages?: number }>,
+        'services'
+      ),
+      loadAllPages<Procedure>(
+        (nextPage, nextLimit) => proceduresService.list({ page: nextPage, limit: nextLimit }) as Promise<{ procedures?: Procedure[]; total?: number; totalPages?: number }>,
+        'procedures'
+      ),
+      loadAllPages<Country>(
+        (nextPage, nextLimit) => countriesService.list({ page: nextPage, limit: nextLimit }) as Promise<{ countries?: Country[]; total?: number; totalPages?: number }>,
+        'countries'
+      ),
+      loadAllPages<Client>(
+        (nextPage, nextLimit) => clientsService.list({ page: nextPage, limit: nextLimit }) as Promise<{ clients?: Client[]; total?: number; totalPages?: number }>,
+        'clients'
+      ),
     ]);
 
-    const normalizedServices = Array.isArray(servicesRes.services)
-      ? servicesRes.services.filter((item) => item.isActive)
-      : [];
-    const normalizedProcedures = Array.isArray(proceduresRes.procedures)
-      ? proceduresRes.procedures.filter((item) => item.isActive)
-      : [];
-    const normalizedCountries = Array.isArray(countriesRes.countries)
-      ? countriesRes.countries.filter((item) => item.isActive)
-      : [];
-    const normalizedClients = Array.isArray(clientsRes.clients)
-      ? clientsRes.clients.filter((item) => item.isActive)
-      : [];
+    const normalizedServices = allServices.filter((item) => item.isActive);
+    const normalizedProcedures = allProcedures.filter((item) => item.isActive);
+    const normalizedCountries = allCountries.filter((item) => item.isActive);
+    const normalizedClients = allClients.filter((item) => item.isActive);
 
     setServices(normalizedServices.sort((a, b) => a.name.localeCompare(b.name)));
     setProcedures(normalizedProcedures.sort((a, b) => a.name.localeCompare(b.name)));
@@ -216,8 +335,8 @@ export default function InquiresPage() {
   }, []);
 
   useEffect(() => {
-    fetchItems({ nextPage: page, nextSearch: debouncedSearch });
-  }, [page, debouncedSearch, fetchItems]);
+    fetchItems({ nextSearch: debouncedSearch }).catch(() => undefined);
+  }, [debouncedSearch, fetchItems]);
 
   useEffect(() => {
     setPage(1);
@@ -240,13 +359,37 @@ export default function InquiresPage() {
   const filteredProcedures = useMemo(() => {
     if (!selectedService) return procedures;
     return procedures.filter(
-      (procedure) => procedure.serviceCategory === selectedService.category
+      (procedure) =>
+        normalizeCategory(procedure.serviceCategory) === normalizeCategory(selectedService.category)
     );
   }, [procedures, selectedService]);
 
+  const procedureById = useMemo(
+    () => new Map(procedures.map((procedure) => [procedure._id, procedure])),
+    [procedures]
+  );
+  const countryById = useMemo(
+    () => new Map(countries.map((country) => [country._id, country])),
+    [countries]
+  );
+
   const selectedCountries = useMemo(
-    () => countries.filter((country) => formData.countryIds.includes(country._id)),
-    [countries, formData.countryIds]
+    () =>
+      formData.countryIds
+        .map((countryId) => countryById.get(countryId))
+        .filter((country): country is Country => Boolean(country)),
+    [countryById, formData.countryIds]
+  );
+  const selectedProcedures = useMemo(
+    () =>
+      formData.procedureIds
+        .map((procedureId) => procedureById.get(procedureId))
+        .filter((procedure): procedure is Procedure => Boolean(procedure)),
+    [formData.procedureIds, procedureById]
+  );
+  const procedureCartIds = useMemo(
+    () => Array.from(new Set(formData.procedureIds.filter(Boolean))),
+    [formData.procedureIds]
   );
 
   const referencePreview = useMemo(() => {
@@ -255,12 +398,17 @@ export default function InquiresPage() {
       .filter(Boolean)
       .join('/');
 
+    if (!editingId) {
+      return countryCodes ? `Auto (${countryCodes})` : 'Auto-generated on save';
+    }
+
     return `${referenceSerial}${countryCodes || 'COUNTRY'}`;
-  }, [referenceSerial, selectedCountries]);
+  }, [editingId, referenceSerial, selectedCountries]);
 
   const resetForm = () => {
     setEditingId(null);
     setReferenceSerial(defaultReferenceSerial);
+    setFormErrors({});
     setFormData({
       ...defaultFormData,
       inquiryDate: getTodayIso(),
@@ -269,6 +417,7 @@ export default function InquiresPage() {
 
   const handleAdd = () => {
     resetForm();
+    setError('');
     setOpenForm(true);
   };
 
@@ -280,10 +429,12 @@ export default function InquiresPage() {
 
     setEditingId(item._id);
     setReferenceSerial(serialFromReference);
+    setFormErrors({});
+    setError('');
     setFormData({
       inquiryDate: new Date(item.inquiryDate).toISOString().slice(0, 10),
       serviceId: toServiceId(item.serviceId),
-      procedureId: toProcedureId(item.procedureId),
+      procedureIds: toProcedureIds(item),
       countryIds: toCountryIds(item.countryIds),
       clientId: toClientId(item.clientId),
       remarks: item.remarks || '',
@@ -306,33 +457,83 @@ export default function InquiresPage() {
     resetForm();
   };
 
-  const handleSubmitForm = async () => {
+  const validateForm = (): boolean => {
+    const errors: InquireFormErrors = {};
+
     if (!formData.inquiryDate) {
-      setError('Date is required');
-      return;
+      errors.inquiryDate = 'Date is required';
+    } else {
+      const parsedDate = new Date(formData.inquiryDate);
+      if (Number.isNaN(parsedDate.getTime())) {
+        errors.inquiryDate = 'Date is invalid';
+      }
     }
+
     if (!formData.serviceId) {
-      setError('Service is required');
-      return;
+      errors.serviceId = 'Service is required';
     }
-    if (!formData.procedureId) {
-      setError('Procedure is required');
-      return;
+
+    if (procedureCartIds.length === 0) {
+      errors.procedureIds = 'At least one procedure is required';
     }
+
     if (formData.countryIds.length === 0) {
-      setError('At least one country is required');
+      errors.countryIds = 'At least one country is required';
+    }
+
+    if (!formData.clientId) {
+      errors.clientId = 'Client is required';
+    }
+
+    if (formData.remarks.trim().length > 1000) {
+      errors.remarks = 'Remarks must be at most 1000 characters';
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const handleRemoveProcedureFromCart = (procedureId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      procedureIds: prev.procedureIds.filter((id) => id !== procedureId),
+    }));
+    clearFormError('procedureIds');
+  };
+
+  const clearFormError = (field: keyof InquireFormData) => {
+    setFormErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const handleSubmitForm = async () => {
+    if (!validateForm()) {
+      setError('Please complete all required fields');
       return;
     }
-    if (!formData.clientId) {
-      setError('Client is required');
+
+    const uniqueProcedureIds = procedureCartIds;
+    const uniqueCountryIds = Array.from(new Set(formData.countryIds));
+
+    if (uniqueProcedureIds.length === 0) {
+      setError('At least one procedure is required');
+      return;
+    }
+
+    if (uniqueCountryIds.length === 0) {
+      setError('At least one country is required');
       return;
     }
 
     const payload = {
       inquiryDate: formData.inquiryDate,
       serviceId: formData.serviceId,
-      procedureId: formData.procedureId,
-      countryIds: formData.countryIds,
+      procedureIds: uniqueProcedureIds,
+      countryIds: uniqueCountryIds,
       clientId: formData.clientId,
       remarks: formData.remarks.trim() || undefined,
     };
@@ -349,8 +550,8 @@ export default function InquiresPage() {
       }
 
       handleCloseForm();
-      if (page !== 1) setPage(1);
-      else await fetchItems({ nextPage: 1 });
+      setPage(1);
+      await fetchItems({ nextSearch: debouncedSearch });
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to save inquire');
     } finally {
@@ -364,11 +565,13 @@ export default function InquiresPage() {
     try {
       setLoading(true);
       await inquiresService.delete(deletingId);
-      const targetPage = items.length === 1 && page > 1 ? page - 1 : page;
       setDeleteDialogOpen(false);
       setDeletingId(null);
-      if (targetPage !== page) setPage(targetPage);
-      else await fetchItems({ nextPage: targetPage });
+      const nextCount = await fetchItems({ nextSearch: debouncedSearch });
+      const totalPages = Math.max(1, Math.ceil(nextCount / limit));
+      if (page > totalPages) {
+        setPage(totalPages);
+      }
       setSuccessMessage('Inquire deleted successfully');
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to delete inquire');
@@ -388,7 +591,7 @@ export default function InquiresPage() {
     },
     {
       id: 'referenceNo',
-      label: 'Reference',
+      label: 'Reference Auto',
       sortable: true,
       minWidth: 160,
       searchValue: (row) => row.referenceNo || '',
@@ -402,7 +605,7 @@ export default function InquiresPage() {
       searchValue: (row) => getServiceLabel(row),
       render: (row) => {
         const category = getServiceCategory(row);
-        const color = SERVICE_COLOR_MAP[category];
+        const color = getServiceColor(category);
         const label = getServiceLabel(row);
         if (!color) return label;
         return (
@@ -424,12 +627,12 @@ export default function InquiresPage() {
       },
     },
     {
-      id: 'procedureId',
+      id: 'procedureIds',
       label: 'Procedure',
       sortable: true,
       minWidth: 180,
-      searchValue: (row) => getProcedureLabel(row),
-      render: (row) => getProcedureLabel(row),
+      searchValue: (row) => getProcedureLabel(row, procedureById),
+      render: (row) => getProcedureLabel(row, procedureById) || '-',
     },
     {
       id: 'countryIds',
@@ -437,7 +640,7 @@ export default function InquiresPage() {
       sortable: true,
       minWidth: 220,
       searchValue: (row) => getCountryLabel(row),
-      render: (row) => getCountryLabel(row),
+      render: (row) => getCountryLabel(row) || '-',
     },
     {
       id: 'clientId',
@@ -507,39 +710,6 @@ export default function InquiresPage() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 9 }}>
-              <TextField
-                placeholder="Search all fields..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                size="small"
-                fullWidth
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
-              <TextField
-                select
-                label="Rows"
-                value={String(limit)}
-                onChange={(event) => {
-                  setLimit(Number(event.target.value));
-                  setPage(1);
-                }}
-                size="small"
-                fullWidth
-              >
-                <MenuItem value="10">10</MenuItem>
-                <MenuItem value="25">25</MenuItem>
-                <MenuItem value="50">50</MenuItem>
-              </TextField>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-
       {loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
           <CircularProgress />
@@ -563,6 +733,17 @@ export default function InquiresPage() {
             rowsPerPage={limit}
             total={total}
             onPageChange={setPage}
+            onRowsPerPageChange={(nextRowsPerPage) => {
+              setLimit(nextRowsPerPage);
+              setPage(1);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100, 500]}
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
+            searchPlaceholder="Search date, reference, service, procedure, country, client, remarks..."
             showToolbar
             loading={false}
           />
@@ -579,17 +760,20 @@ export default function InquiresPage() {
                   label="Date"
                   type="date"
                   value={formData.inquiryDate}
-                  onChange={(event) =>
-                    setFormData((prev) => ({ ...prev, inquiryDate: event.target.value }))
-                  }
+                  onChange={(event) => {
+                    setFormData((prev) => ({ ...prev, inquiryDate: event.target.value }));
+                    clearFormError('inquiryDate');
+                  }}
                   fullWidth
                   required
                   slotProps={{ inputLabel: { shrink: true } }}
+                  error={Boolean(formErrors.inquiryDate)}
+                  helperText={formErrors.inquiryDate}
                 />
               </Grid>
               <Grid size={{ xs: 12, md: 6 }}>
                 <TextField
-                  label="Reference (Auto)"
+                  label="Reference Auto"
                   value={referencePreview}
                   fullWidth
                   slotProps={{ input: { readOnly: true } }}
@@ -600,70 +784,180 @@ export default function InquiresPage() {
             <Autocomplete
               options={services}
               value={services.find((service) => service._id === formData.serviceId) || null}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
               getOptionLabel={(option) => `${option.name} (${option.category})`}
-              onChange={(_, value) =>
+              onChange={(_, value) => {
                 setFormData((prev) => ({
                   ...prev,
                   serviceId: value?._id || '',
-                  procedureId: '',
-                }))
-              }
-              renderInput={(params) => <TextField {...params} label="Service *" />}
-            />
-
-            <Autocomplete
-              options={filteredProcedures}
-              value={filteredProcedures.find((procedure) => procedure._id === formData.procedureId) || null}
-              getOptionLabel={(option) => `${option.name} (${option.serviceCategory})`}
-              onChange={(_, value) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  procedureId: value?._id || '',
-                }))
-              }
-              renderInput={(params) => <TextField {...params} label="Procedure *" />}
+                  procedureIds: [],
+                }));
+                clearFormError('serviceId');
+                clearFormError('procedureIds');
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Service *"
+                  error={Boolean(formErrors.serviceId)}
+                  helperText={formErrors.serviceId}
+                />
+              )}
             />
 
             <Autocomplete
               multiple
+              disableCloseOnSelect
+              filterSelectedOptions
+              options={filteredProcedures}
+              value={selectedProcedures}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionLabel={(option) =>
+                `${option.name} (${option.countryName || option.serviceCategory})`
+              }
+              disabled={!selectedService}
+              onChange={(_, value) => {
+                setFormData((prev) => ({
+                  ...prev,
+                  procedureIds: value.map((item) => item._id),
+                }));
+                clearFormError('procedureIds');
+              }}
+              renderOption={(props, option) => (
+                <li {...props} key={option._id}>
+                  {option.name} ({option.countryName || option.serviceCategory})
+                </li>
+              )}
+              noOptionsText={
+                selectedService ? 'No procedures found for this service' : 'Select a service first'
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Procedure (Multi-select) *"
+                  error={Boolean(formErrors.procedureIds)}
+                  helperText={formErrors.procedureIds}
+                />
+              )}
+            />
+
+            <Box
+              sx={{
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 2,
+                p: 2,
+                bgcolor: '#FAFAFA',
+              }}
+            >
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                Procedure Cart ({selectedProcedures.length})
+              </Typography>
+
+              {selectedProcedures.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  Select two or more procedures to add them to the cart.
+                </Typography>
+              ) : (
+                <Stack spacing={1}>
+                  {selectedProcedures.map((procedure) => (
+                    <Box
+                      key={procedure._id}
+                      sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        borderRadius: 1.5,
+                        px: 1.5,
+                        py: 1,
+                        bgcolor: '#FFFFFF',
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {procedure.name} ({procedure.countryName || procedure.serviceCategory})
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleRemoveProcedureFromCart(procedure._id)}
+                        sx={{
+                          bgcolor: 'error.main',
+                          color: 'error.contrastText',
+                          '&:hover': { bgcolor: 'error.dark' },
+                        }}
+                      >
+                        <TrashIcon />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+
+            <Autocomplete
+              multiple
+              disableCloseOnSelect
+              filterSelectedOptions
               options={countries}
               value={selectedCountries}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
               getOptionLabel={(option) => `${option.abbreviation} - ${option.name}`}
-              onChange={(_, value) =>
+              onChange={(_, value) => {
                 setFormData((prev) => ({
                   ...prev,
                   countryIds: value.map((item) => item._id),
-                }))
-              }
-              renderInput={(params) => <TextField {...params} label="Country (Multi-select) *" />}
+                }));
+                clearFormError('countryIds');
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Country (Multi-select) *"
+                  error={Boolean(formErrors.countryIds)}
+                  helperText={formErrors.countryIds}
+                />
+              )}
             />
 
             <Autocomplete
               options={clients}
               value={clients.find((client) => client._id === formData.clientId) || null}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
               getOptionLabel={(option) =>
                 option.companyName
                   ? `${option.name} (${option.companyName})`
                   : option.name
               }
-              onChange={(_, value) =>
+              onChange={(_, value) => {
                 setFormData((prev) => ({
                   ...prev,
                   clientId: value?._id || '',
-                }))
-              }
-              renderInput={(params) => <TextField {...params} label="Client *" />}
+                }));
+                clearFormError('clientId');
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Client *"
+                  error={Boolean(formErrors.clientId)}
+                  helperText={formErrors.clientId}
+                />
+              )}
             />
 
             <TextField
               label="Remarks"
               value={formData.remarks}
-              onChange={(event) =>
-                setFormData((prev) => ({ ...prev, remarks: event.target.value }))
-              }
+              onChange={(event) => {
+                setFormData((prev) => ({ ...prev, remarks: event.target.value }));
+                clearFormError('remarks');
+              }}
               multiline
               minRows={3}
               fullWidth
+              error={Boolean(formErrors.remarks)}
+              helperText={formErrors.remarks}
             />
           </Stack>
         </DialogContent>
@@ -684,9 +978,9 @@ export default function InquiresPage() {
           {viewingItem && (
             <Stack spacing={1.5} sx={{ pt: 1 }}>
               <Typography><strong>Date:</strong> {new Date(viewingItem.inquiryDate).toLocaleDateString()}</Typography>
-              <Typography><strong>Reference:</strong> <span style={{ color: '#7E57C2', fontWeight: 700 }}>{viewingItem.referenceNo}</span></Typography>
+              <Typography><strong>Reference Auto:</strong> <span style={{ color: '#7E57C2', fontWeight: 700 }}>{viewingItem.referenceNo}</span></Typography>
               <Typography><strong>Service:</strong> {getServiceLabel(viewingItem)}</Typography>
-              <Typography><strong>Procedure:</strong> {getProcedureLabel(viewingItem)}</Typography>
+              <Typography><strong>Procedure:</strong> {getProcedureLabel(viewingItem, procedureById) || '-'}</Typography>
               <Typography><strong>Country:</strong> {getCountryLabel(viewingItem)}</Typography>
               <Typography><strong>Client:</strong> {getClientLabel(viewingItem)}</Typography>
               <Typography><strong>Remarks:</strong> {viewingItem.remarks || '-'}</Typography>

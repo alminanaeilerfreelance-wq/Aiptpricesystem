@@ -38,6 +38,16 @@ const toErrorPayload = (fallback: string, err: unknown) => {
 
 const VALID_STATUS = new Set(['Draft', 'Submitted', 'Approved', 'Rejected']);
 
+const getInquiryProcedureName = (inquiry: any): string => {
+  if (Array.isArray(inquiry?.procedureIds) && inquiry.procedureIds.length > 0) {
+    const names = inquiry.procedureIds
+      .map((procedure: any) => procedure?.name || '')
+      .filter(Boolean);
+    if (names.length > 0) return names.join(', ');
+  }
+  return inquiry?.procedureId?.name || '';
+};
+
 const calculateServices = (services: RawServiceItem[], serviceCategory: ServiceCategory) => {
   const isTrademark = serviceCategory === 'Trademark';
   const normalized = services.map((service) => {
@@ -167,9 +177,10 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     if (typeof body?.inquiryId === 'string') {
       if (!mongoose.Types.ObjectId.isValid(body.inquiryId)) return NextResponse.json({ error: 'Invalid inquiryId' }, { status: 400 });
-      const inquiry = await Inquire.findOne({ _id: body.inquiryId, isActive: true })
+      const inquiry = await Inquire.findOne({ _id: body.inquiryId, isActive: { $ne: false } })
         .populate({ path: 'serviceId', select: 'category', strictPopulate: false })
         .populate({ path: 'procedureId', select: 'name', strictPopulate: false })
+        .populate({ path: 'procedureIds', select: 'name', strictPopulate: false })
         .populate({ path: 'countryIds', select: 'name', strictPopulate: false })
         .lean();
       if (!inquiry) return NextResponse.json({ error: 'Inquiry not found' }, { status: 404 });
@@ -179,7 +190,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       updatePayload.serviceCategory = serviceCategory;
       updatePayload.inquirySnapshot = {
         referenceNo: inquiry.referenceNo,
-        procedureName: (inquiry.procedureId as any)?.name || '',
+        procedureName: getInquiryProcedureName(inquiry),
         countryNames: Array.isArray(inquiry.countryIds) ? inquiry.countryIds.map((c: any) => c?.name).filter(Boolean) : [],
         serviceCategory,
       };

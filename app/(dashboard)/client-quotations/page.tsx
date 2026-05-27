@@ -84,6 +84,23 @@ const defaultServiceDraft: ServiceDraft = {
 const toCurrency = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
+const getInquireProcedureNames = (inquiry: Inquire | null | undefined): string[] => {
+  if (!inquiry) return [];
+  if (Array.isArray(inquiry.procedureIds) && inquiry.procedureIds.length > 0) {
+    return inquiry.procedureIds
+      .map((procedure) => (typeof procedure === 'string' ? procedure : procedure?.name || ''))
+      .filter(Boolean);
+  }
+  const fallback =
+    typeof inquiry.procedureId === 'string'
+      ? inquiry.procedureId
+      : inquiry.procedureId?.name || '';
+  return fallback ? [fallback] : [];
+};
+
+const getInquireProcedureLabel = (inquiry: Inquire | null | undefined): string =>
+  getInquireProcedureNames(inquiry).join(', ');
+
 const SERVICE_COLOR_MAP: Record<ServiceCategory, string> = {
   Trademark: '#2563EB',
   Patent: '#16A34A',
@@ -239,7 +256,7 @@ export default function ClientQuotationsPage() {
 
   const serviceCategory = ((selectedInquiry?.serviceId as any)?.category || 'Trademark') as ServiceCategory;
   const inquiryProjectRef = (selectedInquiry?.referenceNo || '') as string;
-  const inquiryProcedure = ((selectedInquiry?.procedureId as any)?.name || '') as string;
+  const inquiryProcedure = getInquireProcedureLabel(selectedInquiry);
   const inquiryCountry = inquiryCountries.join(', ');
 
   const filteredItems = useMemo(
@@ -657,9 +674,10 @@ export default function ClientQuotationsPage() {
                     onChange={(_, value) => {
                       setSelectedInquiryId(value?._id || '');
                       setSelectedRequirementId('');
+                      const inquiryProcedureNames = getInquireProcedureNames(value || null);
                       setServiceDraft((p) => ({
                         ...p,
-                        procedureName: ((value?.procedureId as any)?.name || ''),
+                        procedureName: inquiryProcedureNames[0] || '',
                       }));
                     }}
                     renderInput={(p) => <TextField {...p} label="Inquiry Project *" />}

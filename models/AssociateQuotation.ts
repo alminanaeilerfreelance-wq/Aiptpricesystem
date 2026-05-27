@@ -31,6 +31,12 @@ export interface IAssociateQuotation extends Document {
     notes?: string;
   };
   inquiryProject: string;
+  inquiryId?: mongoose.Types.ObjectId;
+  inquirySnapshot?: {
+    referenceNo?: string;
+    procedureName?: string;
+    countryNames?: string[];
+  };
   services: IAssociateQuotationServiceItem[];
   totalOfficialFees: number;
   totalAttorneyFees: number;
@@ -87,6 +93,12 @@ const associateQuotationSchema = new mongoose.Schema<IAssociateQuotation>(
       notes: { type: String, trim: true },
     },
     inquiryProject: { type: String, required: true, trim: true },
+    inquiryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Inquire' },
+    inquirySnapshot: {
+      referenceNo: { type: String, trim: true },
+      procedureName: { type: String, trim: true },
+      countryNames: [{ type: String, trim: true }],
+    },
     services: [serviceItemSchema],
     totalOfficialFees: { type: Number, default: 0 },
     totalAttorneyFees: { type: Number, default: 0 },

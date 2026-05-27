@@ -39,6 +39,12 @@ export interface AssociateQuotation {
     notes?: string;
   };
   inquiryProject: string;
+  inquiryId?: string | { _id: string; referenceNo?: string };
+  inquirySnapshot?: {
+    referenceNo?: string;
+    procedureName?: string;
+    countryNames?: string[];
+  };
   services: AssociateQuotationServiceItem[];
   totalOfficialFees: number;
   totalAttorneyFees: number;
@@ -68,6 +74,7 @@ export interface CreateAssociateQuotationDto {
   associateId?: string;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   inquiryProject: string;
+  inquiryId?: string;
   services: Array<Partial<AssociateQuotationServiceItem> & { procedureName: string }>;
   status?: 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
 }

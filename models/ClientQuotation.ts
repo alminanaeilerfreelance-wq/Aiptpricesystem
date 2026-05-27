@@ -19,16 +19,28 @@ export interface IClientQuotationServiceItem {
 
 export interface IClientQuotation extends Document {
   quotationNo: string;
-  associateId?: mongoose.Types.ObjectId;
-  associateSnapshot?: {
-    associteName?: string;
+  clientId?: mongoose.Types.ObjectId;
+  clientSnapshot?: {
+    name?: string;
     email?: string;
-    associteType?: string;
-    contact?: string;
-    address?: string;
-    notes?: string;
+    type?: string;
+    country?: string;
+    phone?: string;
+  };
+  inquiryId?: mongoose.Types.ObjectId;
+  inquirySnapshot?: {
+    referenceNo?: string;
+    procedureName?: string;
+    countryNames?: string[];
+    serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  };
+  requirementId?: mongoose.Types.ObjectId;
+  requirementSnapshot?: {
+    countryName?: string;
+    requirements?: string;
   };
   inquiryProjects: string[];
+  serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   services: IClientQuotationServiceItem[];
   totalOfficialFees: number;
   totalAttorneyFees: number;
@@ -65,16 +77,28 @@ const serviceItemSchema = new mongoose.Schema<IClientQuotationServiceItem>(
 const clientQuotationSchema = new mongoose.Schema<IClientQuotation>(
   {
     quotationNo: { type: String, unique: true },
-    associateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Associte' },
-    associateSnapshot: {
-      associteName: { type: String, trim: true },
+    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client' },
+    clientSnapshot: {
+      name: { type: String, trim: true },
       email: { type: String, trim: true },
-      associteType: { type: String, trim: true },
-      contact: { type: String, trim: true },
-      address: { type: String, trim: true },
-      notes: { type: String, trim: true },
+      type: { type: String, trim: true },
+      country: { type: String, trim: true },
+      phone: { type: String, trim: true },
+    },
+    inquiryId: { type: mongoose.Schema.Types.ObjectId, ref: 'Inquire' },
+    inquirySnapshot: {
+      referenceNo: { type: String, trim: true },
+      procedureName: { type: String, trim: true },
+      countryNames: [{ type: String, trim: true }],
+      serviceCategory: { type: String, enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'] },
+    },
+    requirementId: { type: mongoose.Schema.Types.ObjectId, ref: 'Requirement' },
+    requirementSnapshot: {
+      countryName: { type: String, trim: true },
+      requirements: { type: String, trim: true },
     },
     inquiryProjects: [{ type: String, required: true, trim: true }],
+    serviceCategory: { type: String, enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'] },
     services: [serviceItemSchema],
     totalOfficialFees: { type: Number, default: 0 },
     totalAttorneyFees: { type: Number, default: 0 },
@@ -98,8 +122,9 @@ clientQuotationSchema.pre('save', async function (next) {
 });
 
 clientQuotationSchema.index({ quotationNo: 1 });
-clientQuotationSchema.index({ associateId: 1 });
+clientQuotationSchema.index({ clientId: 1 });
 clientQuotationSchema.index({ inquiryProjects: 1 });
+clientQuotationSchema.index({ serviceCategory: 1 });
 clientQuotationSchema.index({ createdAt: -1 });
 
 const ClientQuotation: Model<IClientQuotation> =

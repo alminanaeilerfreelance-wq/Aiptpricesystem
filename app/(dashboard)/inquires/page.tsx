@@ -18,6 +18,9 @@ import {
   Snackbar,
   Stack,
   TextField,
+  IconButton,
+  Tooltip,
+  SvgIcon,
   Typography,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
@@ -51,6 +54,46 @@ const defaultFormData: InquireFormData = {
   clientId: '',
   remarks: '',
 };
+
+const SERVICE_COLOR_MAP: Record<string, string> = {
+  Trademark: '#2563EB',
+  Patent: '#16A34A',
+  Design: '#9333EA',
+  Copyright: '#F59E0B',
+  Litigation: '#DC2626',
+};
+
+const getServiceCategory = (item: Inquire): string => {
+  if (typeof item.serviceId === 'string') return '';
+  return item.serviceId?.category || '';
+};
+
+const EyeIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path
+      fill="currentColor"
+      d="M12 5c-5 0-9.27 3.11-11 7c1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7m0 11a4 4 0 1 1 0-8a4 4 0 0 1 0 8m0-2.5A1.5 1.5 0 1 0 12 10a1.5 1.5 0 0 0 0 3.5"
+    />
+  </SvgIcon>
+);
+
+const NoteIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path
+      fill="currentColor"
+      d="M3 17.25V21h3.75l11-11l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41L18.37 3.29a1 1 0 0 0-1.41 0l-1.83 1.83l3.75 3.75z"
+    />
+  </SvgIcon>
+);
+
+const TrashIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path
+      fill="currentColor"
+      d="M9 3h6l1 2h4v2H4V5h4zm1 6h2v9h-2zm4 0h2v9h-2zM7 9h2v9H7zm-1 12h12a2 2 0 0 0 2-2V8H4v11a2 2 0 0 0 2 2"
+    />
+  </SvgIcon>
+);
 
 const toServiceId = (value: Inquire['serviceId']) =>
   typeof value === 'string' ? value : value?._id || '';
@@ -349,7 +392,7 @@ export default function InquiresPage() {
       sortable: true,
       minWidth: 160,
       searchValue: (row) => row.referenceNo || '',
-      render: (row) => row.referenceNo,
+      render: (row) => <Typography sx={{ color: '#7E57C2', fontWeight: 700 }}>{row.referenceNo}</Typography>,
     },
     {
       id: 'serviceId',
@@ -357,7 +400,28 @@ export default function InquiresPage() {
       sortable: true,
       minWidth: 180,
       searchValue: (row) => getServiceLabel(row),
-      render: (row) => getServiceLabel(row),
+      render: (row) => {
+        const category = getServiceCategory(row);
+        const color = SERVICE_COLOR_MAP[category];
+        const label = getServiceLabel(row);
+        if (!color) return label;
+        return (
+          <Box
+            component="span"
+            sx={{
+              px: 1.2,
+              py: 0.4,
+              borderRadius: 999,
+              color,
+              bgcolor: `${color}1A`,
+              fontWeight: 700,
+              fontSize: 12,
+            }}
+          >
+            {label}
+          </Box>
+        );
+      },
     },
     {
       id: 'procedureId',
@@ -398,20 +462,33 @@ export default function InquiresPage() {
       sortable: false,
       render: (row) => (
         <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
-            View
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
-            Edit
-          </Button>
-          <Button
-            size="small"
-            color="error"
-            variant="outlined"
-            onClick={() => handleDeleteClick(row._id)}
-          >
-            Delete
-          </Button>
+          <Tooltip title="View">
+            <IconButton
+              size="small"
+              onClick={() => handleView(row)}
+              sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', '&:hover': { bgcolor: 'primary.dark' } }}
+            >
+              <EyeIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Edit">
+            <IconButton
+              size="small"
+              onClick={() => handleEdit(row)}
+              sx={{ bgcolor: 'success.main', color: 'success.contrastText', '&:hover': { bgcolor: 'success.dark' } }}
+            >
+              <NoteIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton
+              size="small"
+              onClick={() => handleDeleteClick(row._id)}
+              sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}
+            >
+              <TrashIcon />
+            </IconButton>
+          </Tooltip>
         </Stack>
       ),
     },
@@ -607,7 +684,7 @@ export default function InquiresPage() {
           {viewingItem && (
             <Stack spacing={1.5} sx={{ pt: 1 }}>
               <Typography><strong>Date:</strong> {new Date(viewingItem.inquiryDate).toLocaleDateString()}</Typography>
-              <Typography><strong>Reference:</strong> {viewingItem.referenceNo}</Typography>
+              <Typography><strong>Reference:</strong> <span style={{ color: '#7E57C2', fontWeight: 700 }}>{viewingItem.referenceNo}</span></Typography>
               <Typography><strong>Service:</strong> {getServiceLabel(viewingItem)}</Typography>
               <Typography><strong>Procedure:</strong> {getProcedureLabel(viewingItem)}</Typography>
               <Typography><strong>Country:</strong> {getCountryLabel(viewingItem)}</Typography>

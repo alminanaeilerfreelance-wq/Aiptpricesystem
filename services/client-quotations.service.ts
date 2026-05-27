@@ -20,23 +20,31 @@ export interface ClientQuotationServiceItem {
 export interface ClientQuotation {
   _id: string;
   quotationNo: string;
-  associateId?: string | {
+  serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  clientId?: string | {
     _id: string;
-    associteName?: string;
+    name?: string;
     email?: string;
-    associteType?: string;
-    contact?: string;
-    address?: string;
-    notes?: string;
+    type?: string;
+    country?: string;
+    phone?: string;
   };
-  associateSnapshot?: {
-    associteName?: string;
+  clientSnapshot?: {
+    name?: string;
     email?: string;
-    associteType?: string;
-    contact?: string;
-    address?: string;
-    notes?: string;
+    type?: string;
+    country?: string;
+    phone?: string;
   };
+  inquiryId?: string | { _id: string; referenceNo?: string };
+  inquirySnapshot?: {
+    referenceNo?: string;
+    procedureName?: string;
+    countryNames?: string[];
+    serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  };
+  requirementId?: string | { _id: string };
+  requirementSnapshot?: { countryName?: string; requirements?: string };
   inquiryProjects: string[];
   services: ClientQuotationServiceItem[];
   totalOfficialFees: number;
@@ -65,8 +73,9 @@ export interface ClientQuotationListResponse {
 }
 
 export interface CreateClientQuotationDto {
-  associateId?: string;
-  inquiryProjects: string[];
+  clientId: string;
+  inquiryId: string;
+  requirementId?: string;
   services: Array<Partial<ClientQuotationServiceItem> & { procedureName: string }>;
   status?: 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
 }

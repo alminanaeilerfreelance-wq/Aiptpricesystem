@@ -28,12 +28,16 @@ import {
   TableHead,
   TableRow,
   TextField,
+  IconButton,
+  SvgIcon,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import associteService from '@/services/associte.service';
 import { pricingRulesService } from '@/services/pricing-rules.service';
+import inquiresService, { Inquire } from '@/services/inquires.service';
 import associateQuotationsService, {
   AssociateQuotation,
   AssociateQuotationServiceItem,
@@ -53,13 +57,40 @@ const SERVICE_OPTIONS: ServiceCategory[] = [
   'Litigation',
 ];
 
-const SERVICE_CODE_MAP: Record<ServiceCategory, string> = {
-  Trademark: 'T',
-  Patent: 'P',
-  Copyright: 'C',
-  Design: 'D',
-  Litigation: 'L',
+const SERVICE_COLOR_MAP: Record<ServiceCategory, string> = {
+  Trademark: '#2563EB',
+  Patent: '#16A34A',
+  Design: '#9333EA',
+  Copyright: '#F59E0B',
+  Litigation: '#DC2626',
 };
+
+const EyeIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path
+      fill="currentColor"
+      d="M12 5c-5 0-9.27 3.11-11 7c1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7m0 11a4 4 0 1 1 0-8a4 4 0 0 1 0 8m0-2.5A1.5 1.5 0 1 0 12 10a1.5 1.5 0 0 0 0 3.5"
+    />
+  </SvgIcon>
+);
+
+const NoteIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path
+      fill="currentColor"
+      d="M3 17.25V21h3.75l11-11l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41L18.37 3.29a1 1 0 0 0-1.41 0l-1.83 1.83l3.75 3.75z"
+    />
+  </SvgIcon>
+);
+
+const TrashIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path
+      fill="currentColor"
+      d="M9 3h6l1 2h4v2H4V5h4zm1 6h2v9h-2zm4 0h2v9h-2zM7 9h2v9H7zm-1 12h12a2 2 0 0 0 2-2V8H4v11a2 2 0 0 0 2 2"
+    />
+  </SvgIcon>
+);
 
 interface AssociateOption {
   _id: string;
@@ -84,7 +115,6 @@ interface ServiceDraft {
   additionalFeePerClass: number;
   officialFee: number;
   attorneyFee: number;
-  officeFee: number;
   otherFees: number;
 }
 
@@ -95,7 +125,6 @@ const defaultServiceDraft: ServiceDraft = {
   additionalFeePerClass: 0,
   officialFee: 0,
   attorneyFee: 0,
-  officeFee: 0,
   otherFees: 0,
 };
 
@@ -117,12 +146,11 @@ const computeAssociateRow = (service: ServiceDraft): AssociateQuotationServiceIt
   const additionalFeePerClass = classType === 'multi' ? Math.max(0, Number(service.additionalFeePerClass || 0)) : 0;
   const officialFee = Math.max(0, Number(service.officialFee || 0));
   const attorneyFee = Math.max(0, Number(service.attorneyFee || 0));
-  const officeFee = Math.max(0, Number(service.officeFee || 0));
   const otherFees = Math.max(0, Number(service.otherFees || 0));
 
   const additionalClassFees = classType === 'multi' ? additionalFeePerClass * numberOfClasses : 0;
   const totalOfficialFees = officialFee + additionalClassFees;
-  const totalAmount = totalOfficialFees + attorneyFee + officeFee + otherFees;
+  const totalAmount = totalOfficialFees + attorneyFee + otherFees;
   const grandTotal = totalAmount;
 
   return {
@@ -134,7 +162,7 @@ const computeAssociateRow = (service: ServiceDraft): AssociateQuotationServiceIt
     additionalClassFees,
     totalOfficialFees,
     attorneyFee,
-    officeFee,
+    officeFee: 0,
     otherFees,
     totalAmount,
     grandTotal,
@@ -175,11 +203,13 @@ export default function AssociateQuotationsPage() {
 
   const [associates, setAssociates] = useState<AssociateOption[]>([]);
   const [allProcedureOptions, setAllProcedureOptions] = useState<PricingProcedureOption[]>([]);
+  const [inquiries, setInquiries] = useState<Inquire[]>([]);
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedAssociateId, setSelectedAssociateId] = useState<string>('');
   const [selectedServiceCategory, setSelectedServiceCategory] = useState<ServiceCategory>('Trademark');
+  const [selectedInquiryId, setSelectedInquiryId] = useState('');
   const [inquiryProject, setInquiryProject] = useState('');
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(defaultServiceDraft);
   const [services, setServices] = useState<AssociateQuotationServiceItem[]>([]);
@@ -197,6 +227,10 @@ export default function AssociateQuotationsPage() {
     () => associates.find((associate) => associate._id === selectedAssociateId) || null,
     [associates, selectedAssociateId]
   );
+  const selectedInquiry = useMemo(
+    () => inquiries.find((item) => item._id === selectedInquiryId) || null,
+    [inquiries, selectedInquiryId]
+  );
 
   const procedureOptions = useMemo(
     () =>
@@ -211,28 +245,13 @@ export default function AssociateQuotationsPage() {
     [allProcedureOptions, selectedServiceCategory]
   );
 
-  const referencePreview = useMemo(() => {
-    const year = new Date().getFullYear();
-    const serviceCode = SERVICE_CODE_MAP[selectedServiceCategory];
-    const rawCountry = (selectedAssociate?.country || '').trim();
-    const country = rawCountry
-      ? rawCountry
-          .split(/\s+/)
-          .filter(Boolean)
-          .slice(0, 2)
-          .map((item) => item[0]?.toUpperCase() || '')
-          .join('')
-          .slice(0, 3) || rawCountry.slice(0, 2).toUpperCase()
-      : 'XX';
-    return `${serviceCode} ${year}-0001 ${country}`;
-  }, [selectedAssociate?.country, selectedServiceCategory]);
-
   const totals = useMemo(() => computeTotals(services), [services]);
 
   const loadLookups = useCallback(async () => {
-    const [associateRes, pricingRes] = await Promise.all([
+    const [associateRes, pricingRes, inquireRes] = await Promise.all([
       associteService.list({ page: 1, limit: 1000 }),
       pricingRulesService.list({ page: 1, limit: 1000 }),
+      inquiresService.list({ page: 1, limit: 1000 }),
     ]);
 
     const normalizedAssociates = Array.isArray(associateRes.assocites)
@@ -264,6 +283,7 @@ export default function AssociateQuotationsPage() {
       : [];
 
     setAllProcedureOptions(procedurePairs);
+    setInquiries(Array.isArray(inquireRes.inquires) ? inquireRes.inquires : []);
   }, []);
 
   const fetchItems = useCallback(async (params?: { nextPage?: number; nextSearch?: string }) => {
@@ -307,6 +327,7 @@ export default function AssociateQuotationsPage() {
     setEditingId(null);
     setSelectedAssociateId('');
     setSelectedServiceCategory('Trademark');
+    setSelectedInquiryId('');
     setInquiryProject('');
     setServiceDraft(defaultServiceDraft);
     setServices([]);
@@ -321,6 +342,7 @@ export default function AssociateQuotationsPage() {
     setEditingId(item._id);
     setSelectedAssociateId(normalizeAssociate(item.associateId) || '');
     setSelectedServiceCategory(item.serviceCategory || 'Trademark');
+    setSelectedInquiryId('');
     setInquiryProject(item.inquiryProject || '');
     setServices(Array.isArray(item.services) ? item.services : []);
     setServiceDraft(defaultServiceDraft);
@@ -378,6 +400,7 @@ export default function AssociateQuotationsPage() {
     const payload = {
       associateId: selectedAssociateId,
       serviceCategory: selectedServiceCategory,
+      inquiryId: selectedInquiryId || undefined,
       inquiryProject: inquiryProject.trim(),
       services: services.map((service) => ({
         procedureName: service.procedureName,
@@ -386,7 +409,7 @@ export default function AssociateQuotationsPage() {
         additionalFeePerClass: service.additionalFeePerClass,
         officialFee: service.officialFee,
         attorneyFee: service.attorneyFee,
-        officeFee: service.officeFee,
+        officeFee: 0,
         otherFees: service.otherFees,
       })),
       status: 'Draft' as const,
@@ -434,19 +457,32 @@ export default function AssociateQuotationsPage() {
 
   const columns: MuiDataTableColumn<AssociateQuotation>[] = [
     {
-      id: 'quotationNo',
-      label: 'Quotation No',
-      sortable: true,
-      searchValue: (row) => row.quotationNo,
-      render: (row) => row.quotationNo,
-    },
-    {
       id: 'serviceCategory',
       label: 'Service',
       sortable: true,
       minWidth: 130,
       searchValue: (row) => row.serviceCategory || '',
-      render: (row) => row.serviceCategory || '-',
+      render: (row) => {
+        const service = (row.serviceCategory || '') as ServiceCategory;
+        const color = SERVICE_COLOR_MAP[service];
+        if (!service || !color) return row.serviceCategory || '-';
+        return (
+          <Box
+            component="span"
+            sx={{
+              px: 1.2,
+              py: 0.4,
+              borderRadius: 999,
+              color,
+              bgcolor: `${color}1A`,
+              fontWeight: 700,
+              fontSize: 12,
+            }}
+          >
+            {service}
+          </Box>
+        );
+      },
     },
     {
       id: 'associate',
@@ -490,15 +526,33 @@ export default function AssociateQuotationsPage() {
       sortable: false,
       render: (row) => (
         <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
-            View
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
-            Edit
-          </Button>
-          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(row._id)}>
-            Delete
-          </Button>
+          <Tooltip title="View">
+            <IconButton
+              size="small"
+              onClick={() => handleView(row)}
+              sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', '&:hover': { bgcolor: 'primary.dark' } }}
+            >
+              <EyeIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Edit">
+            <IconButton
+              size="small"
+              onClick={() => handleEdit(row)}
+              sx={{ bgcolor: 'success.main', color: 'success.contrastText', '&:hover': { bgcolor: 'success.dark' } }}
+            >
+              <NoteIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton
+              size="small"
+              onClick={() => handleDeleteClick(row._id)}
+              sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}
+            >
+              <TrashIcon />
+            </IconButton>
+          </Tooltip>
         </Stack>
       ),
     },
@@ -522,7 +576,7 @@ export default function AssociateQuotationsPage() {
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 9 }}>
               <TextField
-                placeholder="Search by quotation no, inquiry project, associate..."
+                placeholder="Search by inquiry project, associate..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 size="small"
@@ -565,17 +619,29 @@ export default function AssociateQuotationsPage() {
         />
       ) : (
         !loading && (
-          <MuiDataTable
-            rows={items}
-            columns={columns}
-            rowKey={(row) => row._id}
-            page={page}
-            rowsPerPage={limit}
-            total={total}
-            onPageChange={setPage}
-            showToolbar
-            loading={false}
-          />
+          <Box
+            sx={{
+              '& .MuiTableHead-root .MuiTableCell-root': {
+                bgcolor: 'primary.main !important',
+                color: 'primary.contrastText !important',
+              },
+              '& .MuiTableSortLabel-root, & .MuiTableSortLabel-icon': {
+                color: 'primary.contrastText !important',
+              },
+            }}
+          >
+            <MuiDataTable
+              rows={items}
+              columns={columns}
+              rowKey={(row) => row._id}
+              page={page}
+              rowsPerPage={limit}
+              total={total}
+              onPageChange={setPage}
+              showToolbar
+              loading={false}
+            />
+          </Box>
         )
       )}
 
@@ -611,17 +677,9 @@ export default function AssociateQuotationsPage() {
                             <MenuItem key={option} value={option}>
                               {option}
                             </MenuItem>
-                          ))}
+                          ))}xf
                         </Select>
                       </FormControl>
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 6 }}>
-                      <TextField
-                        label="Reference Preview"
-                        value={referencePreview}
-                        fullWidth
-                        slotProps={{ input: { readOnly: true } }}
-                      />
                     </Grid>
                     <Grid size={{ xs: 12, md: 6 }}>
                       <TextField label="Associate Email" value={selectedAssociate?.email || ''} fullWidth slotProps={{ input: { readOnly: true } }} />
@@ -629,20 +687,29 @@ export default function AssociateQuotationsPage() {
                     <Grid size={{ xs: 12, md: 6 }}>
                       <TextField label="Associate Type" value={selectedAssociate?.associteType || ''} fullWidth slotProps={{ input: { readOnly: true } }} />
                     </Grid>
-                    <Grid size={{ xs: 12, md: 6 }}>
-                      <TextField label="Country" value={selectedAssociate?.country || ''} fullWidth slotProps={{ input: { readOnly: true } }} />
-                    </Grid>
                     <Grid size={{ xs: 12 }}>
                       <TextField label="Notes" value={selectedAssociate?.notes || ''} fullWidth multiline minRows={2} slotProps={{ input: { readOnly: true } }} />
                     </Grid>
                   </Grid>
 
-                  <TextField
-                    label="Inquiry Project *"
-                    value={inquiryProject}
-                    onChange={(event) => setInquiryProject(event.target.value)}
-                    required
+                  <Autocomplete
+                    options={inquiries}
+                    value={selectedInquiry}
+                    onChange={(_, value) => {
+                      setSelectedInquiryId(value?._id || '');
+                      const nextCategory = ((value?.serviceId as any)?.category || selectedServiceCategory) as ServiceCategory;
+                      setSelectedServiceCategory(nextCategory);
+                      setInquiryProject(value?.referenceNo || '');
+                      setServiceDraft((prev) => ({ ...prev, procedureName: ((value?.procedureId as any)?.name || prev.procedureName) }));
+                    }}
+                    getOptionLabel={(option) => option.referenceNo || ''}
+                    renderInput={(params) => <TextField {...params} label="Inquiry Project *" />}
                   />
+                  <Grid container spacing={2}>
+                    <Grid size={{ xs: 12, md: 6 }}>
+                      <TextField label="Procedure" value={((selectedInquiry?.procedureId as any)?.name || '')} fullWidth slotProps={{ input: { readOnly: true } }} sx={{ '& .MuiInputBase-input': { color: '#7E57C2' } }} />
+                    </Grid>
+                  </Grid>
                 </Stack>
               </CardContent>
             </Card>
@@ -661,30 +728,32 @@ export default function AssociateQuotationsPage() {
                       renderInput={(params) => <TextField {...params} label="Procedure *" />}
                     />
                   </Grid>
-                  <Grid size={{ xs: 12, md: 6 }}>
-                    <FormControl fullWidth>
-                      <InputLabel>Class Type</InputLabel>
-                      <Select
-                        value={serviceDraft.classType}
-                        label="Class Type"
-                        onChange={(event) =>
-                          setServiceDraft((prev) => ({
-                            ...prev,
-                            classType: event.target.value as ClassType,
-                            numberOfClasses:
-                              event.target.value === 'multi' ? prev.numberOfClasses || 1 : 1,
-                            additionalFeePerClass:
-                              event.target.value === 'multi' ? prev.additionalFeePerClass : 0,
-                          }))
-                        }
-                      >
-                        <MenuItem value="single">Single</MenuItem>
-                        <MenuItem value="multi">Multi</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
+                  {selectedServiceCategory === 'Trademark' && (
+                    <Grid size={{ xs: 12, md: 6 }}>
+                      <FormControl fullWidth>
+                        <InputLabel>Class Type</InputLabel>
+                        <Select
+                          value={serviceDraft.classType}
+                          label="Class Type"
+                          onChange={(event) =>
+                            setServiceDraft((prev) => ({
+                              ...prev,
+                              classType: event.target.value as ClassType,
+                              numberOfClasses:
+                                event.target.value === 'multi' ? prev.numberOfClasses || 1 : 1,
+                              additionalFeePerClass:
+                                event.target.value === 'multi' ? prev.additionalFeePerClass : 0,
+                            }))
+                          }
+                        >
+                          <MenuItem value="single">Single</MenuItem>
+                          <MenuItem value="multi">Multi</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  )}
 
-                  {serviceDraft.classType === 'multi' && (
+                  {selectedServiceCategory === 'Trademark' && serviceDraft.classType === 'multi' && (
                     <>
                       <Grid size={{ xs: 12, md: 6 }}>
                         <TextField
@@ -748,20 +817,6 @@ export default function AssociateQuotationsPage() {
                   <Grid size={{ xs: 12, md: 3 }}>
                     <TextField
                       type="number"
-                      label="Office Fee"
-                      value={serviceDraft.officeFee}
-                      onChange={(event) =>
-                        setServiceDraft((prev) => ({
-                          ...prev,
-                          officeFee: Math.max(0, Number(event.target.value) || 0),
-                        }))
-                      }
-                      fullWidth
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 12, md: 3 }}>
-                    <TextField
-                      type="number"
                       label="Other Fees"
                       value={serviceDraft.otherFees}
                       onChange={(event) =>
@@ -791,16 +846,15 @@ export default function AssociateQuotationsPage() {
                     <Table size="small">
                       <TableHead>
                         <TableRow>
-                          <TableCell>Procedure</TableCell>
-                          <TableCell>Class Type</TableCell>
-                          <TableCell align="right">No. Classes</TableCell>
-                          <TableCell align="right">Official Fees</TableCell>
-                          <TableCell align="right">Additional Class Fees</TableCell>
-                          <TableCell align="right">Attorney Fee</TableCell>
-                          <TableCell align="right">Office Fee</TableCell>
-                          <TableCell align="right">Other Fees</TableCell>
-                          <TableCell align="right">Grand Total</TableCell>
-                          <TableCell align="right">Action</TableCell>
+                          <TableCell sx={{ color: 'primary.main', fontWeight: 700 }}>Procedure</TableCell>
+                          <TableCell sx={{ color: 'primary.main', fontWeight: 700 }}>Class Type</TableCell>
+                          <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>No. Classes</TableCell>
+                          <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Official Fees</TableCell>
+                          <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Additional Class Fees</TableCell>
+                          <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Attorney Fee</TableCell>
+                          <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Other Fees</TableCell>
+                          <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Grand Total</TableCell>
+                          <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Action</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -812,7 +866,6 @@ export default function AssociateQuotationsPage() {
                             <TableCell align="right">{toCurrency(service.officialFee)}</TableCell>
                             <TableCell align="right">{toCurrency(service.additionalClassFees)}</TableCell>
                             <TableCell align="right">{toCurrency(service.attorneyFee)}</TableCell>
-                            <TableCell align="right">{toCurrency(service.officeFee)}</TableCell>
                             <TableCell align="right">{toCurrency(service.otherFees)}</TableCell>
                             <TableCell align="right">{toCurrency(service.grandTotal)}</TableCell>
                             <TableCell align="right">
@@ -851,7 +904,6 @@ export default function AssociateQuotationsPage() {
         <DialogContent>
           {viewingItem && (
             <Stack spacing={2} sx={{ pt: 1 }}>
-              <Typography><strong>Quotation No:</strong> {viewingItem.quotationNo}</Typography>
               <Typography><strong>Service Category:</strong> {viewingItem.serviceCategory || '-'}</Typography>
               <Typography><strong>Country Abbreviation:</strong> {viewingItem.countryAbbreviation || '-'}</Typography>
               <Typography><strong>Associate:</strong> {viewingItem.associateSnapshot?.associteName || '-'}</Typography>
@@ -864,15 +916,14 @@ export default function AssociateQuotationsPage() {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell>Procedure</TableCell>
-                      <TableCell>Class Type</TableCell>
-                      <TableCell align="right">No. Classes</TableCell>
-                      <TableCell align="right">Official Fees</TableCell>
-                      <TableCell align="right">Additional Class Fees</TableCell>
-                      <TableCell align="right">Attorney Fee</TableCell>
-                      <TableCell align="right">Office Fee</TableCell>
-                      <TableCell align="right">Other Fees</TableCell>
-                      <TableCell align="right">Grand Total</TableCell>
+                      <TableCell sx={{ color: 'primary.main', fontWeight: 700 }}>Procedure</TableCell>
+                      <TableCell sx={{ color: 'primary.main', fontWeight: 700 }}>Class Type</TableCell>
+                      <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>No. Classes</TableCell>
+                      <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Official Fees</TableCell>
+                      <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Additional Class Fees</TableCell>
+                      <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Attorney Fee</TableCell>
+                      <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Other Fees</TableCell>
+                      <TableCell align="right" sx={{ color: 'primary.main', fontWeight: 700 }}>Grand Total</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -884,7 +935,6 @@ export default function AssociateQuotationsPage() {
                         <TableCell align="right">{toCurrency(service.officialFee)}</TableCell>
                         <TableCell align="right">{toCurrency(service.additionalClassFees)}</TableCell>
                         <TableCell align="right">{toCurrency(service.attorneyFee)}</TableCell>
-                        <TableCell align="right">{toCurrency(service.officeFee)}</TableCell>
                         <TableCell align="right">{toCurrency(service.otherFees)}</TableCell>
                         <TableCell align="right">{toCurrency(service.grandTotal)}</TableCell>
                       </TableRow>

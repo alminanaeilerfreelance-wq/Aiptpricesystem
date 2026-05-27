@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import AssociateQuotation from '@/models/AssociateQuotation';
 import Associte from '@/models/Associte';
+import Inquire from '@/models/Inquire';
 import { getUserFromRequest } from '@/lib/auth';
 import {
   ASSOCIATE_QUOTATION_SERVICE_CATEGORIES,
@@ -151,6 +152,22 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const inquiryProject = String(body?.inquiryProject || '').trim();
     const serviceCategoryRaw = String(body?.serviceCategory || '').trim();
+    let inquiryId: mongoose.Types.ObjectId | undefined;
+    let inquirySnapshot: { referenceNo?: string; procedureName?: string; countryNames?: string[] } | undefined;
+    if (typeof body?.inquiryId === 'string' && mongoose.Types.ObjectId.isValid(body.inquiryId)) {
+      inquiryId = new mongoose.Types.ObjectId(body.inquiryId);
+      const inquiry: any = await Inquire.findById(inquiryId)
+        .populate({ path: 'procedureId', select: 'name', strictPopulate: false })
+        .populate({ path: 'countryIds', select: 'name', strictPopulate: false })
+        .lean();
+      if (inquiry) {
+        inquirySnapshot = {
+          referenceNo: inquiry.referenceNo,
+          procedureName: inquiry.procedureId?.name || '',
+          countryNames: Array.isArray(inquiry.countryIds) ? inquiry.countryIds.map((c: any) => c?.name).filter(Boolean) : [],
+        };
+      }
+    }
 
     if (!isAssociateQuotationServiceCategory(serviceCategoryRaw)) {
       return NextResponse.json(
@@ -224,6 +241,8 @@ export async function POST(req: NextRequest) {
       associateId,
       associateSnapshot,
       inquiryProject,
+      inquiryId,
+      inquirySnapshot,
       services: normalized,
       ...totals,
       status: body?.status || 'Draft',

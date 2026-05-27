@@ -15,25 +15,24 @@ import {
   FormControl,
   InputLabel,
   MenuItem,
-  Pagination,
   Select,
   Stack,
   Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   Tabs,
   Paper,
   TextField,
   Typography,
   Snackbar,
+  IconButton,
+  Tooltip,
+  SvgIcon,
+  Autocomplete,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { proceduresService } from '@/services/procedures.service';
+import { countriesService } from '@/services/countries.service';
+import { servicesService } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
 export const dynamic = 'force-dynamic';
@@ -41,21 +40,50 @@ export const dynamic = 'force-dynamic';
 interface Procedure {
   _id: string;
   name: string;
+  countryId: string;
+  countryName: string;
+  serviceId: string;
+  serviceName: string;
   serviceCategory: string;
-  description?: string;
-  sortOrder?: number;
   createdAt: string;
+}
+
+interface CountryOption {
+  _id: string;
+  name: string;
+}
+
+interface ServiceOption {
+  _id: string;
+  name: string;
+  category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
 }
 
 const CATEGORIES = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
 
 const categoryColors: Record<string, { bg: string; text: string }> = {
-  Trademark: { bg: '#E3F2FD', text: '#1976D2' },
-  Patent: { bg: '#F3E5F5', text: '#7B1FA2' },
-  Copyright: { bg: '#E8F5E9', text: '#388E3C' },
-  Design: { bg: '#FFF3E0', text: '#F57C00' },
-  Litigation: { bg: '#FFEBEE', text: '#D32F2F' },
+  Trademark: { bg: '#2563EB1A', text: '#2563EB' },
+  Patent: { bg: '#16A34A1A', text: '#16A34A' },
+  Copyright: { bg: '#F59E0B1A', text: '#F59E0B' },
+  Design: { bg: '#9333EA1A', text: '#9333EA' },
+  Litigation: { bg: '#DC26261A', text: '#DC2626' },
 };
+
+const EyeIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M12 5c-5 0-9.27 3.11-11 7c1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7m0 11a4 4 0 1 1 0-8a4 4 0 0 1 0 8m0-2.5A1.5 1.5 0 1 0 12 10a1.5 1.5 0 0 0 0 3.5" />
+  </SvgIcon>
+);
+const NoteIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M3 17.25V21h3.75l11-11l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41L18.37 3.29a1 1 0 0 0-1.41 0l-1.83 1.83l3.75 3.75z" />
+  </SvgIcon>
+);
+const TrashIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4zm1 6h2v9h-2zm4 0h2v9h-2zM7 9h2v9H7zm-1 12h12a2 2 0 0 0 2-2V8H4v11a2 2 0 0 0 2 2" />
+  </SvgIcon>
+);
 
 export default function ProceduresPage() {
   const [mounted, setMounted] = useState(false);
@@ -74,10 +102,12 @@ export default function ProceduresPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
+    countryId: '',
+    serviceId: '',
     serviceCategory: 'Trademark',
-    description: '',
-    sortOrder: '0',
   });
+  const [countries, setCountries] = useState<CountryOption[]>([]);
+  const [services, setServices] = useState<ServiceOption[]>([]);
 
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingProcedure, setViewingProcedure] = useState<Procedure | null>(null);
@@ -137,13 +167,30 @@ export default function ProceduresPage() {
     setPage(1);
   }, [debouncedSearch]);
 
+  useEffect(() => {
+    const loadLookups = async () => {
+      try {
+        const [countriesRes, servicesRes] = await Promise.all([
+          countriesService.list({ page: 1, limit: 1000 }),
+          servicesService.list({ page: 1, limit: 1000 }),
+        ]);
+        setCountries((countriesRes.countries || []).map((c) => ({ _id: c._id, name: c.name })));
+        setServices((servicesRes.services || []).map((s) => ({ _id: s._id, name: s.name, category: s.category })));
+      } catch {
+        setCountries([]);
+        setServices([]);
+      }
+    };
+    loadLookups().catch(() => undefined);
+  }, []);
+
   const handleAdd = () => {
     setEditingId(null);
     setFormData({
       name: '',
+      countryId: '',
+      serviceId: '',
       serviceCategory: currentCategory || 'Trademark',
-      description: '',
-      sortOrder: '0',
     });
     setOpenForm(true);
   };
@@ -152,9 +199,9 @@ export default function ProceduresPage() {
     setEditingId(procedure._id);
     setFormData({
       name: procedure.name,
+      countryId: procedure.countryId || '',
+      serviceId: procedure.serviceId || '',
       serviceCategory: procedure.serviceCategory,
-      description: procedure.description || '',
-      sortOrder: String(procedure.sortOrder ?? 0),
     });
     setOpenForm(true);
   };
@@ -164,9 +211,9 @@ export default function ProceduresPage() {
     setEditingId(null);
     setFormData({
       name: '',
+      countryId: '',
+      serviceId: '',
       serviceCategory: 'Trademark',
-      description: '',
-      sortOrder: '0',
     });
   };
 
@@ -180,10 +227,12 @@ export default function ProceduresPage() {
       setError('Service category is required');
       return;
     }
-
-    const parsedSortOrder = Number(formData.sortOrder || '0');
-    if (!Number.isFinite(parsedSortOrder)) {
-      setError('Sort order must be a valid number');
+    if (!formData.countryId) {
+      setError('Country is required');
+      return;
+    }
+    if (!formData.serviceId) {
+      setError('Service type is required');
       return;
     }
 
@@ -193,9 +242,9 @@ export default function ProceduresPage() {
 
       const payload = {
         name: formData.name.trim(),
+        countryId: formData.countryId,
+        serviceId: formData.serviceId,
         serviceCategory: formData.serviceCategory,
-        description: formData.description.trim() || undefined,
-        sortOrder: parsedSortOrder,
       };
 
       if (editingId) {
@@ -269,25 +318,37 @@ export default function ProceduresPage() {
 
       let importedCount = 0;
       const importErrors: string[] = [];
+      const countryByName = new Map(
+        countries.map((country) => [country.name.trim().toLowerCase(), country])
+      );
 
       for (const row of dataRows) {
         const name = String(row[0] ?? '').trim();
-        const category = String(row[1] ?? '').trim();
-        const description = String(row[2] ?? '').trim();
-        const sortOrder = row[3] ? Number(row[3]) : 0;
+        const countryName = String(row[1] ?? '').trim();
+        const category = String(row[2] ?? '').trim();
 
-        if (!name || !category) continue;
+        if (!name || !countryName || !category) continue;
         if (!CATEGORIES.includes(category)) {
-          importErrors.push(`Invalid category "${category}" for procedure "${name}"`);
+          importErrors.push(`Invalid service type "${category}" for procedure "${name}"`);
+          continue;
+        }
+        const country = countryByName.get(countryName.toLowerCase());
+        if (!country) {
+          importErrors.push(`Country "${countryName}" not found for procedure "${name}"`);
+          continue;
+        }
+        const service = services.find((item) => item.category === category);
+        if (!service) {
+          importErrors.push(`No service model found for service type "${category}"`);
           continue;
         }
 
         try {
           await proceduresService.create({
             name,
+            countryId: country._id,
+            serviceId: service._id,
             serviceCategory: category,
-            description: description || undefined,
-            sortOrder,
           });
           importedCount += 1;
         } catch {
@@ -361,9 +422,8 @@ export default function ProceduresPage() {
     const ws = XLSX.utils.json_to_sheet(
       records.map((p) => ({
         Name: p.name,
-        Category: p.serviceCategory,
-        Description: p.description || '',
-        'Sort Order': p.sortOrder ?? 0,
+        Country: p.countryName || '',
+        'Service Type': p.serviceCategory,
         Created: new Date(p.createdAt).toLocaleDateString(),
       }))
     );
@@ -383,9 +443,8 @@ export default function ProceduresPage() {
     const ws = XLSX.utils.json_to_sheet(
       records.map((p) => ({
         Name: p.name,
-        Category: p.serviceCategory,
-        Description: p.description || '',
-        'Sort Order': p.sortOrder ?? 0,
+        Country: p.countryName || '',
+        'Service Type': p.serviceCategory,
         Created: new Date(p.createdAt).toLocaleDateString(),
       }))
     );
@@ -406,11 +465,11 @@ export default function ProceduresPage() {
     const doc = new jsPDF.jsPDF();
 
     autoTable.default(doc, {
-      head: [['Name', 'Category', 'Sort', 'Created']],
+      head: [['Name', 'Country', 'Service Type', 'Created']],
       body: records.map((p) => [
         p.name,
+        p.countryName || '',
         p.serviceCategory,
-        String(p.sortOrder ?? 0),
         new Date(p.createdAt).toLocaleDateString(),
       ]),
       startY: 10,
@@ -420,21 +479,26 @@ export default function ProceduresPage() {
     setSuccessMessage(`PDF exported (${records.length} rows)`);
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-
   if (!mounted) return null;
 
   const procedureColumns: MuiDataTableColumn<Procedure>[] = [
     {
       id: 'name',
-      label: 'Name',
+      label: 'Procedure Name',
       sortable: true,
       searchValue: (row) => row.name,
       render: (row) => row.name,
     },
     {
+      id: 'country',
+      label: 'Country',
+      sortable: true,
+      searchValue: (row) => row.countryName || '',
+      render: (row) => row.countryName || '-',
+    },
+    {
       id: 'serviceCategory',
-      label: 'Category',
+      label: 'Service Type',
       sortable: true,
       searchValue: (row) => row.serviceCategory,
       render: (row) => (
@@ -455,14 +519,6 @@ export default function ProceduresPage() {
       ),
     },
     {
-      id: 'sortOrder',
-      label: 'Sort',
-      align: 'right',
-      sortable: true,
-      sortValue: (row) => row.sortOrder ?? 0,
-      render: (row) => row.sortOrder ?? 0,
-    },
-    {
       id: 'createdAt',
       label: 'Created',
       sortable: true,
@@ -476,20 +532,21 @@ export default function ProceduresPage() {
       sortable: false,
       render: (row) => (
         <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
-            View
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
-            Edit
-          </Button>
-          <Button
-            size="small"
-            color="error"
-            variant="outlined"
-            onClick={() => handleDeleteClick(row._id)}
-          >
-            Delete
-          </Button>
+          <Tooltip title="View">
+            <IconButton size="small" onClick={() => handleView(row)} sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', '&:hover': { bgcolor: 'primary.dark' } }}>
+              <EyeIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Edit">
+            <IconButton size="small" onClick={() => handleEdit(row)} sx={{ bgcolor: 'success.main', color: 'success.contrastText', '&:hover': { bgcolor: 'success.dark' } }}>
+              <NoteIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton size="small" onClick={() => handleDeleteClick(row._id)} sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}>
+              <TrashIcon />
+            </IconButton>
+          </Tooltip>
         </Stack>
       ),
     },
@@ -633,38 +690,30 @@ export default function ProceduresPage() {
               onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
               required
             />
-            <FormControl fullWidth>
-              <InputLabel>Service Category</InputLabel>
-              <Select
-                value={formData.serviceCategory}
-                label="Service Category"
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, serviceCategory: e.target.value }))
-                }
-              >
-                {CATEGORIES.map((category) => (
-                  <MenuItem key={category} value={category}>
-                    {category}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <TextField
-              label="Sort Order"
-              type="number"
-              value={formData.sortOrder}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, sortOrder: e.target.value }))
+            <Autocomplete
+              options={countries}
+              value={countries.find((c) => c._id === formData.countryId) || null}
+              getOptionLabel={(option) => option.name}
+              onChange={(_, value) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  countryId: value?._id || '',
+                }))
               }
+              renderInput={(params) => <TextField {...params} label="Country" required />}
             />
-            <TextField
-              label="Description"
-              value={formData.description}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, description: e.target.value }))
+            <Autocomplete
+              options={services}
+              value={services.find((s) => s._id === formData.serviceId) || null}
+              getOptionLabel={(option) => `${option.name} (${option.category})`}
+              onChange={(_, value) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  serviceId: value?._id || '',
+                  serviceCategory: value?.category || prev.serviceCategory,
+                }))
               }
-              multiline
-              minRows={3}
+              renderInput={(params) => <TextField {...params} label="Service Type" required />}
             />
           </Stack>
         </DialogContent>
@@ -694,23 +743,18 @@ export default function ProceduresPage() {
               </Typography>
 
               <Typography variant="subtitle2" gutterBottom>
-                Category
+                Service Type
               </Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>
                 {viewingProcedure.serviceCategory}
               </Typography>
 
               <Typography variant="subtitle2" gutterBottom>
-                Sort Order
+                Country
               </Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>
-                {viewingProcedure.sortOrder ?? 0}
+                {viewingProcedure.countryName || '-'}
               </Typography>
-
-              <Typography variant="subtitle2" gutterBottom>
-                Description
-              </Typography>
-              <Typography variant="body2">{viewingProcedure.description || '-'}</Typography>
             </Box>
           )}
         </DialogContent>

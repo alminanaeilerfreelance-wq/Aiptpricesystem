@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import ClientQuotation from '@/models/ClientQuotation';
-import Associte from '@/models/Associte';
+import Client from '@/models/Client';
+import Inquire from '@/models/Inquire';
+import Requirement from '@/models/Requirement';
 import { getUserFromRequest } from '@/lib/auth';
+
+type ServiceCategory = 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -34,9 +38,10 @@ const toErrorPayload = (fallback: string, err: unknown) => {
 
 const VALID_STATUS = new Set(['Draft', 'Submitted', 'Approved', 'Rejected']);
 
-const calculateServices = (services: RawServiceItem[]) => {
+const calculateServices = (services: RawServiceItem[], serviceCategory: ServiceCategory) => {
+  const isTrademark = serviceCategory === 'Trademark';
   const normalized = services.map((service) => {
-    const classType = service.classType === 'multi' ? 'multi' : 'single';
+    const classType = isTrademark && service.classType === 'multi' ? 'multi' : 'single';
     const officialFee = Math.max(0, toNumber(service.officialFee));
     const attorneyFee = Math.max(0, toNumber(service.attorneyFee));
     const officeFee = Math.max(0, toNumber(service.officeFee));
@@ -105,7 +110,9 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
     const clientQuotation = await ClientQuotation.findById(id)
-      .populate({ path: 'associateId', select: 'associteName email associteType contact address notes', strictPopulate: false })
+      .populate({ path: 'clientId', select: 'name email type country phone', strictPopulate: false })
+      .populate({ path: 'inquiryId', select: 'referenceNo', strictPopulate: false })
+      .populate({ path: 'requirementId', select: 'requirements country', strictPopulate: false })
       .lean();
 
     if (!clientQuotation || !clientQuotation.isActive) {
@@ -132,26 +139,9 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     const body = await req.json();
     const updatePayload: Record<string, any> = {};
 
-    if (body?.inquiryProjects !== undefined) {
-      const inquiryProjects = Array.isArray(body.inquiryProjects)
-        ? body.inquiryProjects.map((item: unknown) => String(item || '').trim()).filter(Boolean)
-        : [];
-      if (inquiryProjects.length === 0) {
-        return NextResponse.json({ error: 'At least one inquiry project is required' }, { status: 400 });
-      }
-      updatePayload.inquiryProjects = inquiryProjects;
-    }
-
-    if (Array.isArray(body?.services)) {
-      if (body.services.length === 0) {
-        return NextResponse.json({ error: 'At least one service row is required' }, { status: 400 });
-      }
-      if (body.services.some((service: RawServiceItem) => !String(service?.procedureName || '').trim())) {
-        return NextResponse.json({ error: 'Procedure name is required for all service rows' }, { status: 400 });
-      }
-      const { normalized, totals } = calculateServices(body.services);
-      updatePayload.services = normalized;
-      Object.assign(updatePayload, totals);
+    const existing = await ClientQuotation.findById(id).lean();
+    if (!existing || !existing.isActive) {
+      return NextResponse.json({ error: 'Client quotation not found' }, { status: 404 });
     }
 
     if (body?.status !== undefined) {
@@ -161,38 +151,64 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       updatePayload.status = body.status;
     }
 
-    if (body?.associateId !== undefined) {
-      if (typeof body.associateId === 'string' && mongoose.Types.ObjectId.isValid(body.associateId)) {
-        const associateId = new mongoose.Types.ObjectId(body.associateId);
-        updatePayload.associateId = associateId;
-        const associte = await Associte.findById(associateId).lean();
-        if (associte && associte.isActive) {
-          updatePayload.associateSnapshot = {
-            associteName: associte.associteName,
-            email: associte.email,
-            associteType: associte.associteType,
-            contact: associte.contact,
-            address: associte.address,
-            notes: associte.notes,
-          };
-        }
-      } else if (body.associateId === null || body.associateId === '') {
-        updatePayload.associateId = undefined;
-        updatePayload.associateSnapshot = undefined;
-      } else {
-        return NextResponse.json({ error: 'Invalid associateId' }, { status: 400 });
+    if (typeof body?.clientId === 'string') {
+      if (!mongoose.Types.ObjectId.isValid(body.clientId)) return NextResponse.json({ error: 'Invalid clientId' }, { status: 400 });
+      const client = await Client.findOne({ _id: body.clientId, isActive: true }).lean();
+      if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+      updatePayload.clientId = client._id;
+      updatePayload.clientSnapshot = {
+        name: client.name,
+        email: client.email,
+        type: client.type,
+        country: client.country,
+        phone: client.phone,
+      };
+    }
+
+    if (typeof body?.inquiryId === 'string') {
+      if (!mongoose.Types.ObjectId.isValid(body.inquiryId)) return NextResponse.json({ error: 'Invalid inquiryId' }, { status: 400 });
+      const inquiry = await Inquire.findOne({ _id: body.inquiryId, isActive: true })
+        .populate({ path: 'serviceId', select: 'category', strictPopulate: false })
+        .populate({ path: 'procedureId', select: 'name', strictPopulate: false })
+        .populate({ path: 'countryIds', select: 'name', strictPopulate: false })
+        .lean();
+      if (!inquiry) return NextResponse.json({ error: 'Inquiry not found' }, { status: 404 });
+      const serviceCategory = (inquiry.serviceId as any)?.category as ServiceCategory;
+      updatePayload.inquiryId = inquiry._id;
+      updatePayload.inquiryProjects = [String(inquiry.referenceNo || '').trim()];
+      updatePayload.serviceCategory = serviceCategory;
+      updatePayload.inquirySnapshot = {
+        referenceNo: inquiry.referenceNo,
+        procedureName: (inquiry.procedureId as any)?.name || '',
+        countryNames: Array.isArray(inquiry.countryIds) ? inquiry.countryIds.map((c: any) => c?.name).filter(Boolean) : [],
+        serviceCategory,
+      };
+    }
+
+    if (typeof body?.requirementId === 'string') {
+      if (!mongoose.Types.ObjectId.isValid(body.requirementId)) return NextResponse.json({ error: 'Invalid requirementId' }, { status: 400 });
+      const requirement: any = await Requirement.findById(body.requirementId).populate({ path: 'country', select: 'name' }).lean();
+      if (!requirement) return NextResponse.json({ error: 'Requirement not found' }, { status: 404 });
+      updatePayload.requirementId = requirement._id;
+      updatePayload.requirementSnapshot = {
+        countryName: (requirement.country as any)?.name || '',
+        requirements: requirement.requirements || '',
+      };
+    }
+
+    if (Array.isArray(body?.services)) {
+      if (body.services.length === 0) return NextResponse.json({ error: 'At least one service row is required' }, { status: 400 });
+      if (body.services.some((service: RawServiceItem) => !String(service?.procedureName || '').trim())) {
+        return NextResponse.json({ error: 'Procedure name is required for all service rows' }, { status: 400 });
       }
+      const serviceCategory = (updatePayload.serviceCategory || existing.serviceCategory || 'Trademark') as ServiceCategory;
+      const { normalized, totals } = calculateServices(body.services, serviceCategory);
+      updatePayload.services = normalized;
+      Object.assign(updatePayload, totals);
     }
 
-    const clientQuotation = await ClientQuotation.findByIdAndUpdate(
-      id,
-      { $set: updatePayload },
-      { new: true, runValidators: true }
-    ).populate({ path: 'associateId', select: 'associteName email associteType contact address notes', strictPopulate: false });
-
-    if (!clientQuotation || !clientQuotation.isActive) {
-      return NextResponse.json({ error: 'Client quotation not found' }, { status: 404 });
-    }
+    const clientQuotation = await ClientQuotation.findByIdAndUpdate(id, { $set: updatePayload }, { new: true, runValidators: true })
+      .populate({ path: 'clientId', select: 'name email type country phone', strictPopulate: false });
 
     return NextResponse.json(clientQuotation);
   } catch (err: unknown) {

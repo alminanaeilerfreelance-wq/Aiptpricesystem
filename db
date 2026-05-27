@@ -3,6 +3,16 @@ password:71MMaBF2SXi3NuHE
 dbname:aiptpricedb
 mongodb+srv://alminanaeilerfreelance_db_user:71MMaBF2SXi3NuHE@aiptpricedb.qbdhhhu.mongodb.net/
 
+view -eye icon- .bg-primary
+edit -note icon -.bg-success
+delete- trsh icon- .bg-danger
+
+services use color designated for 
+  trademark: "#2563EB",   // Blue
+  patent: "#16A34A",      // Green
+  design: "#9333EA",      // Purple
+  copyright: "#F59E0B",   // Amber
+  litigation: "#DC2626",  // Red
 
 git init
 git add README.md
@@ -534,7 +544,7 @@ Left:
 
 Large search input
 Placeholder:
-"Search by name, email, role or status..."
+
 
 Right:
 
@@ -545,7 +555,7 @@ DataTable
 
 Columns:
 
-| ID | Image | Name | Email | Role | Status | Actions |
+
 
 Table Design:
 
@@ -645,3 +655,104 @@ Material Dashboard
 Vercel Admin
 
 Generate production-ready component structure and reusable DataTable architecture.
+
+
+use material ui, pagination datatable, sorting,searching to all data
+date  
+service - get the data onto service model 
+reference format -  year-country example   2026-SA/AE/KW
+procedure - get the data onto procedure model 
+country - get the data onto country model  
+              -can select multi country
+client-get the data onto client model
+remarks
+ 
+ icon button for the action edit, view,delete
+
+use material ui and make proffesinal design
+Associate Quotations  - get the associate data onto associate model
+                      - Inquiry Project -  get the data onto Inquires model select option 
+                        and after selected its automatically display the details of the Inquiry Project
+                         
+                        Inquiry Project , Procedure, Country 
+
+                        For trademark only -
+                         use table  project name , class,
+
+                      - Service Details
+                        For trademark only  computation
+                           - Single type - official fees + attorney fees + other fees = total
+                           - Muti type - Number of Classes * Additional Fee Per Class = total per class
+                                       - the total per class it must be added in the official fees 
+                                       - official fees + attorney fees + other fees - discount = total
+
+                        For Patent only computation no class type required no need to display
+                                        - official fees + attorney fees + other fees - discount = total
+                        For design only computation no class type required no need to display
+                                        - official fees + attorney fees + other fees - discount = total
+                        For Litigation only computation no class type required no need to display
+                                        - official fees + attorney fees + other fees - discount = total
+                        For Copyright only computation no class type required no need to display
+                                        - official fees + attorney fees + other fees - discount = total
+                        use color indicator in every services , font color- violet for procedure 
+
+
+
+Client Quotations     after created dispaly in the datatable using material ui
+                      view -eye icon- .bg-primary
+                      edit -note icon -.bg-success
+                      delete- trsh icon- .bg-danger
+
+                      services use color designated for 
+                        trademark: "#2563EB",   // Blue
+                        patent: "#16A34A",      // Green
+                        design: "#9333EA",      // Purple
+                        copyright: "#F59E0B",   // Amber
+                        litigation: "#DC2626",  // Red
+
+                      - get the Client data onto Client model dont display the client country 
+                      - Inquiry Project -  get the data onto Inquires model select option 
+                        and after selected its automatically display the details of the Inquiry Project
+                    
+                         
+                       Inquiry Project , Procedure, Country 
+
+                      - Requirements - get the data onto requirement model select option 
+                        and after the user selected its automatically display the details
+                                       country, Requirements 
+                                       use textbox 
+                      use modal pop up to select price rules
+                      - price rules - get the data onto price rules model 
+                      - the user can select by country, services auto requirements on select 2 option after select add into the cart 
+                       
+
+                      - Service Details after select add into the cart 
+                        For trademark only  computation
+                           - Single type - official fees + attorney fees + other fees = total
+                           - Muti type - Number of Classes * Additional Fee Per Class = total per class
+                                       - the total per class it must be added in the official fees 
+                                       - official fees + attorney fees + other fees - discount = total
+
+                        For Patent only computation no class type required no need to display
+                                        - official fees + attorney fees + other fees - discount = total
+                        For design only computation no class type required no need to display
+                                        - official fees + attorney fees + other fees - discount = total
+                        For Litigation only computation no class type required no need to display
+                                        - official fees + attorney fees + other fees - discount = total
+                        For Copyright only computation no class type required no need to display
+                                        - official fees + attorney fees + other fees - discount = total
+
+                        
+
+After create a Client Quotations it display on the All Quotations page with separate tab for patent, design, letigation, trademark
+
+  Trademark tab
+  Inquiry Project,service,Procedure,client, Country, official fees, class type, attorney fees, total,action, Date
+  Patent tab
+  Inquiry Project,service,Procedure,client, Country, official fees, attorney fees, total,action, Date
+  Design tab
+  Inquiry Project,service,Procedure,client, Country, official fees, attorney fees, total,action, Date
+  Letigation tab
+  Inquiry Project,service,Procedure,client, Country, official fees, attorney fees, total,action, Date
+  Copyright tab
+  Inquiry Project,service,Procedure,client, Country, official fees, attorney fees, total,action, Date

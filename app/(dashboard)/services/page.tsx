@@ -28,6 +28,9 @@ import {
   TextField,
   Typography,
   Snackbar,
+  IconButton,
+  Tooltip,
+  SvgIcon,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
@@ -49,12 +52,30 @@ interface Service {
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
 const CATEGORY_OPTIONS = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
 const categoryColors: Record<string, { bg: string; text: string }> = {
-  Trademark: { bg: '#E3F2FD', text: '#1976D2' },
-  Patent: { bg: '#F3E5F5', text: '#7B1FA2' },
-  Copyright: { bg: '#E8F5E9', text: '#388E3C' },
-  Design: { bg: '#FFF3E0', text: '#F57C00' },
-  Litigation: { bg: '#FFEBEE', text: '#D32F2F' },
+  Trademark: { bg: '#2563EB1A', text: '#2563EB' },
+  Patent: { bg: '#16A34A1A', text: '#16A34A' },
+  Design: { bg: '#9333EA1A', text: '#9333EA' },
+  Copyright: { bg: '#F59E0B1A', text: '#F59E0B' },
+  Litigation: { bg: '#DC26261A', text: '#DC2626' },
 };
+
+const EyeIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M12 5c-5 0-9.27 3.11-11 7c1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7m0 11a4 4 0 1 1 0-8a4 4 0 0 1 0 8m0-2.5A1.5 1.5 0 1 0 12 10a1.5 1.5 0 0 0 0 3.5" />
+  </SvgIcon>
+);
+
+const NoteIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M3 17.25V21h3.75l11-11l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41L18.37 3.29a1 1 0 0 0-1.41 0l-1.83 1.83l3.75 3.75z" />
+  </SvgIcon>
+);
+
+const TrashIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4zm1 6h2v9h-2zm4 0h2v9h-2zM7 9h2v9H7zm-1 12h12a2 2 0 0 0 2-2V8H4v11a2 2 0 0 0 2 2" />
+  </SvgIcon>
+);
 
 export default function ServicesPage() {
   const [mounted, setMounted] = useState(false);
@@ -331,15 +352,8 @@ export default function ServicesPage() {
 
   const serviceColumns: MuiDataTableColumn<Service>[] = [
     {
-      id: 'name',
-      label: 'Name',
-      sortable: true,
-      searchValue: (row) => row.name,
-      render: (row) => row.name,
-    },
-    {
       id: 'category',
-      label: 'Category',
+      label: 'Services',
       sortable: true,
       searchValue: (row) => row.category,
       render: (row) => (
@@ -360,14 +374,6 @@ export default function ServicesPage() {
       ),
     },
     {
-      id: 'basePrice',
-      label: 'Price',
-      align: 'right',
-      sortable: true,
-      sortValue: (row) => row.basePrice || 0,
-      render: (row) => `$${row.basePrice || 0}`,
-    },
-    {
       id: 'createdAt',
       label: 'Created',
       sortable: true,
@@ -381,20 +387,33 @@ export default function ServicesPage() {
       sortable: false,
       render: (row) => (
         <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
-            View
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
-            Edit
-          </Button>
-          <Button
-            size="small"
-            color="error"
-            variant="outlined"
-            onClick={() => handleDeleteClick(row._id)}
-          >
-            Delete
-          </Button>
+          <Tooltip title="View">
+            <IconButton
+              size="small"
+              onClick={() => handleView(row)}
+              sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', '&:hover': { bgcolor: 'primary.dark' } }}
+            >
+              <EyeIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Edit">
+            <IconButton
+              size="small"
+              onClick={() => handleEdit(row)}
+              sx={{ bgcolor: 'success.main', color: 'success.contrastText', '&:hover': { bgcolor: 'success.dark' } }}
+            >
+              <NoteIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton
+              size="small"
+              onClick={() => handleDeleteClick(row._id)}
+              sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}
+            >
+              <TrashIcon />
+            </IconButton>
+          </Tooltip>
         </Stack>
       ),
     },

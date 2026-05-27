@@ -21,6 +21,9 @@ import {
   TextField,
   Typography,
   Snackbar,
+  IconButton,
+  Tooltip,
+  SvgIcon,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
@@ -42,6 +45,7 @@ interface Requirement {
     code?: string;
     abbreviation?: string;
   };
+  serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   requirements: string;
   createdAt: string;
   updatedAt: string;
@@ -65,6 +69,33 @@ const sanitizeHtml = (value: string) => value
   .replace(/\son\w+="[^"]*"/gi, '')
   .replace(/\son\w+='[^']*'/gi, '')
   .replace(/javascript:/gi, '');
+const CATEGORY_OPTIONS = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
+
+const SERVICE_COLOR_MAP: Record<string, string> = {
+  Trademark: '#2563EB',
+  Patent: '#16A34A',
+  Design: '#9333EA',
+  Copyright: '#F59E0B',
+  Litigation: '#DC2626',
+};
+
+const EyeIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M12 5c-5 0-9.27 3.11-11 7c1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7m0 11a4 4 0 1 1 0-8a4 4 0 0 1 0 8m0-2.5A1.5 1.5 0 1 0 12 10a1.5 1.5 0 0 0 0 3.5" />
+  </SvgIcon>
+);
+
+const NoteIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M3 17.25V21h3.75l11-11l-3.75-3.75zM20.71 7.04a1 1 0 0 0 0-1.41L18.37 3.29a1 1 0 0 0-1.41 0l-1.83 1.83l3.75 3.75z" />
+  </SvgIcon>
+);
+
+const TrashIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4zm1 6h2v9h-2zm4 0h2v9h-2zM7 9h2v9H7zm-1 12h12a2 2 0 0 0 2-2V8H4v11a2 2 0 0 0 2 2" />
+  </SvgIcon>
+);
 
 export default function RequirementsPage() {
   const [mounted, setMounted] = useState(false);
@@ -141,11 +172,13 @@ export default function RequirementsPage() {
 
   const handleAdd = () => {
     setEditingId(null);
+    setError('');
     setOpenForm(true);
   };
 
   const handleEdit = (requirement: Requirement) => {
     setEditingId(requirement._id);
+    setError('');
     setOpenForm(true);
   };
 
@@ -181,6 +214,18 @@ export default function RequirementsPage() {
     }
   };
 
+  const handleFormSuccess = async () => {
+    setOpenForm(false);
+    setEditingId(null);
+    setError('');
+    if (page !== 1) {
+      setPage(1);
+    } else {
+      await fetchRequirements({ nextPage: 1 });
+    }
+    setSuccessMessage(editingId ? 'Requirement updated successfully' : 'Requirement created successfully');
+  };
+
   const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -206,12 +251,13 @@ export default function RequirementsPage() {
 
       for (const row of dataRows) {
         const countryName = String(row[0] ?? '').trim();
+        const serviceCategory = String(row[1] ?? '').trim();
         const requirementsText = row
-          .slice(1)
+          .slice(2)
           .map((cell) => String(cell ?? '').trim())
           .filter(Boolean)
           .join(', ');
-        if (!countryName || !requirementsText) continue;
+        if (!countryName || !serviceCategory || !requirementsText) continue;
 
         const normalizedCountry = normalize(countryName);
         const matchingCountry = countryByName.get(normalizedCountry) || countryByAbbreviation.get(normalizedCountry);
@@ -220,9 +266,14 @@ export default function RequirementsPage() {
           importErrors.push(`Country "${countryName}" not found by name/abbreviation`);
           continue;
         }
+        if (!CATEGORY_OPTIONS.includes(serviceCategory)) {
+          importErrors.push(`Invalid service "${serviceCategory}" for country "${countryName}"`);
+          continue;
+        }
 
         const result = await requirementsService.create({
           country: matchingCountry._id,
+          serviceCategory: serviceCategory as 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation',
           requirements: requirementsText,
           upsertByCountry: true,
         });
@@ -307,6 +358,7 @@ export default function RequirementsPage() {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(records.map((req) => ({
       Country: req.country.name,
+      Service: req.serviceCategory || '',
       Requirements: stripHtml(req.requirements),
       Created: new Date(req.createdAt).toLocaleDateString(),
     })));
@@ -325,6 +377,7 @@ export default function RequirementsPage() {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(records.map((req) => ({
       Country: req.country.name,
+      Service: req.serviceCategory || '',
       Requirements: stripHtml(req.requirements),
       Created: new Date(req.createdAt).toLocaleDateString(),
     })));
@@ -345,9 +398,10 @@ export default function RequirementsPage() {
     const doc = new jsPDF.jsPDF();
 
     autoTable.default(doc, {
-      head: [['Country', 'Requirements', 'Created']],
+      head: [['Country', 'Service', 'Requirements', 'Created']],
       body: records.map((req) => [
         req.country.name,
+        req.serviceCategory || '',
         stripHtml(req.requirements).slice(0, 100),
         new Date(req.createdAt).toLocaleDateString(),
       ]),
@@ -361,9 +415,9 @@ export default function RequirementsPage() {
   const handleDownloadTemplate = async () => {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.aoa_to_sheet([
-      ['Country (Name or Abbreviation)', 'Requirements'],
-      ['Saudi Arabia', 'Sample requirement text'],
-      ['SA', 'Another sample using abbreviation'],
+      ['Country (Name or Abbreviation)', 'Service', 'Requirements'],
+      ['Saudi Arabia', 'Trademark', 'Sample requirement text'],
+      ['SA', 'Patent', 'Another sample using abbreviation'],
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
@@ -394,6 +448,27 @@ export default function RequirementsPage() {
       searchValue: (row) => row.country.name,
     },
     {
+      id: 'serviceCategory',
+      label: 'Service',
+      sortable: true,
+      minWidth: 160,
+      render: (row) => {
+        const service = row.serviceCategory || '';
+        const color = SERVICE_COLOR_MAP[service];
+        if (!service || !color) return '-';
+        return (
+          <Box
+            component="span"
+            sx={{ px: 1.2, py: 0.4, borderRadius: 999, color, bgcolor: `${color}1A`, fontWeight: 700, fontSize: 12 }}
+          >
+            {service}
+          </Box>
+        );
+      },
+      sortValue: (row) => row.serviceCategory || '',
+      searchValue: (row) => row.serviceCategory || '',
+    },
+    {
       id: 'requirements',
       label: 'Requirements',
       sortable: false,
@@ -420,15 +495,33 @@ export default function RequirementsPage() {
       sortable: false,
       render: (row) => (
         <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
-            View
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
-            Edit
-          </Button>
-          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(row._id)}>
-            Delete
-          </Button>
+          <Tooltip title="View">
+            <IconButton
+              size="small"
+              onClick={() => handleView(row)}
+              sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', '&:hover': { bgcolor: 'primary.dark' } }}
+            >
+              <EyeIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Edit">
+            <IconButton
+              size="small"
+              onClick={() => handleEdit(row)}
+              sx={{ bgcolor: 'success.main', color: 'success.contrastText', '&:hover': { bgcolor: 'success.dark' } }}
+            >
+              <NoteIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Delete">
+            <IconButton
+              size="small"
+              onClick={() => handleDeleteClick(row._id)}
+              sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}
+            >
+              <TrashIcon />
+            </IconButton>
+          </Tooltip>
         </Stack>
       ),
     },
@@ -592,12 +685,7 @@ export default function RequirementsPage() {
       <RequirementForm
         open={openForm}
         onClose={() => setOpenForm(false)}
-        onSuccess={async () => {
-          setOpenForm(false);
-          setEditingId(null);
-          await fetchRequirements();
-          setSuccessMessage(editingId ? 'Requirement updated successfully' : 'Requirement created successfully');
-        }}
+        onSuccess={handleFormSuccess}
         editingId={editingId}
       />
 
@@ -619,6 +707,8 @@ export default function RequirementsPage() {
             <Box sx={{ pt: 2 }}>
               <Typography variant="subtitle2" gutterBottom>Country</Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>{viewingRequirement.country.name}</Typography>
+              <Typography variant="subtitle2" gutterBottom>Service</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{viewingRequirement.serviceCategory || '-'}</Typography>
               <Typography variant="subtitle2" gutterBottom>Requirements</Typography>
               <Box
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(viewingRequirement.requirements) }}

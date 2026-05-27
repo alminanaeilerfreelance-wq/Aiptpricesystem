@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import Procedure from '@/models/Procedure';
+import Country from '@/models/Country';
+import Service from '@/models/Service';
 import { getUserFromRequest } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -34,14 +37,15 @@ export async function GET(req: NextRequest) {
       const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       filter.$or = [
         { name: { $regex: safeSearch, $options: 'i' } },
+        { countryName: { $regex: safeSearch, $options: 'i' } },
+        { serviceName: { $regex: safeSearch, $options: 'i' } },
         { serviceCategory: { $regex: safeSearch, $options: 'i' } },
-        { description: { $regex: safeSearch, $options: 'i' } },
       ];
     }
 
     const [procedures, total] = await Promise.all([
       Procedure.find(filter)
-        .sort({ serviceCategory: 1, sortOrder: 1, name: 1 })
+        .sort({ createdAt: -1, name: 1 })
         .skip(skip)
         .limit(limit),
       Procedure.countDocuments(filter),
@@ -66,7 +70,41 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const body = await req.json();
-    const procedure = await Procedure.create(body);
+    const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    const countryId = typeof body?.countryId === 'string' ? body.countryId.trim() : '';
+    const serviceId = typeof body?.serviceId === 'string' ? body.serviceId.trim() : '';
+
+    if (!name) {
+      return NextResponse.json({ error: 'Procedure name is required' }, { status: 400 });
+    }
+    if (!mongoose.Types.ObjectId.isValid(countryId)) {
+      return NextResponse.json({ error: 'Valid country is required' }, { status: 400 });
+    }
+    if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+      return NextResponse.json({ error: 'Valid service type is required' }, { status: 400 });
+    }
+
+    const [country, service] = await Promise.all([
+      Country.findOne({ _id: countryId, isActive: true }).lean(),
+      Service.findOne({ _id: serviceId, isActive: true }).lean(),
+    ]);
+
+    if (!country) {
+      return NextResponse.json({ error: 'Country not found' }, { status: 404 });
+    }
+    if (!service) {
+      return NextResponse.json({ error: 'Service not found' }, { status: 404 });
+    }
+
+    const procedure = await Procedure.create({
+      name,
+      countryId,
+      countryName: country.name,
+      serviceId,
+      serviceName: service.name,
+      serviceCategory: service.category,
+      isActive: body?.isActive !== false,
+    });
 
     return NextResponse.json(procedure, { status: 201 });
   } catch (err: unknown) {

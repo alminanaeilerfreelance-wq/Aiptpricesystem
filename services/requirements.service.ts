@@ -8,6 +8,7 @@ interface Requirement {
     abbreviation?: string;
     code?: string;
   };
+  serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   requirements: string;
   createdAt: string;
   updatedAt: string;
@@ -15,6 +16,7 @@ interface Requirement {
 
 interface RequirementInput {
   country: string;
+  serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   requirements: string;
   upsertByCountry?: boolean;
 }
@@ -40,13 +42,15 @@ const requirementsService = {
     search?: string,
     countryId?: string,
     sortBy?: 'createdAt' | 'country',
-    sortOrder?: 'asc' | 'desc'
+    sortOrder?: 'asc' | 'desc',
+    serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation',
   ) => {
     const params = new URLSearchParams();
     params.append('page', page.toString());
     params.append('limit', limit.toString());
     if (search) params.append('search', search);
     if (countryId) params.append('countryId', countryId);
+    if (serviceCategory) params.append('serviceCategory', serviceCategory);
     if (sortBy) params.append('sortBy', sortBy);
     if (sortOrder) params.append('sortOrder', sortOrder);
 

@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     const rawLimit = parseInt(searchParams.get('limit') || '10', 10);
     const rawSearch = (searchParams.get('search') || '').trim();
     const countryId = searchParams.get('countryId') || '';
+    const serviceCategory = (searchParams.get('serviceCategory') || '').trim();
     const sortByParam = searchParams.get('sortBy') || 'createdAt';
     const sortBy = sortByParam === 'country' ? 'country' : 'createdAt';
     const sortOrder = (searchParams.get('sortOrder') || 'desc') === 'asc' ? 1 : -1;
@@ -38,6 +39,10 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid countryId' }, { status: 400 });
       }
       filter.country = countryId;
+    }
+
+    if (serviceCategory) {
+      filter.serviceCategory = serviceCategory;
     }
 
     if (search) {
@@ -79,6 +84,7 @@ export async function GET(req: NextRequest) {
             {
               $project: {
                 _id: 1,
+                serviceCategory: 1,
                 requirements: 1,
                 createdAt: 1,
                 updatedAt: 1,
@@ -122,12 +128,15 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const body = await req.json();
-    const { country, requirements, upsertByCountry = false } = body;
+    const { country, serviceCategory, requirements, upsertByCountry = false } = body;
     const safeRequirements = typeof requirements === 'string' ? sanitizeRichText(requirements) : '';
 
-    if (!country || !safeRequirements || !hasMeaningfulContent(safeRequirements)) {
+    const normalizedServiceCategory =
+      typeof serviceCategory === 'string' ? serviceCategory.trim() : '';
+
+    if (!country || !normalizedServiceCategory || !safeRequirements || !hasMeaningfulContent(safeRequirements)) {
       return NextResponse.json(
-        { error: 'Missing required fields: country, requirements' },
+        { error: 'Missing required fields: country, serviceCategory, requirements' },
         { status: 400 }
       );
     }
@@ -137,7 +146,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Country not found' }, { status: 404 });
     }
 
-    const existingRequirement = await Requirement.findOne({ country });
+    const requirementFilter: Record<string, unknown> = { country };
+    requirementFilter.serviceCategory = normalizedServiceCategory;
+    const existingRequirement = await Requirement.findOne(requirementFilter);
     if (existingRequirement) {
       if (!upsertByCountry) {
         return NextResponse.json(
@@ -147,12 +158,17 @@ export async function POST(req: NextRequest) {
       }
 
       existingRequirement.requirements = safeRequirements;
+      existingRequirement.serviceCategory = normalizedServiceCategory;
       await existingRequirement.save();
       await existingRequirement.populate('country', 'name abbreviation');
       return NextResponse.json(existingRequirement, { status: 200 });
     }
 
-    const newRequirement = new Requirement({ country, requirements: safeRequirements });
+    const newRequirement = new Requirement({
+      country,
+      serviceCategory: normalizedServiceCategory,
+      requirements: safeRequirements,
+    });
     await newRequirement.save();
     await newRequirement.populate('country', 'name abbreviation');
 

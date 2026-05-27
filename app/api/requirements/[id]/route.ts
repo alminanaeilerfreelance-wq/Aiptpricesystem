@@ -41,17 +41,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { id } = await params;
     const body = await req.json();
-    const { country, requirements } = body;
+    const { country, serviceCategory, requirements, upsertByCountry = false } = body;
     const safeRequirements = typeof requirements === 'string' ? sanitizeRichText(requirements) : '';
+    const normalizedServiceCategory =
+      typeof serviceCategory === 'string' ? serviceCategory.trim() : '';
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
     }
 
     // Validation
-    if (!country || !safeRequirements || !hasMeaningfulContent(safeRequirements)) {
+    if (!country || !normalizedServiceCategory || !safeRequirements || !hasMeaningfulContent(safeRequirements)) {
       return NextResponse.json(
-        { error: 'Missing required fields: country, requirements' },
+        { error: 'Missing required fields: country, serviceCategory, requirements' },
         { status: 400 }
       );
     }
@@ -64,10 +66,19 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const duplicateCountry = await Requirement.findOne({
       country,
+      serviceCategory: normalizedServiceCategory,
       _id: { $ne: new mongoose.Types.ObjectId(id) },
     });
 
     if (duplicateCountry) {
+      if (upsertByCountry) {
+        duplicateCountry.requirements = safeRequirements;
+        duplicateCountry.serviceCategory = normalizedServiceCategory;
+        await duplicateCountry.save();
+        await Requirement.findByIdAndDelete(id);
+        await duplicateCountry.populate('country', 'name abbreviation');
+        return NextResponse.json(duplicateCountry, { status: 200 });
+      }
       return NextResponse.json(
         { error: 'Requirement for this country already exists' },
         { status: 409 }
@@ -76,7 +87,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const requirement = await Requirement.findByIdAndUpdate(
       id,
-      { country, requirements: safeRequirements },
+      {
+        country,
+        serviceCategory: normalizedServiceCategory,
+        requirements: safeRequirements,
+      },
       { new: true, runValidators: true }
     ).populate('country', 'name abbreviation');
 

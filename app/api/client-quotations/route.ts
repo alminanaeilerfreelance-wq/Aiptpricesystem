@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import ClientQuotation from '@/models/ClientQuotation';
-import Associte from '@/models/Associte';
+import Client from '@/models/Client';
+import Inquire from '@/models/Inquire';
+import Requirement from '@/models/Requirement';
 import { getUserFromRequest } from '@/lib/auth';
+
+type ServiceCategory = 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
 
 interface RawServiceItem {
   procedureId?: string;
@@ -30,9 +34,10 @@ const toErrorPayload = (fallback: string, err: unknown) => {
 
 const VALID_STATUS = new Set(['Draft', 'Submitted', 'Approved', 'Rejected']);
 
-const calculateServices = (services: RawServiceItem[]) => {
+const calculateServices = (services: RawServiceItem[], serviceCategory: ServiceCategory) => {
+  const isTrademark = serviceCategory === 'Trademark';
   const normalized = services.map((service) => {
-    const classType = service.classType === 'multi' ? 'multi' : 'single';
+    const classType = isTrademark && service.classType === 'multi' ? 'multi' : 'single';
     const officialFee = Math.max(0, toNumber(service.officialFee));
     const attorneyFee = Math.max(0, toNumber(service.attorneyFee));
     const officeFee = Math.max(0, toNumber(service.officeFee));
@@ -104,22 +109,23 @@ export async function GET(req: NextRequest) {
     const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 100) : 10;
     const skip = (page - 1) * limit;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = { isActive: true };
     if (search) {
       const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       filter.$or = [
         { quotationNo: { $regex: safeSearch, $options: 'i' } },
         { inquiryProjects: { $regex: safeSearch, $options: 'i' } },
-        { 'associateSnapshot.associteName': { $regex: safeSearch, $options: 'i' } },
-        { 'associateSnapshot.email': { $regex: safeSearch, $options: 'i' } },
+        { serviceCategory: { $regex: safeSearch, $options: 'i' } },
+        { 'clientSnapshot.name': { $regex: safeSearch, $options: 'i' } },
         { 'services.procedureName': { $regex: safeSearch, $options: 'i' } },
       ];
     }
 
     const [clientQuotations, total] = await Promise.all([
       ClientQuotation.find(filter)
-        .populate({ path: 'associateId', select: 'associteName email associteType contact address notes', strictPopulate: false })
+        .populate({ path: 'clientId', select: 'name email type country phone', strictPopulate: false })
+        .populate({ path: 'inquiryId', select: 'referenceNo', strictPopulate: false })
+        .populate({ path: 'requirementId', select: 'requirements country', strictPopulate: false })
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -147,64 +153,87 @@ export async function POST(req: NextRequest) {
     await connectDB();
     const body = await req.json();
 
-    const inquiryProjects = Array.isArray(body?.inquiryProjects)
-      ? body.inquiryProjects.map((item: unknown) => String(item || '').trim()).filter(Boolean)
-      : [];
+    if (typeof body?.clientId !== 'string' || !mongoose.Types.ObjectId.isValid(body.clientId)) {
+      return NextResponse.json({ error: 'Client is required' }, { status: 400 });
+    }
+    if (typeof body?.inquiryId !== 'string' || !mongoose.Types.ObjectId.isValid(body.inquiryId)) {
+      return NextResponse.json({ error: 'Inquiry project is required' }, { status: 400 });
+    }
 
-    if (inquiryProjects.length === 0) {
-      return NextResponse.json({ error: 'At least one inquiry project is required' }, { status: 400 });
+    const [client, inquiry] = await Promise.all([
+      Client.findOne({ _id: body.clientId, isActive: true }).lean(),
+      Inquire.findOne({ _id: body.inquiryId, isActive: true })
+        .populate({ path: 'serviceId', select: 'category', strictPopulate: false })
+        .populate({ path: 'procedureId', select: 'name', strictPopulate: false })
+        .populate({ path: 'countryIds', select: 'name', strictPopulate: false })
+        .lean(),
+    ]);
+
+    if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+    if (!inquiry) return NextResponse.json({ error: 'Inquiry not found' }, { status: 404 });
+
+    const serviceCategory = (inquiry.serviceId as any)?.category as ServiceCategory;
+    if (!serviceCategory) {
+      return NextResponse.json({ error: 'Inquiry service category is missing' }, { status: 400 });
     }
 
     const services: RawServiceItem[] = Array.isArray(body?.services) ? body.services : [];
     if (services.length === 0) {
       return NextResponse.json({ error: 'At least one service row is required' }, { status: 400 });
     }
-
     if (services.some((service) => !String(service?.procedureName || '').trim())) {
       return NextResponse.json({ error: 'Procedure name is required for all service rows' }, { status: 400 });
     }
 
-    const { normalized, totals } = calculateServices(services);
+    const { normalized, totals } = calculateServices(services, serviceCategory);
 
     if (body?.status !== undefined && !VALID_STATUS.has(String(body.status))) {
       return NextResponse.json({ error: 'Invalid status value' }, { status: 400 });
     }
 
-    let associateSnapshot: any = undefined;
-    let associateId: mongoose.Types.ObjectId | undefined;
-
-    if (body?.associateId !== undefined && body.associateId !== null && body.associateId !== '') {
-      if (typeof body.associateId !== 'string' || !mongoose.Types.ObjectId.isValid(body.associateId)) {
-        return NextResponse.json({ error: 'Invalid associateId' }, { status: 400 });
-      }
-      associateId = new mongoose.Types.ObjectId(body.associateId);
-      const associte = await Associte.findById(associateId).lean();
-      if (associte && associte.isActive) {
-        associateSnapshot = {
-          associteName: associte.associteName,
-          email: associte.email,
-          associteType: associte.associteType,
-          contact: associte.contact,
-          address: associte.address,
-          notes: associte.notes,
+    let requirementId: mongoose.Types.ObjectId | undefined;
+    let requirementSnapshot: { countryName?: string; requirements?: string } | undefined;
+    if (typeof body?.requirementId === 'string' && mongoose.Types.ObjectId.isValid(body.requirementId)) {
+      requirementId = new mongoose.Types.ObjectId(body.requirementId);
+      const requirement: any = await Requirement.findById(requirementId).populate({ path: 'country', select: 'name' }).lean();
+      if (requirement) {
+        requirementSnapshot = {
+          countryName: (requirement.country as any)?.name || '',
+          requirements: requirement.requirements || '',
         };
       }
     }
 
     const clientQuotation = await ClientQuotation.create({
-      associateId,
-      associateSnapshot,
-      inquiryProjects,
+      clientId: client._id,
+      clientSnapshot: {
+        name: client.name,
+        email: client.email,
+        type: client.type,
+        country: client.country,
+        phone: client.phone,
+      },
+      inquiryId: inquiry._id,
+      inquirySnapshot: {
+        referenceNo: inquiry.referenceNo,
+        procedureName: (inquiry.procedureId as any)?.name || '',
+        countryNames: Array.isArray(inquiry.countryIds) ? inquiry.countryIds.map((c: any) => c?.name).filter(Boolean) : [],
+        serviceCategory,
+      },
+      requirementId,
+      requirementSnapshot,
+      inquiryProjects: [String(inquiry.referenceNo || '').trim()],
+      serviceCategory,
       services: normalized,
       ...totals,
       status: body?.status || 'Draft',
     });
 
-    const populated = await clientQuotation.populate({
-      path: 'associateId',
-      select: 'associteName email associteType contact address notes',
-      strictPopulate: false,
-    });
+    const populated = await clientQuotation.populate([
+      { path: 'clientId', select: 'name email type country phone', strictPopulate: false },
+      { path: 'inquiryId', select: 'referenceNo', strictPopulate: false },
+      { path: 'requirementId', select: 'requirements country', strictPopulate: false },
+    ]);
 
     return NextResponse.json(populated, { status: 201 });
   } catch (err: unknown) {

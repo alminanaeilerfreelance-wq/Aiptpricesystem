@@ -83,6 +83,12 @@ const defaultServiceDraft: ServiceDraft = {
 
 const toCurrency = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+const sanitizeHtml = (value: string) => value
+  .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+  .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+  .replace(/\son\w+="[^"]*"/gi, '')
+  .replace(/\son\w+='[^']*'/gi, '')
+  .replace(/javascript:/gi, '');
 
 const getInquireProcedureNames = (inquiry: Inquire | null | undefined): string[] => {
   if (!inquiry) return [];
@@ -100,6 +106,8 @@ const getInquireProcedureNames = (inquiry: Inquire | null | undefined): string[]
 
 const getInquireProcedureLabel = (inquiry: Inquire | null | undefined): string =>
   getInquireProcedureNames(inquiry).join(', ');
+
+const normalizeProcedureName = (value: string): string => value.trim().toLowerCase();
 
 const SERVICE_COLOR_MAP: Record<ServiceCategory, string> = {
   Trademark: '#2563EB',
@@ -167,6 +175,38 @@ const computeClientRow = (service: ServiceDraft, category: ServiceCategory): Cli
   };
 };
 
+const toServiceDraftFromRow = (
+  service: ClientQuotationServiceItem,
+  category: ServiceCategory
+): ServiceDraft => {
+  const isTrademark = category === 'Trademark';
+  const classType: ClassType = isTrademark && service.classType === 'multi' ? 'multi' : 'single';
+  const numberOfClasses =
+    classType === 'multi' ? Math.max(1, Math.floor(service.numberOfClasses || 1)) : 1;
+  const additionalClassFees = Math.max(0, Number(service.additionalClassFees || 0));
+  const additionalFeePerClass =
+    classType === 'multi'
+      ? Math.max(
+          0,
+          Number(
+            service.additionalFeePerClass ??
+              (numberOfClasses > 0 ? additionalClassFees / numberOfClasses : 0)
+          ) || 0
+        )
+      : 0;
+
+  return {
+    procedureName: String(service.procedureName || '').trim(),
+    classType,
+    numberOfClasses,
+    additionalFeePerClass,
+    officialFee: Math.max(0, Number(service.officialFee || 0)),
+    attorneyFee: Math.max(0, Number(service.attorneyFee || 0)),
+    otherFees: Math.max(0, Number(service.otherFees || 0)),
+    discount: Math.max(0, Number(service.discount || 0)),
+  };
+};
+
 export default function ClientQuotationsPage() {
   const [items, setItems] = useState<ClientQuotation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -187,6 +227,8 @@ export default function ClientQuotationsPage() {
   const [selectedRequirementId, setSelectedRequirementId] = useState('');
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(defaultServiceDraft);
   const [services, setServices] = useState<ClientQuotationServiceItem[]>([]);
+  const [editingServiceIndex, setEditingServiceIndex] = useState<number | null>(null);
+  const [editingServiceDraft, setEditingServiceDraft] = useState<ServiceDraft | null>(null);
   const [activeTab, setActiveTab] = useState<ServiceCategory>('Trademark');
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -238,9 +280,13 @@ export default function ClientQuotationsPage() {
     () => requirementsState.items.find((item) => item._id === selectedRequirementId) || null,
     [requirementsState.items, selectedRequirementId]
   );
-  const selectedPriceRule = useMemo(
-    () => priceRules.find((rule) => rule._id === selectedPriceRuleId) || null,
-    [priceRules, selectedPriceRuleId]
+  const inquiryProcedureOptions = useMemo(
+    () => Array.from(new Set(getInquireProcedureNames(selectedInquiry))).filter(Boolean),
+    [selectedInquiry]
+  );
+  const serviceDetailProcedureOptions = useMemo(
+    () => inquiryProcedureOptions,
+    [inquiryProcedureOptions]
   );
   const inquiryCountries = useMemo(
     () =>
@@ -253,6 +299,48 @@ export default function ClientQuotationsPage() {
     () => Array.from(new Set(inquiryCountries)),
     [inquiryCountries]
   );
+  const filteredPriceRules = useMemo(() => {
+    const procedureFilter = serviceDraft.procedureName.trim();
+    return (priceRules || []).filter((rule) => {
+      const normalizedRuleProcedure = normalizeProcedureName(rule.procedureName || '');
+      if (procedureFilter) {
+        return normalizedRuleProcedure === normalizeProcedureName(procedureFilter);
+      }
+      if (inquiryProcedureOptions.length === 0) return true;
+      return inquiryProcedureOptions.some(
+        (name) => normalizedRuleProcedure === normalizeProcedureName(name)
+      );
+    });
+  }, [priceRules, serviceDraft.procedureName, inquiryProcedureOptions]);
+  const selectedPriceRule = useMemo(
+    () => filteredPriceRules.find((rule) => rule._id === selectedPriceRuleId) || null,
+    [filteredPriceRules, selectedPriceRuleId]
+  );
+
+  useEffect(() => {
+    if (serviceDetailProcedureOptions.length === 0) return;
+    if (!serviceDraft.procedureName.trim()) {
+      setServiceDraft((prev) => ({ ...prev, procedureName: serviceDetailProcedureOptions[0] || '' }));
+      return;
+    }
+    const isValid = serviceDetailProcedureOptions.some(
+      (option) => normalizeProcedureName(option) === normalizeProcedureName(serviceDraft.procedureName)
+    );
+    if (isValid) return;
+    setServiceDraft((prev) => ({ ...prev, procedureName: serviceDetailProcedureOptions[0] || '' }));
+  }, [serviceDetailProcedureOptions, serviceDraft.procedureName]);
+
+  useEffect(() => {
+    if (!priceRuleDialogOpen) return;
+    if (filteredPriceRules.length === 0) {
+      if (selectedPriceRuleId) setSelectedPriceRuleId('');
+      return;
+    }
+    const exists = filteredPriceRules.some((rule) => rule._id === selectedPriceRuleId);
+    if (!exists) {
+      setSelectedPriceRuleId(filteredPriceRules[0]._id);
+    }
+  }, [filteredPriceRules, priceRuleDialogOpen, selectedPriceRuleId]);
 
   const serviceCategory = ((selectedInquiry?.serviceId as any)?.category || 'Trademark') as ServiceCategory;
   const inquiryProjectRef = (selectedInquiry?.referenceNo || '') as string;
@@ -340,6 +428,8 @@ export default function ClientQuotationsPage() {
     setSelectedRequirementId('');
     setServiceDraft(defaultServiceDraft);
     setServices([]);
+    setEditingServiceIndex(null);
+    setEditingServiceDraft(null);
     setRequirementsState({
       loading: false,
       error: '',
@@ -371,23 +461,109 @@ export default function ClientQuotationsPage() {
     );
     setServices(Array.isArray(row.services) ? row.services : []);
     setServiceDraft(defaultServiceDraft);
+    setEditingServiceIndex(null);
+    setEditingServiceDraft(null);
     setActiveTab((row.serviceCategory || row.inquirySnapshot?.serviceCategory || 'Trademark') as ServiceCategory);
     setOpenForm(true);
   };
 
+  const isProcedureAllowedForInquiry = (procedureName: string): boolean =>
+    inquiryProcedureOptions.length === 0 ||
+    inquiryProcedureOptions.some(
+      (name) => normalizeProcedureName(name) === normalizeProcedureName(procedureName)
+    );
+
   const handleAddService = () => {
     if (!serviceDraft.procedureName.trim()) return setError('Procedure is required');
+    if (!isProcedureAllowedForInquiry(serviceDraft.procedureName)) {
+      return setError('Service Details procedure must match Create Client Quotation procedure');
+    }
+    if (editingServiceIndex !== null) {
+      return setError('Save or cancel current row editing before adding a new row');
+    }
     setServices((prev) => [...prev, computeClientRow(serviceDraft, serviceCategory)]);
     setServiceDraft((prev) => ({ ...defaultServiceDraft, procedureName: prev.procedureName }));
+  };
+
+  const handleStartEditService = (index: number) => {
+    const row = services[index];
+    if (!row) return;
+    setEditingServiceIndex(index);
+    setEditingServiceDraft(toServiceDraftFromRow(row, serviceCategory));
+    setError('');
+  };
+
+  const handleCancelEditService = () => {
+    setEditingServiceIndex(null);
+    setEditingServiceDraft(null);
+  };
+
+  const handleSaveEditService = () => {
+    if (editingServiceIndex === null || !editingServiceDraft) return;
+    if (!editingServiceDraft.procedureName.trim()) {
+      setError('Procedure is required');
+      return;
+    }
+    if (!isProcedureAllowedForInquiry(editingServiceDraft.procedureName)) {
+      setError('Service Details procedure must match Create Client Quotation procedure');
+      return;
+    }
+
+    const normalizedDraft: ServiceDraft = {
+      procedureName: editingServiceDraft.procedureName.trim(),
+      classType:
+        serviceCategory === 'Trademark' && editingServiceDraft.classType === 'multi'
+          ? 'multi'
+          : 'single',
+      numberOfClasses:
+        serviceCategory === 'Trademark' &&
+        editingServiceDraft.classType === 'multi'
+          ? Math.max(1, Math.floor(Number(editingServiceDraft.numberOfClasses || 1)))
+          : 1,
+      additionalFeePerClass:
+        serviceCategory === 'Trademark' &&
+        editingServiceDraft.classType === 'multi'
+          ? Math.max(0, Number(editingServiceDraft.additionalFeePerClass || 0))
+          : 0,
+      officialFee: Math.max(0, Number(editingServiceDraft.officialFee || 0)),
+      attorneyFee: Math.max(0, Number(editingServiceDraft.attorneyFee || 0)),
+      otherFees: Math.max(0, Number(editingServiceDraft.otherFees || 0)),
+      discount: Math.max(0, Number(editingServiceDraft.discount || 0)),
+    };
+
+    setServices((prev) =>
+      prev.map((row, index) =>
+        index === editingServiceIndex ? computeClientRow(normalizedDraft, serviceCategory) : row
+      )
+    );
+    handleCancelEditService();
+  };
+
+  const handleRemoveService = (index: number) => {
+    if (editingServiceIndex === index) {
+      setEditingServiceIndex(null);
+      setEditingServiceDraft(null);
+    } else if (editingServiceIndex !== null && editingServiceIndex > index) {
+      setEditingServiceIndex(editingServiceIndex - 1);
+    }
+    setServices((prev) => prev.filter((_, idx) => idx !== index));
   };
 
   const handleSave = async () => {
     if (!selectedClientId) return setError('Client is required');
     if (!selectedInquiryId) return setError('Inquiry project is required');
+    if (editingServiceIndex !== null) {
+      return setError('Save or cancel current row editing before submitting');
+    }
     if (requirementsState.items.length > 0 && !selectedRequirementId) {
       return setError('Requirement selection is required');
     }
     if (services.length === 0) return setError('Add at least one service row');
+    if (
+      services.some((service) => !isProcedureAllowedForInquiry(service.procedureName || ''))
+    ) {
+      return setError('All Service Details procedures must match Create Client Quotation procedure');
+    }
 
     try {
       const payload = {
@@ -546,6 +722,12 @@ export default function ClientQuotationsPage() {
       setError('Select inquiry project first');
       return;
     }
+    if (!serviceDraft.procedureName.trim() && inquiryProcedureOptions.length > 0) {
+      setServiceDraft((prev) => ({
+        ...prev,
+        procedureName: inquiryProcedureOptions[0],
+      }));
+    }
     setPriceRuleCountryFilter(inquiryCountries[0] || '');
     setSelectedPriceRuleId('');
     setPriceRuleDialogOpen(true);
@@ -554,6 +736,18 @@ export default function ClientQuotationsPage() {
   const handleApplyPriceRule = () => {
     if (!selectedPriceRule) {
       setError('Select a price rule');
+      return;
+    }
+    if (
+      serviceDraft.procedureName.trim() &&
+      normalizeProcedureName(selectedPriceRule.procedureName || '') !==
+        normalizeProcedureName(serviceDraft.procedureName)
+    ) {
+      setError('Price rule procedure must match Service Details procedure');
+      return;
+    }
+    if (!isProcedureAllowedForInquiry(selectedPriceRule.procedureName || '')) {
+      setError('Price rule procedure must match Create Client Quotation procedure');
       return;
     }
 
@@ -674,7 +868,23 @@ export default function ClientQuotationsPage() {
                     onChange={(_, value) => {
                       setSelectedInquiryId(value?._id || '');
                       setSelectedRequirementId('');
+                      setEditingServiceIndex(null);
+                      setEditingServiceDraft(null);
                       const inquiryProcedureNames = getInquireProcedureNames(value || null);
+                      const normalizedProcedureNames = new Set(
+                        inquiryProcedureNames.map((name) => normalizeProcedureName(name))
+                      );
+                      if (normalizedProcedureNames.size > 0) {
+                        setServices((prev) =>
+                          prev.filter((service) =>
+                            normalizedProcedureNames.has(
+                              normalizeProcedureName(service.procedureName || '')
+                            )
+                          )
+                        );
+                      } else if (!value) {
+                        setServices([]);
+                      }
                       setServiceDraft((p) => ({
                         ...p,
                         procedureName: inquiryProcedureNames[0] || '',
@@ -705,7 +915,7 @@ export default function ClientQuotationsPage() {
                         <Grid container spacing={2}>
                           <Grid size={{ xs: 12 }}>
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                              Service: {requirementsState.serviceCategory || '-'} | Country: {requirementsState.countryNames || '-'}
+                              Service: {requirementsState.serviceCategory || '-'}
                             </Typography>
                           </Grid>
                           <Grid size={{ xs: 12 }}>
@@ -713,19 +923,11 @@ export default function ClientQuotationsPage() {
                               options={requirementsState.items}
                               value={selectedRequirement}
                               onChange={(_, value) => setSelectedRequirementId(value?._id || '')}
-                              getOptionLabel={(option) => `${option.countryName} - ${stripHtml(option.requirements).slice(0, 80)}`}
+                              getOptionLabel={(option) => stripHtml(option.requirements).slice(0, 120)}
                               renderInput={(params) => <TextField {...params} label="Requirement *" />}
                             />
                           </Grid>
-                          <Grid size={{ xs: 12, md: 4 }}>
-                            <TextField
-                              label="Requirement Country"
-                              value={selectedRequirement?.countryName || ''}
-                              fullWidth
-                              slotProps={{ input: { readOnly: true } }}
-                            />
-                          </Grid>
-                          <Grid size={{ xs: 12, md: 8 }}>
+                          <Grid size={{ xs: 12 }}>
                             <TextField
                               label="Requirements"
                               value={selectedRequirement ? stripHtml(selectedRequirement.requirements || '') : ''}
@@ -747,11 +949,21 @@ export default function ClientQuotationsPage() {
               <Typography variant="h6" sx={{ mb: 1 }}>Service Details</Typography>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    label="Procedure"
+                  <Autocomplete
+                    options={serviceDetailProcedureOptions}
                     value={serviceDraft.procedureName}
-                    onChange={(e) => setServiceDraft((p) => ({ ...p, procedureName: e.target.value }))}
-                    fullWidth
+                    onChange={(_, value) =>
+                      setServiceDraft((prev) => ({ ...prev, procedureName: value || '' }))
+                    }
+                    isOptionEqualToValue={(option, value) => option === value}
+                    noOptionsText="No procedure available"
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Procedure"
+                        helperText="Synced from Create Client Quotation procedure"
+                      />
+                    )}
                   />
                 </Grid>
                 <Grid size={{ xs: 12, md: 6 }}>
@@ -786,10 +998,10 @@ export default function ClientQuotationsPage() {
                       <TableHead>
                         <TableRow>
                           <TableCell>Procedure</TableCell>
-                          {serviceCategory === 'Trademark' && <TableCell>Class Type</TableCell>}
-                          {serviceCategory === 'Trademark' && <TableCell align="right">No. Classes</TableCell>}
+                          <TableCell>Class Type</TableCell>
+                          <TableCell align="right">No. Classes</TableCell>
                           <TableCell align="right">Official Fees</TableCell>
-                          {serviceCategory === 'Trademark' && <TableCell align="right">Additional Class Fees</TableCell>}
+                          <TableCell align="right">Additional Class Fees</TableCell>
                           <TableCell align="right">Attorney Fees</TableCell>
                           <TableCell align="right">Other Fees</TableCell>
                           <TableCell align="right">Discount</TableCell>
@@ -798,24 +1010,267 @@ export default function ClientQuotationsPage() {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {services.map((s, i) => (
-                          <TableRow key={`${s.procedureName}-${i}`}>
-                            <TableCell>{s.procedureName}</TableCell>
-                            {serviceCategory === 'Trademark' && <TableCell>{s.classType}</TableCell>}
-                            {serviceCategory === 'Trademark' && <TableCell align="right">{s.numberOfClasses}</TableCell>}
-                            <TableCell align="right">{toCurrency(s.officialFee)}</TableCell>
-                            {serviceCategory === 'Trademark' && <TableCell align="right">{toCurrency(s.additionalClassFees)}</TableCell>}
-                            <TableCell align="right">{toCurrency(s.attorneyFee)}</TableCell>
-                            <TableCell align="right">{toCurrency(s.otherFees)}</TableCell>
-                            <TableCell align="right">{toCurrency(s.discount)}</TableCell>
-                            <TableCell align="right">{toCurrency(s.grandTotal)}</TableCell>
-                            <TableCell align="right">
-                              <Button size="small" color="error" onClick={() => setServices((prev) => prev.filter((_, idx) => idx !== i))}>
-                                Remove
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {services.map((service, index) => {
+                          const isEditingRow =
+                            editingServiceIndex === index && editingServiceDraft !== null;
+                          const rowDraft = isEditingRow
+                            ? editingServiceDraft
+                            : toServiceDraftFromRow(service, serviceCategory);
+                          const additionalClassFeesPreview =
+                            rowDraft.classType === 'multi'
+                              ? Math.max(1, Number(rowDraft.numberOfClasses || 1)) *
+                                Math.max(0, Number(rowDraft.additionalFeePerClass || 0))
+                              : 0;
+                          const rowProcedureOptions = serviceDetailProcedureOptions.includes(
+                            rowDraft.procedureName
+                          )
+                            ? serviceDetailProcedureOptions
+                            : rowDraft.procedureName
+                              ? [rowDraft.procedureName, ...serviceDetailProcedureOptions]
+                              : serviceDetailProcedureOptions;
+
+                          return (
+                            <TableRow key={`${service.procedureName}-${index}`}>
+                              <TableCell sx={{ minWidth: 220 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    select
+                                    size="small"
+                                    value={rowDraft.procedureName}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev ? { ...prev, procedureName: event.target.value } : prev
+                                      )
+                                    }
+                                    fullWidth
+                                  >
+                                    {rowProcedureOptions.map((procedureName) => (
+                                      <MenuItem key={`${procedureName}-${index}`} value={procedureName}>
+                                        {procedureName}
+                                      </MenuItem>
+                                    ))}
+                                  </TextField>
+                                ) : (
+                                  service.procedureName
+                                )}
+                              </TableCell>
+                              <TableCell sx={{ minWidth: 120 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    select
+                                    size="small"
+                                    value={rowDraft.classType}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              classType: event.target.value as ClassType,
+                                              numberOfClasses:
+                                                event.target.value === 'multi'
+                                                  ? Math.max(1, prev.numberOfClasses || 1)
+                                                  : 1,
+                                              additionalFeePerClass:
+                                                event.target.value === 'multi'
+                                                  ? Math.max(0, prev.additionalFeePerClass || 0)
+                                                  : 0,
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    fullWidth
+                                    disabled={serviceCategory !== 'Trademark'}
+                                  >
+                                    <MenuItem value="single">Single</MenuItem>
+                                    <MenuItem value="multi">Multi</MenuItem>
+                                  </TextField>
+                                ) : (
+                                  service.classType
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 120 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.numberOfClasses}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              numberOfClasses: Math.max(1, Number(event.target.value) || 1),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 1 } }}
+                                    sx={{ maxWidth: 110 }}
+                                    disabled={serviceCategory !== 'Trademark'}
+                                  />
+                                ) : (
+                                  service.numberOfClasses
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 140 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.officialFee}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              officialFee: Math.max(0, Number(event.target.value) || 0),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                    sx={{ maxWidth: 130 }}
+                                  />
+                                ) : (
+                                  toCurrency(service.officialFee)
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 180 }}>
+                                {isEditingRow ? (
+                                  <Stack sx={{ alignItems: 'flex-end' }} spacing={0.5}>
+                                    <TextField
+                                      type="number"
+                                      size="small"
+                                      value={additionalClassFeesPreview}
+                                      onChange={(event) =>
+                                        setEditingServiceDraft((prev) => {
+                                          if (!prev) return prev;
+                                          const nextTotal = Math.max(0, Number(event.target.value) || 0);
+                                          const nextClasses =
+                                            prev.classType === 'multi'
+                                              ? Math.max(1, Number(prev.numberOfClasses || 1))
+                                              : 1;
+                                          return {
+                                            ...prev,
+                                            additionalFeePerClass:
+                                              prev.classType === 'multi'
+                                                ? Math.max(0, nextTotal / nextClasses)
+                                                : 0,
+                                          };
+                                        })
+                                      }
+                                      slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                      sx={{ maxWidth: 130 }}
+                                      disabled={serviceCategory !== 'Trademark'}
+                                    />
+                                    {serviceCategory === 'Trademark' && rowDraft.classType === 'multi' && (
+                                      <Typography variant="caption" color="text.secondary">
+                                        Per Class: {toCurrency(rowDraft.additionalFeePerClass)}
+                                      </Typography>
+                                    )}
+                                  </Stack>
+                                ) : (
+                                  toCurrency(service.additionalClassFees)
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 140 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.attorneyFee}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              attorneyFee: Math.max(0, Number(event.target.value) || 0),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                    sx={{ maxWidth: 130 }}
+                                  />
+                                ) : (
+                                  toCurrency(service.attorneyFee)
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 140 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.otherFees}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              otherFees: Math.max(0, Number(event.target.value) || 0),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                    sx={{ maxWidth: 130 }}
+                                  />
+                                ) : (
+                                  toCurrency(service.otherFees)
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 140 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.discount}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              discount: Math.max(0, Number(event.target.value) || 0),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                    sx={{ maxWidth: 130 }}
+                                  />
+                                ) : (
+                                  toCurrency(service.discount)
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                {isEditingRow
+                                  ? toCurrency(computeClientRow(rowDraft, serviceCategory).grandTotal)
+                                  : toCurrency(service.grandTotal)}
+                              </TableCell>
+                              <TableCell align="right">
+                                {isEditingRow ? (
+                                  <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                                    <Button size="small" color="success" variant="contained" onClick={handleSaveEditService}>
+                                      Save
+                                    </Button>
+                                    <Button size="small" onClick={handleCancelEditService}>
+                                      Cancel
+                                    </Button>
+                                  </Stack>
+                                ) : (
+                                  <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                                    <Button size="small" onClick={() => handleStartEditService(index)}>
+                                      Edit
+                                    </Button>
+                                    <Button size="small" color="error" onClick={() => handleRemoveService(index)}>
+                                      Remove
+                                    </Button>
+                                  </Stack>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </TableContainer>
@@ -835,6 +1290,14 @@ export default function ClientQuotationsPage() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <TextField
+                  label="Procedure"
+                  value={serviceDraft.procedureName}
+                  fullWidth
+                  slotProps={{ input: { readOnly: true } }}
+                />
+              </Grid>
               <Grid size={{ xs: 12, md: 6 }}>
                 <TextField
                   label="Service"
@@ -860,7 +1323,7 @@ export default function ClientQuotationsPage() {
               </Grid>
               <Grid size={{ xs: 12 }}>
                 <Autocomplete
-                  options={priceRules}
+                  options={filteredPriceRules}
                   value={selectedPriceRule}
                   onChange={(_, value) => setSelectedPriceRuleId(value?._id || '')}
                   getOptionLabel={(option) =>
@@ -878,7 +1341,7 @@ export default function ClientQuotationsPage() {
               <Typography color="text.secondary">Loading price rules...</Typography>
             ) : priceRulesError ? (
               <Typography color="error">{priceRulesError}</Typography>
-            ) : !priceRules.length ? (
+            ) : !filteredPriceRules.length ? (
               <Typography color="text.secondary">No price rules found for the selected filters.</Typography>
             ) : null}
 
@@ -920,29 +1383,229 @@ export default function ClientQuotationsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>View Client Quotation</DialogTitle>
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="lg" fullWidth>
+        <DialogTitle>Client Quotation Invoice</DialogTitle>
         <DialogContent>
           {viewingItem && (
-            <Stack spacing={1.25} sx={{ pt: 1 }}>
-              <Typography><strong>Inquiry Project:</strong> {viewingItem.inquirySnapshot?.referenceNo || viewingItem.inquiryProjects?.join(', ') || '-'}</Typography>
-              <Typography><strong>Service:</strong> {viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory || '-'}</Typography>
-              <Typography><strong>Procedure:</strong> <span style={{ color: '#7E57C2' }}>{viewingItem.inquirySnapshot?.procedureName || '-'}</span></Typography>
-              <Typography><strong>Client:</strong> {viewingItem.clientSnapshot?.name || '-'}</Typography>
-              <Typography><strong>Country:</strong> {viewingItem.inquirySnapshot?.countryNames?.join(', ') || '-'}</Typography>
-              <Typography><strong>Requirement Country:</strong> {viewingItem.requirementSnapshot?.countryName || '-'}</Typography>
-              <TextField
-                label="Requirements"
-                value={stripHtml(viewingItem.requirementSnapshot?.requirements || '')}
-                fullWidth
-                multiline
-                minRows={4}
-                slotProps={{ input: { readOnly: true } }}
-              />
-            </Stack>
+            <Box
+              sx={{
+                mt: 1,
+                p: { xs: 2, md: 3 },
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 3,
+                bgcolor: '#FAFBFF',
+              }}
+            >
+              <Card
+                variant="outlined"
+                sx={{
+                  mb: 2,
+                  borderRadius: 3,
+                  borderColor: '#E5E7EB',
+                  background:
+                    'linear-gradient(135deg, rgba(37,99,235,0.08) 0%, rgba(147,51,234,0.06) 100%)',
+                }}
+              >
+                <CardContent>
+                  <Grid container spacing={2} sx={{ alignItems: 'center' }}>
+                    <Grid size={{ xs: 12, md: 8 }}>
+                      <Typography
+                        variant="overline"
+                        sx={{ letterSpacing: 1.6, color: 'text.secondary', fontWeight: 700 }}
+                      >
+                        Invoice
+                      </Typography>
+                      <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                        CLIENT QUOTATION
+                      </Typography>
+                      <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap' }}>
+                        <Box
+                          component="span"
+                          sx={{
+                            px: 1.5,
+                            py: 0.5,
+                            borderRadius: 999,
+                            fontWeight: 700,
+                            fontSize: 12,
+                            color:
+                              SERVICE_COLOR_MAP[
+                                (viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory || 'Trademark') as ServiceCategory
+                              ] || '#2563EB',
+                            bgcolor: `${
+                              SERVICE_COLOR_MAP[
+                                (viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory || 'Trademark') as ServiceCategory
+                              ] || '#2563EB'
+                            }1A`,
+                          }}
+                        >
+                          {viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory || '-'}
+                        </Box>
+                        <Box
+                          component="span"
+                          sx={{
+                            px: 1.5,
+                            py: 0.5,
+                            borderRadius: 999,
+                            fontWeight: 700,
+                            fontSize: 12,
+                            color: '#7E57C2',
+                            bgcolor: '#7E57C21A',
+                          }}
+                        >
+                          Procedure: {viewingItem.inquirySnapshot?.procedureName || '-'}
+                        </Box>
+                      </Stack>
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 4 }}>
+                      <Stack spacing={0.75}>
+                        <Typography variant="body2">
+                          <strong>Invoice No:</strong> {viewingItem.quotationNo || viewingItem._id}
+                        </Typography>
+                        <Typography variant="body2">
+                          <strong>Date:</strong>{' '}
+                          {viewingItem.createdAt ? new Date(viewingItem.createdAt).toLocaleDateString() : '-'}
+                        </Typography>
+                        <Typography variant="body2">
+                          <strong>Inquiry Project:</strong>{' '}
+                          {viewingItem.inquirySnapshot?.referenceNo || viewingItem.inquiryProjects?.join(', ') || '-'}
+                        </Typography>
+                        <Typography variant="body2">
+                          <strong>Country:</strong> {viewingItem.inquirySnapshot?.countryNames?.join(', ') || '-'}
+                        </Typography>
+                      </Stack>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Card variant="outlined" sx={{ borderRadius: 3, height: '100%' }}>
+                    <CardContent>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
+                        Client Card
+                      </Typography>
+                      <Stack spacing={0.8}>
+                        <Typography variant="body2"><strong>Client:</strong> {viewingItem.clientSnapshot?.name || '-'}</Typography>
+                        <Typography variant="body2"><strong>Email:</strong> {viewingItem.clientSnapshot?.email || '-'}</Typography>
+                        <Typography variant="body2"><strong>Phone:</strong> {viewingItem.clientSnapshot?.phone || '-'}</Typography>
+                        <Typography variant="body2"><strong>Type:</strong> {viewingItem.clientSnapshot?.type || '-'}</Typography>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Card variant="outlined" sx={{ borderRadius: 3, height: '100%' }}>
+                    <CardContent>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
+                        Requirement Details
+                      </Typography>
+                      {viewingItem.requirementSnapshot?.requirements ? (
+                        <Box
+                          sx={{
+                            p: 1.5,
+                            borderRadius: 2,
+                            bgcolor: '#FFFFFF',
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            '& p': { m: 0, mb: 1 },
+                            '& p:last-of-type': { mb: 0 },
+                          }}
+                          dangerouslySetInnerHTML={{
+                            __html: sanitizeHtml(viewingItem.requirementSnapshot.requirements),
+                          }}
+                        />
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">
+                          No requirement details available.
+                        </Typography>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              <Card variant="outlined" sx={{ borderRadius: 3 }}>
+                <CardContent>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
+                    Service Details
+                  </Typography>
+                  <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                    <Table size="small">
+                      <TableHead sx={{ bgcolor: '#EEF2FF' }}>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 800 }}>Procedure Name</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 800 }}>Official Fees</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 800 }}>Attorney Fees</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 800 }}>Total</TableCell>
+                        </TableRow>
+                        {((viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory) as ServiceCategory) === 'Trademark' && (
+                          <TableRow sx={{ bgcolor: '#F8FAFC' }}>
+                            <TableCell sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                              Class Type / No. Classes
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                              per mark per class
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                              per mark per class
+                            </TableCell>
+                            <TableCell align="right" sx={{ fontStyle: 'italic', color: 'text.secondary' }}>
+                              per mark per class
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableHead>
+                      <TableBody>
+                        {(viewingItem.services || []).map((service, index) => {
+                          const isTrademark =
+                            ((viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory) as ServiceCategory) ===
+                            'Trademark';
+                          const classInfo = isTrademark
+                            ? `${service.classType === 'multi' ? 'Multi' : 'Single'} | ${Math.max(1, Number(service.numberOfClasses || 1))} class${Math.max(1, Number(service.numberOfClasses || 1)) > 1 ? 'es' : ''}`
+                            : '';
+
+                          return (
+                            <TableRow key={`${service.procedureName}-${index}`}>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                  {service.procedureName || '-'}
+                                </Typography>
+                                {isTrademark && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {classInfo}
+                                  </Typography>
+                                )}
+                              </TableCell>
+                              <TableCell align="right">{toCurrency(service.totalOfficialFees || service.officialFee || 0)}</TableCell>
+                              <TableCell align="right">{toCurrency(service.attorneyFee || 0)}</TableCell>
+                              <TableCell align="right">{toCurrency(service.grandTotal || 0)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
+                        <TableRow sx={{ bgcolor: '#F9FAFB' }}>
+                          <TableCell sx={{ fontWeight: 800 }}>Grand Total</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 800 }}>
+                            {toCurrency(viewingItem.totalOfficialFees || 0)}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 800 }}>
+                            {toCurrency(viewingItem.totalAttorneyFees || 0)}
+                          </TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 800 }}>
+                            {toCurrency(viewingItem.grandTotal || 0)}
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </CardContent>
+              </Card>
+            </Box>
           )}
         </DialogContent>
         <DialogActions>
+          <Button onClick={() => window.print()}>Print Invoice</Button>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>

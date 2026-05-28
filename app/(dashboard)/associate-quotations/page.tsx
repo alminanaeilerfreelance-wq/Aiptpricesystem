@@ -151,10 +151,18 @@ const getInquireProcedureNames = (inquiry: Inquire | null | undefined): string[]
 const getInquireProcedureLabel = (inquiry: Inquire | null | undefined): string =>
   getInquireProcedureNames(inquiry).join(', ');
 
+const normalizeProcedureName = (value: string): string => value.trim().toLowerCase();
+
 const normalizeAssociate = (associateId: AssociateQuotation['associateId']): string | undefined => {
   if (!associateId) return undefined;
   if (typeof associateId === 'string') return associateId;
   return associateId._id;
+};
+
+const normalizeInquiry = (inquiryId: AssociateQuotation['inquiryId']): string | undefined => {
+  if (!inquiryId) return undefined;
+  if (typeof inquiryId === 'string') return inquiryId;
+  return inquiryId._id;
 };
 
 const computeAssociateRow = (service: ServiceDraft): AssociateQuotationServiceItem => {
@@ -205,6 +213,32 @@ const computeTotals = (services: AssociateQuotationServiceItem[]) =>
     }
   );
 
+const toServiceDraftFromRow = (service: AssociateQuotationServiceItem): ServiceDraft => {
+  const classType: ClassType = service.classType === 'multi' ? 'multi' : 'single';
+  const numberOfClasses =
+    classType === 'multi' ? Math.max(1, Math.floor(service.numberOfClasses || 1)) : 1;
+  const additionalFeePerClass =
+    classType === 'multi'
+      ? Math.max(
+          0,
+          Number(
+            service.additionalFeePerClass ??
+              (numberOfClasses > 0 ? service.additionalClassFees / numberOfClasses : 0)
+          ) || 0
+        )
+      : 0;
+
+  return {
+    procedureName: String(service.procedureName || '').trim(),
+    classType,
+    numberOfClasses,
+    additionalFeePerClass,
+    officialFee: Math.max(0, Number(service.officialFee || 0)),
+    attorneyFee: Math.max(0, Number(service.attorneyFee || 0)),
+    otherFees: Math.max(0, Number(service.otherFees || 0)),
+  };
+};
+
 export default function AssociateQuotationsPage() {
   const [mounted, setMounted] = useState(false);
 
@@ -230,6 +264,8 @@ export default function AssociateQuotationsPage() {
   const [inquiryProject, setInquiryProject] = useState('');
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(defaultServiceDraft);
   const [services, setServices] = useState<AssociateQuotationServiceItem[]>([]);
+  const [editingServiceIndex, setEditingServiceIndex] = useState<number | null>(null);
+  const [editingServiceDraft, setEditingServiceDraft] = useState<ServiceDraft | null>(null);
 
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingItem, setViewingItem] = useState<AssociateQuotation | null>(null);
@@ -260,6 +296,14 @@ export default function AssociateQuotationsPage() {
         )
       ).sort((a, b) => a.localeCompare(b)),
     [allProcedureOptions, selectedServiceCategory]
+  );
+  const inquiryProcedureOptions = useMemo(
+    () => Array.from(new Set(getInquireProcedureNames(selectedInquiry))).filter(Boolean),
+    [selectedInquiry]
+  );
+  const serviceDetailProcedureOptions = useMemo(
+    () => (inquiryProcedureOptions.length > 0 ? inquiryProcedureOptions : procedureOptions),
+    [inquiryProcedureOptions, procedureOptions]
   );
 
   const totals = useMemo(() => computeTotals(services), [services]);
@@ -340,6 +384,20 @@ export default function AssociateQuotationsPage() {
     });
   }, [loadLookups]);
 
+  useEffect(() => {
+    if (!serviceDraft.procedureName.trim()) return;
+    const isStillAllowed = serviceDetailProcedureOptions.some(
+      (item) =>
+        normalizeProcedureName(item) === normalizeProcedureName(serviceDraft.procedureName)
+    );
+    if (isStillAllowed) return;
+
+    setServiceDraft((prev) => ({
+      ...prev,
+      procedureName: serviceDetailProcedureOptions[0] || '',
+    }));
+  }, [serviceDetailProcedureOptions, serviceDraft.procedureName]);
+
   const resetFormState = () => {
     setEditingId(null);
     setSelectedAssociateId('');
@@ -348,6 +406,8 @@ export default function AssociateQuotationsPage() {
     setInquiryProject('');
     setServiceDraft(defaultServiceDraft);
     setServices([]);
+    setEditingServiceIndex(null);
+    setEditingServiceDraft(null);
   };
 
   const handleAdd = () => {
@@ -359,10 +419,12 @@ export default function AssociateQuotationsPage() {
     setEditingId(item._id);
     setSelectedAssociateId(normalizeAssociate(item.associateId) || '');
     setSelectedServiceCategory(item.serviceCategory || 'Trademark');
-    setSelectedInquiryId('');
+    setSelectedInquiryId(normalizeInquiry(item.inquiryId) || '');
     setInquiryProject(item.inquiryProject || '');
     setServices(Array.isArray(item.services) ? item.services : []);
     setServiceDraft(defaultServiceDraft);
+    setEditingServiceIndex(null);
+    setEditingServiceDraft(null);
     setOpenForm(true);
   };
 
@@ -386,6 +448,16 @@ export default function AssociateQuotationsPage() {
       setError('Procedure is required before adding service row');
       return;
     }
+    if (
+      inquiryProcedureOptions.length > 0 &&
+      !inquiryProcedureOptions.some(
+        (name) =>
+          normalizeProcedureName(name) === normalizeProcedureName(serviceDraft.procedureName)
+      )
+    ) {
+      setError('Service Details procedure must match the selected Inquiry procedure');
+      return;
+    }
 
     const row = computeAssociateRow(serviceDraft);
     setServices((prev) => [...prev, row]);
@@ -393,7 +465,67 @@ export default function AssociateQuotationsPage() {
   };
 
   const handleRemoveService = (index: number) => {
+    if (editingServiceIndex === index) {
+      setEditingServiceIndex(null);
+      setEditingServiceDraft(null);
+    } else if (editingServiceIndex !== null && editingServiceIndex > index) {
+      setEditingServiceIndex(editingServiceIndex - 1);
+    }
     setServices((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
+  const isProcedureAllowedForInquiry = (procedureName: string): boolean =>
+    inquiryProcedureOptions.length === 0 ||
+    inquiryProcedureOptions.some(
+      (name) => normalizeProcedureName(name) === normalizeProcedureName(procedureName)
+    );
+
+  const handleStartEditService = (index: number) => {
+    const row = services[index];
+    if (!row) return;
+    setEditingServiceIndex(index);
+    setEditingServiceDraft(toServiceDraftFromRow(row));
+    setError('');
+  };
+
+  const handleCancelEditService = () => {
+    setEditingServiceIndex(null);
+    setEditingServiceDraft(null);
+  };
+
+  const handleSaveEditService = () => {
+    if (editingServiceIndex === null || !editingServiceDraft) return;
+    if (!editingServiceDraft.procedureName.trim()) {
+      setError('Procedure is required');
+      return;
+    }
+    if (!isProcedureAllowedForInquiry(editingServiceDraft.procedureName)) {
+      setError('Service Details procedure must match the selected Inquiry procedure');
+      return;
+    }
+
+    const normalizedDraft: ServiceDraft = {
+      procedureName: editingServiceDraft.procedureName.trim(),
+      classType: editingServiceDraft.classType === 'multi' ? 'multi' : 'single',
+      numberOfClasses:
+        editingServiceDraft.classType === 'multi'
+          ? Math.max(1, Math.floor(Number(editingServiceDraft.numberOfClasses || 1)))
+          : 1,
+      additionalFeePerClass:
+        editingServiceDraft.classType === 'multi'
+          ? Math.max(0, Number(editingServiceDraft.additionalFeePerClass || 0))
+          : 0,
+      officialFee: Math.max(0, Number(editingServiceDraft.officialFee || 0)),
+      attorneyFee: Math.max(0, Number(editingServiceDraft.attorneyFee || 0)),
+      otherFees: Math.max(0, Number(editingServiceDraft.otherFees || 0)),
+    };
+
+    setServices((prev) =>
+      prev.map((service, index) =>
+        index === editingServiceIndex ? computeAssociateRow(normalizedDraft) : service
+      )
+    );
+    handleCancelEditService();
   };
 
   const handleSubmitForm = async () => {
@@ -412,6 +544,24 @@ export default function AssociateQuotationsPage() {
     if (services.length === 0) {
       setError('At least one service row is required');
       return;
+    }
+    if (editingServiceIndex !== null) {
+      setError('Save or cancel the row editing before submitting');
+      return;
+    }
+    if (inquiryProcedureOptions.length > 0) {
+      const hasInvalidProcedure = services.some(
+        (service) =>
+          !inquiryProcedureOptions.some(
+            (inquiryProcedure) =>
+              normalizeProcedureName(inquiryProcedure) ===
+              normalizeProcedureName(service.procedureName)
+          )
+      );
+      if (hasInvalidProcedure) {
+        setError('All Service Details procedures must match the selected Inquiry procedure');
+        return;
+      }
     }
 
     const payload = {
@@ -694,7 +844,7 @@ export default function AssociateQuotationsPage() {
                             <MenuItem key={option} value={option}>
                               {option}
                             </MenuItem>
-                          ))}xf
+                          ))}
                         </Select>
                       </FormControl>
                     </Grid>
@@ -714,13 +864,27 @@ export default function AssociateQuotationsPage() {
                     value={selectedInquiry}
                     onChange={(_, value) => {
                       setSelectedInquiryId(value?._id || '');
+                      setEditingServiceIndex(null);
+                      setEditingServiceDraft(null);
                       const nextCategory = ((value?.serviceId as any)?.category || selectedServiceCategory) as ServiceCategory;
                       setSelectedServiceCategory(nextCategory);
                       setInquiryProject(value?.referenceNo || '');
                       const inquiryProcedureNames = getInquireProcedureNames(value || null);
+                      const normalizedInquiryProcedureNames = new Set(
+                        inquiryProcedureNames.map((name) => normalizeProcedureName(name))
+                      );
+                      if (normalizedInquiryProcedureNames.size > 0) {
+                        setServices((prev) =>
+                          prev.filter((service) =>
+                            normalizedInquiryProcedureNames.has(
+                              normalizeProcedureName(service.procedureName)
+                            )
+                          )
+                        );
+                      }
                       setServiceDraft((prev) => ({
                         ...prev,
-                        procedureName: inquiryProcedureNames[0] || prev.procedureName,
+                        procedureName: inquiryProcedureNames[0] || '',
                       }));
                     }}
                     getOptionLabel={(option) => option.referenceNo || ''}
@@ -741,12 +905,24 @@ export default function AssociateQuotationsPage() {
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, md: 6 }}>
                     <Autocomplete
-                      options={procedureOptions}
+                      options={serviceDetailProcedureOptions}
                       value={serviceDraft.procedureName}
                       onChange={(_, value) =>
                         setServiceDraft((prev) => ({ ...prev, procedureName: value || '' }))
                       }
-                      renderInput={(params) => <TextField {...params} label="Procedure *" />}
+                      isOptionEqualToValue={(option, value) => option === value}
+                      noOptionsText="No procedure available"
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Procedure *"
+                          helperText={
+                            inquiryProcedureOptions.length > 0
+                              ? 'Synced from Inquiry Project procedure'
+                              : 'Select procedure'
+                          }
+                        />
+                      )}
                     />
                   </Grid>
                   {selectedServiceCategory === 'Trademark' && (
@@ -879,23 +1055,262 @@ export default function AssociateQuotationsPage() {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {services.map((service, index) => (
-                          <TableRow key={`${service.procedureName}-${index}`}>
-                            <TableCell>{service.procedureName}</TableCell>
-                            <TableCell>{service.classType}</TableCell>
-                            <TableCell align="right">{service.numberOfClasses}</TableCell>
-                            <TableCell align="right">{toCurrency(service.officialFee)}</TableCell>
-                            <TableCell align="right">{toCurrency(service.additionalClassFees)}</TableCell>
-                            <TableCell align="right">{toCurrency(service.attorneyFee)}</TableCell>
-                            <TableCell align="right">{toCurrency(service.otherFees)}</TableCell>
-                            <TableCell align="right">{toCurrency(service.grandTotal)}</TableCell>
-                            <TableCell align="right">
-                              <Button size="small" color="error" onClick={() => handleRemoveService(index)}>
-                                Remove
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
+                        {services.map((service, index) => {
+                          const isEditingRow =
+                            editingServiceIndex === index && editingServiceDraft !== null;
+                          const rowDraft = isEditingRow
+                            ? editingServiceDraft
+                            : toServiceDraftFromRow(service);
+                          const rowProcedureOptions = serviceDetailProcedureOptions.includes(
+                            rowDraft.procedureName
+                          )
+                            ? serviceDetailProcedureOptions
+                            : rowDraft.procedureName
+                              ? [rowDraft.procedureName, ...serviceDetailProcedureOptions]
+                              : serviceDetailProcedureOptions;
+                          const additionalClassFeesPreview =
+                            rowDraft.classType === 'multi'
+                              ? Math.max(1, Number(rowDraft.numberOfClasses || 1)) *
+                                Math.max(0, Number(rowDraft.additionalFeePerClass || 0))
+                              : 0;
+
+                          return (
+                            <TableRow key={`${service.procedureName}-${index}`}>
+                              <TableCell sx={{ minWidth: 220 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    select
+                                    size="small"
+                                    value={rowDraft.procedureName}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? { ...prev, procedureName: event.target.value }
+                                          : prev
+                                      )
+                                    }
+                                    fullWidth
+                                  >
+                                    {rowProcedureOptions.map((procedureName) => (
+                                      <MenuItem key={`${procedureName}-${index}`} value={procedureName}>
+                                        {procedureName}
+                                      </MenuItem>
+                                    ))}
+                                  </TextField>
+                                ) : (
+                                  service.procedureName
+                                )}
+                              </TableCell>
+                              <TableCell sx={{ minWidth: 120 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    select
+                                    size="small"
+                                    value={rowDraft.classType}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              classType: event.target.value as ClassType,
+                                              numberOfClasses:
+                                                event.target.value === 'multi'
+                                                  ? Math.max(1, prev.numberOfClasses || 1)
+                                                  : 1,
+                                              additionalFeePerClass:
+                                                event.target.value === 'multi'
+                                                  ? Math.max(0, prev.additionalFeePerClass || 0)
+                                                  : 0,
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    fullWidth
+                                  >
+                                    <MenuItem value="single">Single</MenuItem>
+                                    <MenuItem value="multi">Multi</MenuItem>
+                                  </TextField>
+                                ) : (
+                                  service.classType
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 120 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.numberOfClasses}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              numberOfClasses: Math.max(
+                                                1,
+                                                Number(event.target.value) || 1
+                                              ),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 1 } }}
+                                    sx={{ maxWidth: 110 }}
+                                  />
+                                ) : (
+                                  service.numberOfClasses
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 140 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.officialFee}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              officialFee: Math.max(
+                                                0,
+                                                Number(event.target.value) || 0
+                                              ),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                    sx={{ maxWidth: 130 }}
+                                  />
+                                ) : (
+                                  toCurrency(service.officialFee)
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 170 }}>
+                                {isEditingRow ? (
+                                  <Stack sx={{ alignItems: 'flex-end' }} spacing={0.5}>
+                                    <TextField
+                                      type="number"
+                                      size="small"
+                                      value={additionalClassFeesPreview}
+                                      onChange={(event) =>
+                                        setEditingServiceDraft((prev) => {
+                                          if (!prev) return prev;
+                                          const nextTotal = Math.max(
+                                            0,
+                                            Number(event.target.value) || 0
+                                          );
+                                          const nextClasses =
+                                            prev.classType === 'multi'
+                                              ? Math.max(1, Number(prev.numberOfClasses || 1))
+                                              : 1;
+                                          const nextPerClass =
+                                            prev.classType === 'multi'
+                                              ? nextTotal / nextClasses
+                                              : 0;
+                                          return {
+                                            ...prev,
+                                            additionalFeePerClass: Math.max(
+                                              0,
+                                              Number(nextPerClass) || 0
+                                            ),
+                                          };
+                                        })
+                                      }
+                                      slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                      sx={{ maxWidth: 130 }}
+                                    />
+                                    {rowDraft.classType === 'multi' && (
+                                      <Typography variant="caption" color="text.secondary">
+                                        Per Class: {toCurrency(rowDraft.additionalFeePerClass)}
+                                      </Typography>
+                                    )}
+                                  </Stack>
+                                ) : (
+                                  toCurrency(service.additionalClassFees)
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 140 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.attorneyFee}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              attorneyFee: Math.max(
+                                                0,
+                                                Number(event.target.value) || 0
+                                              ),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                    sx={{ maxWidth: 130 }}
+                                  />
+                                ) : (
+                                  toCurrency(service.attorneyFee)
+                                )}
+                              </TableCell>
+                              <TableCell align="right" sx={{ minWidth: 140 }}>
+                                {isEditingRow ? (
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    value={rowDraft.otherFees}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              otherFees: Math.max(
+                                                0,
+                                                Number(event.target.value) || 0
+                                              ),
+                                            }
+                                          : prev
+                                      )
+                                    }
+                                    slotProps={{ htmlInput: { min: 0, step: '0.01' } }}
+                                    sx={{ maxWidth: 130 }}
+                                  />
+                                ) : (
+                                  toCurrency(service.otherFees)
+                                )}
+                              </TableCell>
+                              <TableCell align="right">
+                                {isEditingRow
+                                  ? toCurrency(computeAssociateRow(rowDraft).grandTotal)
+                                  : toCurrency(service.grandTotal)}
+                              </TableCell>
+                              <TableCell align="right">
+                                {isEditingRow ? (
+                                  <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                                    <Button size="small" color="success" variant="contained" onClick={handleSaveEditService}>
+                                      Save
+                                    </Button>
+                                    <Button size="small" onClick={handleCancelEditService}>
+                                      Cancel
+                                    </Button>
+                                  </Stack>
+                                ) : (
+                                  <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                                    <Button size="small" onClick={() => handleStartEditService(index)}>
+                                      Edit
+                                    </Button>
+                                    <Button size="small" color="error" onClick={() => handleRemoveService(index)}>
+                                      Remove
+                                    </Button>
+                                  </Stack>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </TableContainer>

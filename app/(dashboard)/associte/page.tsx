@@ -20,7 +20,6 @@ import {
   Stack,
   TextField,
   Typography,
-  Snackbar,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
@@ -29,6 +28,8 @@ import { countriesService, Country } from '@/services/countries.service';
 import { continentsService, Continent } from '@/services/continents.service';
 import { clientsService } from '@/services/clients.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -94,7 +95,6 @@ export default function AssocitePage() {
   const [continentFilter, setContinentFilter] = useState('');
 
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -261,10 +261,10 @@ export default function AssocitePage() {
 
       if (editingId) {
         await associteService.update(editingId, payload);
-        setSuccessMessage('Associte updated successfully');
+        showSuccessToast('Associte updated successfully');
       } else {
         await associteService.create(payload);
-        setSuccessMessage('Associte created successfully');
+        showSuccessToast('Associte created successfully');
       }
 
       handleCloseForm();
@@ -293,7 +293,7 @@ export default function AssocitePage() {
       } else {
         await fetchItems({ nextPage: targetPage });
       }
-      setSuccessMessage('Associte deleted successfully');
+      showSuccessToast('Associte deleted successfully');
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to delete associte');
     } finally {
@@ -364,7 +364,7 @@ export default function AssocitePage() {
       if (importedCount > 0) {
         if (page !== 1) setPage(1);
         else await fetchItems({ nextPage: 1 });
-        setSuccessMessage(`Imported ${importedCount} associte records`);
+        showSuccessToast(`Imported ${importedCount} associte records`);
       }
       if (importErrors.length > 0) {
         setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
@@ -438,7 +438,7 @@ export default function AssocitePage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Associte');
     XLSX.writeFile(wb, 'associte.csv');
-    setSuccessMessage(`CSV exported (${records.length} rows)`);
+    showSuccessToast(`CSV exported (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -465,7 +465,7 @@ export default function AssocitePage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Associte');
     XLSX.writeFile(wb, 'associte.xlsx');
-    setSuccessMessage(`Excel exported (${records.length} rows)`);
+    showSuccessToast(`Excel exported (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -495,7 +495,7 @@ export default function AssocitePage() {
     });
 
     doc.save('associte.pdf');
-    setSuccessMessage(`PDF exported (${records.length} rows)`);
+    showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
   const handleClearFilters = () => {
@@ -606,9 +606,11 @@ export default function AssocitePage() {
   if (!mounted) return null;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Associte</Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Associte" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button variant="contained" onClick={handleAdd}>
           + Add Associte
         </Button>
@@ -619,13 +621,6 @@ export default function AssocitePage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <FormControl sx={{ flex: 1, minWidth: 170 }}>
               <InputLabel>Status</InputLabel>
               <Select
@@ -745,6 +740,11 @@ export default function AssocitePage() {
             total={total}
             onPageChange={setPage}
             showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
             loading={false}
           />
         )
@@ -920,13 +920,7 @@ export default function AssocitePage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={5000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

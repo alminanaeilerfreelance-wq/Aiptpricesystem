@@ -13,7 +13,6 @@ import {
   DialogContent,
   DialogTitle,
   MenuItem,
-  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -22,6 +21,8 @@ import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { clientsService, Client } from '@/services/clients.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +56,6 @@ export default function ClientsPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -158,10 +158,10 @@ export default function ClientsPage() {
 
       if (editingId) {
         await clientsService.update(editingId, payload);
-        setSuccessMessage('Client updated successfully');
+        showSuccessToast('Client updated successfully');
       } else {
         await clientsService.create(payload);
-        setSuccessMessage('Client created successfully');
+        showSuccessToast('Client created successfully');
       }
 
       handleCloseForm();
@@ -188,7 +188,7 @@ export default function ClientsPage() {
       } else {
         await fetchItems({ nextPage: targetPage });
       }
-      setSuccessMessage('Client deleted successfully');
+      showSuccessToast('Client deleted successfully');
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to delete client');
     } finally {
@@ -244,7 +244,7 @@ export default function ClientsPage() {
       if (importedCount > 0) {
         if (page !== 1) setPage(1);
         else await fetchItems({ nextPage: 1 });
-        setSuccessMessage(`Imported ${importedCount} client records`);
+        showSuccessToast(`Imported ${importedCount} client records`);
       }
       if (importErrors.length > 0) {
         setError(`Errors: ${importErrors.slice(0, 3).join(' | ')}${importErrors.length > 3 ? '...' : ''}`);
@@ -309,7 +309,7 @@ export default function ClientsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Clients');
     XLSX.writeFile(wb, 'clients.csv');
-    setSuccessMessage(`CSV exported (${records.length} rows)`);
+    showSuccessToast(`CSV exported (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -334,7 +334,7 @@ export default function ClientsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Clients');
     XLSX.writeFile(wb, 'clients.xlsx');
-    setSuccessMessage(`Excel exported (${records.length} rows)`);
+    showSuccessToast(`Excel exported (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -364,7 +364,7 @@ export default function ClientsPage() {
     });
 
     doc.save('clients.pdf');
-    setSuccessMessage(`PDF exported (${records.length} rows)`);
+    showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
   const clientColumns: MuiDataTableColumn<Client>[] = [
@@ -443,9 +443,11 @@ export default function ClientsPage() {
   if (!mounted) return null;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Clients</Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Clients" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button variant="contained" onClick={handleAdd}>
           + Add Client
         </Button>
@@ -456,13 +458,6 @@ export default function ClientsPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
 
             <TextField
               select
@@ -531,6 +526,11 @@ export default function ClientsPage() {
             total={total}
             onPageChange={setPage}
             showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
             loading={false}
           />
         )
@@ -625,13 +625,7 @@ export default function ClientsPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={5000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

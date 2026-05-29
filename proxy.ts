@@ -36,12 +36,12 @@ function getCorsHeaders(origin: string | null): Record<string, string> {
   };
 }
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const origin = req.headers.get('origin');
 
   if (!pathname.startsWith('/api/')) {
-    // Page routes — allow public paths, redirect to login if no token present
+    // Page routes - allow public paths, redirect to login if no token present
     if (!PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
       const token = req.cookies.get('token')?.value;
       if (!isTokenPresent(token ?? null)) {
@@ -78,5 +78,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|public/).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|sw.js|public/).*)'],
 };

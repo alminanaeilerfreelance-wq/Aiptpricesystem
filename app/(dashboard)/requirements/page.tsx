@@ -20,7 +20,6 @@ import {
   Stack,
   TextField,
   Typography,
-  Snackbar,
   IconButton,
   Tooltip,
   SvgIcon,
@@ -30,6 +29,8 @@ import type { MuiDataTableColumn } from '@/components/ui';
 import requirementsService from '@/services/requirements.service';
 import { countriesService } from '@/services/countries.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 const RequirementForm = dynamicImport(() => import('@/components/requirements/RequirementForm'), {
   ssr: false,
@@ -111,7 +112,6 @@ export default function RequirementsPage() {
   const [sortBy, setSortBy] = useState<'createdAt' | 'country'>('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -206,7 +206,7 @@ export default function RequirementsPage() {
       } else {
         await fetchRequirements({ nextPage: targetPage });
       }
-      setSuccessMessage('Requirement deleted successfully');
+      showSuccessToast('Requirement deleted successfully');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to delete requirement');
     } finally {
@@ -223,7 +223,7 @@ export default function RequirementsPage() {
     } else {
       await fetchRequirements({ nextPage: 1 });
     }
-    setSuccessMessage(editingId ? 'Requirement updated successfully' : 'Requirement created successfully');
+    showSuccessToast(editingId ? 'Requirement updated successfully' : 'Requirement created successfully');
   };
 
   const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -291,7 +291,7 @@ export default function RequirementsPage() {
         } else {
           await fetchRequirements({ nextPage: 1 });
         }
-        setSuccessMessage(
+        showSuccessToast(
           `Import completed: ${importedCount} total (${createdCount} created, ${updatedCount} updated)`
         );
       }
@@ -365,7 +365,7 @@ export default function RequirementsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Requirements');
     XLSX.writeFile(wb, 'requirements.csv');
-    setSuccessMessage(`CSV exported successfully (${records.length} rows)`);
+    showSuccessToast(`CSV exported successfully (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -384,7 +384,7 @@ export default function RequirementsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Requirements');
     XLSX.writeFile(wb, 'requirements.xlsx');
-    setSuccessMessage(`Excel exported successfully (${records.length} rows)`);
+    showSuccessToast(`Excel exported successfully (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -409,7 +409,7 @@ export default function RequirementsPage() {
     });
 
     doc.save('requirements.pdf');
-    setSuccessMessage(`PDF exported successfully (${records.length} rows)`);
+    showSuccessToast(`PDF exported successfully (${records.length} rows)`);
   };
 
   const handleDownloadTemplate = async () => {
@@ -422,7 +422,7 @@ export default function RequirementsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
     XLSX.writeFile(wb, 'requirements-import-template.csv');
-    setSuccessMessage('Import template downloaded');
+    showSuccessToast('Import template downloaded');
   };
 
   const applyCountryFilter = (nextCountry: string) => {
@@ -532,9 +532,11 @@ export default function RequirementsPage() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Requirements</Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Requirements" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button variant="contained" onClick={handleAdd}>
           + Add Requirement
         </Button>
@@ -545,13 +547,6 @@ export default function RequirementsPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <FormControl sx={{ flex: 1, minWidth: 200 }}>
               <InputLabel>Filter by Country</InputLabel>
               <Select
@@ -676,6 +671,11 @@ export default function RequirementsPage() {
                 }
               }}
               showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
               loading={false}
             />
           </>
@@ -688,17 +688,6 @@ export default function RequirementsPage() {
         onSuccess={handleFormSuccess}
         editingId={editingId}
       />
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={3000}
-        onClose={() => setSuccessMessage('')}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        <Alert severity="success" onClose={() => setSuccessMessage('')} sx={{ width: '100%' }}>
-          {successMessage}
-        </Alert>
-      </Snackbar>
 
       <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>View Requirement</DialogTitle>
@@ -732,6 +721,7 @@ export default function RequirementsPage() {
           <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={loading}>Delete</Button>
         </DialogActions>
       </Dialog>
+      </Box>
     </Box>
   );
 }

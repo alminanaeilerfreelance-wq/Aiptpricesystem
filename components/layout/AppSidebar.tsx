@@ -143,6 +143,7 @@ const masterDataItems: NavItem[] = [
   { label: 'Client', href: '/clients', icon: <UsersIcon /> },
   { label: 'Associte', href: '/associte', icon: <UsersIcon /> },
   { label: 'Own Offices', href: '/own-offices', icon: <BriefcaseIcon /> },
+  { label: 'Company Details', href: '/company-details', icon: <BriefcaseIcon /> },
   { label: 'Department', href: '/departments', icon: <BriefcaseIcon /> },
   { label: 'Services', href: '/services', icon: <BriefcaseIcon /> },
   { label: 'Countries', href: '/countries', icon: <GlobeIcon /> },

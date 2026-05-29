@@ -22,7 +22,6 @@ import {
   Paper,
   TextField,
   Typography,
-  Snackbar,
   IconButton,
   Tooltip,
   SvgIcon,
@@ -34,6 +33,8 @@ import { proceduresService } from '@/services/procedures.service';
 import { countriesService } from '@/services/countries.service';
 import { servicesService } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,7 +97,6 @@ export default function ProceduresPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -249,10 +249,10 @@ export default function ProceduresPage() {
 
       if (editingId) {
         await proceduresService.update(editingId, payload);
-        setSuccessMessage('Procedure updated successfully');
+        showSuccessToast('Procedure updated successfully');
       } else {
         await proceduresService.create(payload);
-        setSuccessMessage('Procedure created successfully');
+        showSuccessToast('Procedure created successfully');
       }
 
       handleCloseForm();
@@ -289,7 +289,7 @@ export default function ProceduresPage() {
       } else {
         await fetchProcedures({ nextPage: targetPage });
       }
-      setSuccessMessage('Procedure deleted successfully');
+      showSuccessToast('Procedure deleted successfully');
     } catch (err: any) {
       setError(err.message || 'Failed to delete procedure');
     } finally {
@@ -359,7 +359,7 @@ export default function ProceduresPage() {
       if (importedCount > 0) {
         if (page !== 1) setPage(1);
         else await fetchProcedures({ nextPage: 1 });
-        setSuccessMessage(`Imported ${importedCount} procedures`);
+        showSuccessToast(`Imported ${importedCount} procedures`);
       }
       if (importErrors.length > 0) {
         setError(
@@ -430,7 +430,7 @@ export default function ProceduresPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Procedures');
     XLSX.writeFile(wb, 'procedures.csv');
-    setSuccessMessage(`CSV exported (${records.length} rows)`);
+    showSuccessToast(`CSV exported (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -451,7 +451,7 @@ export default function ProceduresPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Procedures');
     XLSX.writeFile(wb, 'procedures.xlsx');
-    setSuccessMessage(`Excel exported (${records.length} rows)`);
+    showSuccessToast(`Excel exported (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -476,7 +476,7 @@ export default function ProceduresPage() {
     });
 
     doc.save('procedures.pdf');
-    setSuccessMessage(`PDF exported (${records.length} rows)`);
+    showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
   if (!mounted) return null;
@@ -553,16 +553,18 @@ export default function ProceduresPage() {
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box
-        sx={{
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Procedures" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box
+          sx={{
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
           mb: 3,
         }}
       >
-        <Typography variant="h4">Procedures</Typography>
         <Button variant="contained" onClick={handleAdd}>
           + Add Procedure
         </Button>
@@ -586,13 +588,6 @@ export default function ProceduresPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <FormControl sx={{ minWidth: 160 }}>
               <InputLabel>Rows</InputLabel>
               <Select
@@ -674,6 +669,11 @@ export default function ProceduresPage() {
               total={total}
               onPageChange={setPage}
               showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
               loading={false}
             />
           </>
@@ -782,13 +782,7 @@ export default function ProceduresPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

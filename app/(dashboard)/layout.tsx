@@ -5,6 +5,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
 import { ToastProvider } from '@/components/feedback/ToastProvider';
 import { Box } from '@mui/material';
+import { ToastProvider as HeroToastProvider } from '@heroui/toast';
 import AppSidebar, { APP_DRAWER_WIDTH } from '@/components/layout/AppSidebar';
 import {
   LayoutShellProvider,
@@ -51,6 +52,7 @@ export default function DashboardLayout({
         <ToastProvider>
           <LayoutShellProvider>
             <DashboardShell>{children}</DashboardShell>
+            <HeroToastProvider placement="bottom-right" />
           </LayoutShellProvider>
         </ToastProvider>
       </SettingsProvider>

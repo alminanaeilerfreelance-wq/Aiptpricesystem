@@ -27,7 +27,6 @@ import {
   Paper,
   TextField,
   Typography,
-  Snackbar,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
@@ -35,6 +34,8 @@ import { pricingRulesService } from '@/services/pricing-rules.service';
 import { countriesService } from '@/services/countries.service';
 import { proceduresService } from '@/services/procedures.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +78,6 @@ export default function PricingRulesPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -291,10 +291,10 @@ export default function PricingRulesPage() {
 
       if (editingId) {
         await pricingRulesService.update(editingId, payload);
-        setSuccessMessage('Pricing rule updated successfully');
+        showSuccessToast('Pricing rule updated successfully');
       } else {
         await pricingRulesService.create(payload);
-        setSuccessMessage('Pricing rule created successfully');
+        showSuccessToast('Pricing rule created successfully');
       }
 
       handleCloseForm();
@@ -331,7 +331,7 @@ export default function PricingRulesPage() {
       } else {
         await fetchItems({ nextPage: targetPage });
       }
-      setSuccessMessage('Pricing rule deleted successfully');
+      showSuccessToast('Pricing rule deleted successfully');
     } catch (err: any) {
       setError(err.message || 'Failed to delete');
     } finally {
@@ -396,7 +396,7 @@ export default function PricingRulesPage() {
       if (importedCount > 0) {
         if (page !== 1) setPage(1);
         else await fetchItems({ nextPage: 1 });
-        setSuccessMessage(`Imported ${importedCount} items`);
+        showSuccessToast(`Imported ${importedCount} items`);
       }
       if (importErrors.length > 0) {
         setError(
@@ -472,7 +472,7 @@ export default function PricingRulesPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Pricing Rules');
     XLSX.writeFile(wb, 'pricing-rules.csv');
-    setSuccessMessage(`CSV exported (${records.length} rows)`);
+    showSuccessToast(`CSV exported (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -498,7 +498,7 @@ export default function PricingRulesPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Pricing Rules');
     XLSX.writeFile(wb, 'pricing-rules.xlsx');
-    setSuccessMessage(`Excel exported (${records.length} rows)`);
+    showSuccessToast(`Excel exported (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -529,7 +529,7 @@ export default function PricingRulesPage() {
     });
 
     doc.save('pricing-rules.pdf');
-    setSuccessMessage(`PDF exported (${records.length} rows)`);
+    showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -617,16 +617,18 @@ export default function PricingRulesPage() {
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box
-        sx={{
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Pricing Rules" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box
+          sx={{
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
           mb: 3,
         }}
       >
-        <Typography variant="h4">Pricing Rules</Typography>
         <Button variant="contained" onClick={handleAdd}>
           + Add Rule
         </Button>
@@ -641,13 +643,6 @@ export default function PricingRulesPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <FormControl sx={{ minWidth: 180 }}>
               <InputLabel>Category</InputLabel>
               <Select
@@ -748,6 +743,11 @@ export default function PricingRulesPage() {
               total={total}
               onPageChange={setPage}
               showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
               loading={false}
             />
           </>
@@ -950,13 +950,7 @@ export default function PricingRulesPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

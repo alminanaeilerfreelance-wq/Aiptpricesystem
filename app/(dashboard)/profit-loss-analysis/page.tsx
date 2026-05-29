@@ -10,7 +10,6 @@ import {
   CircularProgress,
   Grid,
   MenuItem,
-  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -19,6 +18,8 @@ import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import profitLossService, { ProfitLossRecord, ProfitLossSummary } from '@/services/profit-loss.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,6 @@ export default function ProfitLossAnalysisPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
     setMounted(true);
@@ -95,7 +95,7 @@ export default function ProfitLossAnalysisPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'ProfitLoss');
     XLSX.writeFile(wb, 'profit-loss-analysis.csv');
-    setSuccessMessage('CSV exported successfully');
+    showSuccessToast('CSV exported successfully');
   };
 
   const handleExportExcel = async () => {
@@ -116,7 +116,7 @@ export default function ProfitLossAnalysisPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'ProfitLoss');
     XLSX.writeFile(wb, 'profit-loss-analysis.xlsx');
-    setSuccessMessage('Excel exported successfully');
+    showSuccessToast('Excel exported successfully');
   };
 
   const handleExportPDF = async () => {
@@ -153,7 +153,7 @@ export default function ProfitLossAnalysisPage() {
     });
 
     doc.save('profit-loss-analysis.pdf');
-    setSuccessMessage('PDF exported successfully');
+    showSuccessToast('PDF exported successfully');
   };
 
   const columns: MuiDataTableColumn<ProfitLossRecord>[] = [
@@ -227,10 +227,10 @@ export default function ProfitLossAnalysisPage() {
   if (!mounted) return null;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" sx={{ mb: 3 }}>
-        Profit or Loss Analysis
-      </Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Profit or Loss Analysis" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
@@ -270,13 +270,6 @@ export default function ProfitLossAnalysisPage() {
         <CardContent>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 7 }}>
-              <TextField
-                placeholder="Search by inquiry project or quotation number..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                size="small"
-                fullWidth
-              />
             </Grid>
             <Grid size={{ xs: 12, md: 2 }}>
               <TextField
@@ -334,17 +327,16 @@ export default function ProfitLossAnalysisPage() {
             total={total}
             onPageChange={setPage}
             showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
             loading={false}
           />
         )
       )}
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={5000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

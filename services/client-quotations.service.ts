@@ -10,8 +10,8 @@ export interface ClientQuotationServiceItem {
   additionalClassFees: number;
   totalOfficialFees: number;
   attorneyFee: number;
-  officeFee: number;
   otherFees: number;
+  vatFee: number;
   discount: number;
   totalAmount: number;
   grandTotal: number;
@@ -51,6 +51,7 @@ export interface ClientQuotation {
   totalAttorneyFees: number;
   totalOfficeFees: number;
   totalOtherFees: number;
+  totalVatFees: number;
   totalDiscount: number;
   grandTotal: number;
   status: 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
@@ -80,6 +81,8 @@ export interface CreateClientQuotationDto {
   status?: 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
 }
 
+export type ClientQuotationStatus = ClientQuotation['status'];
+
 export const clientQuotationsService = {
   async list(params?: ClientQuotationListParams): Promise<ClientQuotationListResponse> {
     const response = await apiClient.get<ClientQuotationListResponse>('/api/client-quotations', { params });
@@ -98,6 +101,11 @@ export const clientQuotationsService = {
 
   async update(id: string, data: Partial<CreateClientQuotationDto>): Promise<ClientQuotation> {
     const response = await apiClient.patch<ClientQuotation>(`/api/client-quotations/${id}`, data);
+    return response.data;
+  },
+
+  async updateStatus(id: string, status: ClientQuotationStatus): Promise<ClientQuotation> {
+    const response = await apiClient.patch<ClientQuotation>(`/api/client-quotations/${id}`, { status });
     return response.data;
   },
 

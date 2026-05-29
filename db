@@ -1,7 +1,171 @@
+https://www.youtube.com/watch?v=ggSmEcAyiPE&list=PL5jb9EteFAOAusKTSuJ5eRl1BapQmMDT6&index=44
+
 username:alminanaeilerfreelance_db_user
 password:71MMaBF2SXi3NuHE
 dbname:aiptpricedb
 mongodb+srv://alminanaeilerfreelance_db_user:71MMaBF2SXi3NuHE@aiptpricedb.qbdhhhu.mongodb.net/
+
+apply to all pages 
+Added Topbar
+Moved page content under the headers
+Sidebar toggle uses the existing dashboard layout state
+
+Enterprise System
+Material UI
+Material React Table
+Recharts
+Modern SaaS UI
+shadcn/ui
+HeroUI
+Framer Motion
+Fast Development
+DaisyUI
+Flowbite React
+
+
+add  validation error  404,504
+Validation Rules:
+
+1. Official Fee
+- Required
+- Must be a number
+- Cannot be negative
+
+2. Attorney Fee
+- Required
+- Must be a number
+- Cannot be negative
+
+3. Discount
+- Optional
+- Must be a number
+- Cannot be negative
+- Cannot be greater than Attorney Fee
+
+4. VAT
+- Optional
+- Must be a number
+- Cannot be negative
+- Cannot be greater than 100
+
+5. Total
+- Should be calculated by the system
+- User should not manually edit Total
+
+notification for validation
+Modify the Client Quotation module.
+
+Requirements:
+
+1. Add popup toast notifications using HeroUI Toast.
+
+Reference:
+https://heroui.com/en/docs/react/components/toast
+
+Use toast notifications for:
+
+* Successful quotation creation
+* Successful quotation update
+* Successful quotation deletion
+* Validation errors
+* API/server errors
+
+Toast placement:
+bottom end
+
+Example:
+
+```jsx
+<Toast.Provider placement="bottom end" queue={successQueue} />
+```
+
+Success toast example:
+
+```js
+successQueue.add({
+  title: "Success!",
+  description: "Client quotation saved successfully.",
+  variant: "success",
+});
+```
+
+Error toast example:
+
+```js
+errorQueue.add({
+  title: "Validation Error",
+  description: "Please fix the highlighted fields.",
+  variant: "danger",
+});
+```
+
+2. Add Client Quotation fee validation.
+
+Validation Rules:
+
+Official Fee:
+
+* Required
+* Must be a number
+* Cannot be negative
+
+Attorney Fee:
+
+* Required
+* Must be a number
+* Cannot be negative
+
+Discount:
+
+* Optional
+* Must be a number
+* Cannot be negative
+* Cannot be greater than Attorney Fee
+
+VAT:
+
+* Optional
+* Must be a number
+* Cannot be negative
+* Cannot be greater than 100
+
+Total:
+
+* Must be calculated by the system
+* User must not manually edit Total
+
+3. Calculation Rules:
+
+```js
+discountAmount = discount || 0;
+attorneyFeeAfterDiscount = attorneyFee - discountAmount;
+vatAmount = attorneyFeeAfterDiscount * (vat / 100);
+totalAmount = officialFee + attorneyFeeAfterDiscount + vatAmount;
+```
+
+4. Security requirements:
+
+* Validate on frontend before submit
+* Validate again on backend before saving
+* Do not trust frontend calculated totals
+* Backend must recalculate Total before saving
+* Reject invalid fee values with clear error messages
+* Show backend validation errors using toast notifications
+
+---------------------------------------
+
+
+create a page for company details
+material ui 
+add pagination, searhing to all fields, use material ui
+import, export, pdf,
+action : view, edit, update, delete
+continents -get the data from continents model
+compamy name
+address
+contact
+email 
+country - get the data into countrty model
 
 view -eye icon- .bg-primary
 edit -note icon -.bg-success
@@ -207,12 +371,13 @@ Procedure:
 - Get procedure data from Pricing Rules model
 - When user selects procedure, add it to quotation cart/table
 - User can manually input:
-  - office fee
   - official fee
   - attorney fee
   - other fees
+  - vat fees 
   - discount optional
   - class type: single or multi
+  - total of vat for attorney fee 
 
 Class fee logic:
 - If class type is single:
@@ -226,10 +391,74 @@ Class fee logic:
     - additionalFeePerClass
   - totalOfficialFees = officialFee + (additionalFeePerClass * numberOfClasses)
 
+  discount is now optional and applied to attorneyFee directly.
+
+New logic:
+
+for single class
+Table Columns:
+procedure| class type | Official Fee | Attorney Fee | Discount | VAT | Total
+
+Calculation Rules:
+
+1. Discount is optional.
+   If no discount, use 0.
+
+2. VAT applies only to Attorney Fee after discount.
+
+3. Service row calculation:
+
+discountAmount = discount || 0
+
+attorneyFeeAfterDiscount = attorneyFee - discountAmount
+
+vatAmount = attorneyFeeAfterDiscount * (vatPercent / 100)
+
+totalAmount = officialFee + attorneyFeeAfterDiscount + vatAmount
+
+grandTotal = sum of all totalAmount rows
+
+
+for multi class 
+Table Columns:
+procedure| class type |numberOfClasses|additionalFeePerClass | Official Fee | Attorney Fee | Discount | VAT | Total
+
+Calculation Rules:
+
+1. Discount is optional.
+   If no discount, use 0.
+
+2. VAT applies only to Attorney Fee after discount.
+
+3. Service row calculation:
+
+discountAmount = discount || 0
+
+attorneyFeeAfterDiscount = attorneyFee - discountAmount
+
+vatAmount = attorneyFeeAfterDiscount * (vatPercent / 100)
+
+totalOfficialFees = officialFee + (additionalFeePerClass * numberOfClasses)
+
+totalAmount = officialFee + attorneyFeeAfterDiscount + vatAmount
+
+grandTotal = sum of all totalAmount rows
+
+--------------------------------------------
+
+
+
 Service row calculation:
-- totalAmount = officialFees + attorneyFee + officeFee + otherFees
+- totaldiscount = attorneyFee - discount
+- totalvat = attorneyFee + vat-(depands on the user input)
 - discount is optional
+- totalAmount = officialFees + attorneyFee + otherFees + vat
 - grandTotal = totalAmount - discount
+
+total = officialFees + attorneyFee + vat 
+total = officialFees + attorneyFee 
+total = officialFees + attorneyFee 
+total = officialFees + attorneyFee + discount + vat  
 
 Display in table:
 - procedure
@@ -241,6 +470,7 @@ Display in table:
 - office fee
 - other fees
 - discount
+- vat
 - grand total
 
 Quotation total:
@@ -761,3 +991,15 @@ After create a Client Quotations it display on the All Quotations page with sepa
   Inquiry Project,service,Procedure,client, Country, official fees, attorney fees, total,action, Date
   Copyright tab
   Inquiry Project,service,Procedure,client, Country, official fees, attorney fees, total,action, Date
+
+
+in the Client Quotation Invoice 
+modify the invoices make it professional design
+add the company details get the data from company details  
+display the client details
+requirement details
+services details
+ modify the table color in evry cell for header, row, col 
+add setting button to user set to save a default color design to all  Service Details table no need the user can change the color every time 
+times new roman 
+font color red discount cor red 

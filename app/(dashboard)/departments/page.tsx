@@ -27,13 +27,14 @@ import {
   Paper,
   TextField,
   Typography,
-  Snackbar,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { departmentsService } from '@/services/departments.service';
 import { countriesService } from '@/services/countries.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -69,7 +70,6 @@ export default function DepartmentsPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [countryFilter, setCountryFilter] = useState('');
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -187,10 +187,10 @@ export default function DepartmentsPage() {
 
       if (editingId) {
         await departmentsService.update(editingId, payload);
-        setSuccessMessage('Department updated successfully');
+        showSuccessToast('Department updated successfully');
       } else {
         await departmentsService.create(payload);
-        setSuccessMessage('Department created successfully');
+        showSuccessToast('Department created successfully');
       }
 
       handleCloseForm();
@@ -227,7 +227,7 @@ export default function DepartmentsPage() {
       } else {
         await fetchDepartments({ nextPage: targetPage });
       }
-      setSuccessMessage('Department deleted successfully');
+      showSuccessToast('Department deleted successfully');
     } catch (err: any) {
       setError(err.message || 'Failed to delete department');
     } finally {
@@ -286,7 +286,7 @@ export default function DepartmentsPage() {
       if (importedCount > 0) {
         if (page !== 1) setPage(1);
         else await fetchDepartments({ nextPage: 1 });
-        setSuccessMessage(`Imported ${importedCount} departments`);
+        showSuccessToast(`Imported ${importedCount} departments`);
       }
 
       if (importErrors.length > 0) {
@@ -358,7 +358,7 @@ export default function DepartmentsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Departments');
     XLSX.writeFile(wb, 'departments.csv');
-    setSuccessMessage(`CSV exported (${records.length} rows)`);
+    showSuccessToast(`CSV exported (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -379,7 +379,7 @@ export default function DepartmentsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Departments');
     XLSX.writeFile(wb, 'departments.xlsx');
-    setSuccessMessage(`Excel exported (${records.length} rows)`);
+    showSuccessToast(`Excel exported (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -404,7 +404,7 @@ export default function DepartmentsPage() {
     });
 
     doc.save('departments.pdf');
-    setSuccessMessage(`PDF exported (${records.length} rows)`);
+    showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -472,16 +472,18 @@ export default function DepartmentsPage() {
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box
-        sx={{
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Departments" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box
+          sx={{
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
           mb: 3,
         }}
       >
-        <Typography variant="h4">Departments</Typography>
         <Button variant="contained" onClick={handleAdd}>
           + Add Department
         </Button>
@@ -496,13 +498,6 @@ export default function DepartmentsPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <FormControl sx={{ flex: 1, minWidth: 200 }}>
               <InputLabel>Filter by Country</InputLabel>
               <Select
@@ -600,6 +595,11 @@ export default function DepartmentsPage() {
               total={total}
               onPageChange={setPage}
               showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
               loading={false}
             />
           </>
@@ -706,13 +706,7 @@ export default function DepartmentsPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

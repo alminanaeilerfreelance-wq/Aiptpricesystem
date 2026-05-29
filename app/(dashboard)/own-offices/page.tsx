@@ -13,7 +13,6 @@ import {
   DialogContent,
   DialogTitle,
   MenuItem,
-  Snackbar,
   Stack,
   TextField,
   Typography,
@@ -22,6 +21,8 @@ import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import ownOfficesService, { OwnOffice } from '@/services/own-offices.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,7 +50,6 @@ export default function OwnOfficesPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -151,10 +151,10 @@ export default function OwnOfficesPage() {
 
       if (editingId) {
         await ownOfficesService.update(editingId, payload);
-        setSuccessMessage('Own office updated successfully');
+        showSuccessToast('Own office updated successfully');
       } else {
         await ownOfficesService.create(payload);
-        setSuccessMessage('Own office created successfully');
+        showSuccessToast('Own office created successfully');
       }
 
       handleCloseForm();
@@ -178,7 +178,7 @@ export default function OwnOfficesPage() {
       setDeletingId(null);
       if (targetPage !== page) setPage(targetPage);
       else await fetchItems({ nextPage: targetPage });
-      setSuccessMessage('Own office deleted successfully');
+      showSuccessToast('Own office deleted successfully');
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to delete own office');
     } finally {
@@ -241,9 +241,11 @@ export default function OwnOfficesPage() {
   if (!mounted) return null;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Own Offices</Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Own Offices" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button variant="contained" onClick={handleAdd}>
           + Add Own Office
         </Button>
@@ -254,13 +256,6 @@ export default function OwnOfficesPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <TextField
               select
               label="Rows"
@@ -304,6 +299,11 @@ export default function OwnOfficesPage() {
             total={total}
             onPageChange={setPage}
             showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
             loading={false}
           />
         )
@@ -378,13 +378,7 @@ export default function OwnOfficesPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={5000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

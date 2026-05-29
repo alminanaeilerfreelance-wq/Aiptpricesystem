@@ -19,7 +19,6 @@ import {
   InputLabel,
   MenuItem,
   Select,
-  Snackbar,
   Stack,
   Table,
   TableBody,
@@ -43,6 +42,8 @@ import associateQuotationsService, {
   AssociateQuotationServiceItem,
 } from '@/services/associate-quotations.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -250,7 +251,6 @@ export default function AssociateQuotationsPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [associates, setAssociates] = useState<AssociateOption[]>([]);
   const [allProcedureOptions, setAllProcedureOptions] = useState<PricingProcedureOption[]>([]);
@@ -587,10 +587,10 @@ export default function AssociateQuotationsPage() {
       setError('');
       if (editingId) {
         await associateQuotationsService.update(editingId, payload);
-        setSuccessMessage('Associate quotation updated successfully');
+        showSuccessToast('Associate quotation updated successfully');
       } else {
         await associateQuotationsService.create(payload);
-        setSuccessMessage('Associate quotation created successfully');
+        showSuccessToast('Associate quotation created successfully');
       }
 
       handleCloseForm();
@@ -614,7 +614,7 @@ export default function AssociateQuotationsPage() {
       setDeletingId(null);
       if (targetPage !== page) setPage(targetPage);
       else await fetchItems({ nextPage: targetPage });
-      setSuccessMessage('Associate quotation deleted successfully');
+      showSuccessToast('Associate quotation deleted successfully');
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to delete associate quotation');
     } finally {
@@ -728,9 +728,11 @@ export default function AssociateQuotationsPage() {
   if (!mounted) return null;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Associate Quotations</Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Associate Quotations" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button variant="contained" onClick={handleAdd}>
           + Add Associate Quotation
         </Button>
@@ -742,13 +744,6 @@ export default function AssociateQuotationsPage() {
         <CardContent>
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, md: 9 }}>
-              <TextField
-                placeholder="Search by inquiry project, associate..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                size="small"
-                fullWidth
-              />
             </Grid>
             <Grid size={{ xs: 12, md: 3 }}>
               <TextField
@@ -806,6 +801,11 @@ export default function AssociateQuotationsPage() {
               total={total}
               onPageChange={setPage}
               showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
               loading={false}
             />
           </Box>
@@ -1398,13 +1398,7 @@ export default function AssociateQuotationsPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={5000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

@@ -27,12 +27,13 @@ import {
   Paper,
   TextField,
   Typography,
-  Snackbar,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { countriesService } from '@/services/countries.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +56,6 @@ export default function CountriesPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -155,10 +155,10 @@ export default function CountriesPage() {
 
       if (editingId) {
         await countriesService.update(editingId, payload);
-        setSuccessMessage('Country updated successfully');
+        showSuccessToast('Country updated successfully');
       } else {
         await countriesService.create(payload);
-        setSuccessMessage('Country created successfully');
+        showSuccessToast('Country created successfully');
       }
 
       handleCloseForm();
@@ -195,7 +195,7 @@ export default function CountriesPage() {
       } else {
         await fetchCountries({ nextPage: targetPage });
       }
-      setSuccessMessage('Country deleted successfully');
+      showSuccessToast('Country deleted successfully');
     } catch (err: any) {
       setError(err.message || 'Failed to delete country');
     } finally {
@@ -243,7 +243,7 @@ export default function CountriesPage() {
       if (importedCount > 0) {
         if (page !== 1) setPage(1);
         else await fetchCountries({ nextPage: 1 });
-        setSuccessMessage(`Imported ${importedCount} countries`);
+        showSuccessToast(`Imported ${importedCount} countries`);
       }
       if (importErrors.length > 0) {
         setError(
@@ -310,7 +310,7 @@ export default function CountriesPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Countries');
     XLSX.writeFile(wb, 'countries.csv');
-    setSuccessMessage(`CSV exported (${records.length} rows)`);
+    showSuccessToast(`CSV exported (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -331,7 +331,7 @@ export default function CountriesPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Countries');
     XLSX.writeFile(wb, 'countries.xlsx');
-    setSuccessMessage(`Excel exported (${records.length} rows)`);
+    showSuccessToast(`Excel exported (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -356,7 +356,7 @@ export default function CountriesPage() {
     });
 
     doc.save('countries.pdf');
-    setSuccessMessage(`PDF exported (${records.length} rows)`);
+    showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -419,16 +419,18 @@ export default function CountriesPage() {
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box
-        sx={{
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Countries" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box
+          sx={{
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
           mb: 3,
         }}
       >
-        <Typography variant="h4">Countries</Typography>
         <Button variant="contained" onClick={handleAdd}>
           + Add Country
         </Button>
@@ -443,13 +445,6 @@ export default function CountriesPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <FormControl sx={{ minWidth: 160 }}>
               <InputLabel>Rows</InputLabel>
               <Select
@@ -531,6 +526,11 @@ export default function CountriesPage() {
               total={total}
               onPageChange={setPage}
               showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
               loading={false}
             />
           </>
@@ -629,13 +629,7 @@ export default function CountriesPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

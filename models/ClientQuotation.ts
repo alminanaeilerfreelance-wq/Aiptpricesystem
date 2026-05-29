@@ -12,6 +12,7 @@ export interface IClientQuotationServiceItem {
   attorneyFee: number;
   officeFee: number;
   otherFees: number;
+  vatFee: number;
   discount: number;
   totalAmount: number;
   grandTotal: number;
@@ -46,6 +47,7 @@ export interface IClientQuotation extends Document {
   totalAttorneyFees: number;
   totalOfficeFees: number;
   totalOtherFees: number;
+  totalVatFees: number;
   totalDiscount: number;
   grandTotal: number;
   status: 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
@@ -67,6 +69,7 @@ const serviceItemSchema = new mongoose.Schema<IClientQuotationServiceItem>(
     attorneyFee: { type: Number, default: 0 },
     officeFee: { type: Number, default: 0 },
     otherFees: { type: Number, default: 0 },
+    vatFee: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
     totalAmount: { type: Number, default: 0 },
     grandTotal: { type: Number, default: 0 },
@@ -104,6 +107,7 @@ const clientQuotationSchema = new mongoose.Schema<IClientQuotation>(
     totalAttorneyFees: { type: Number, default: 0 },
     totalOfficeFees: { type: Number, default: 0 },
     totalOtherFees: { type: Number, default: 0 },
+    totalVatFees: { type: Number, default: 0 },
     totalDiscount: { type: Number, default: 0 },
     grandTotal: { type: Number, default: 0 },
     status: { type: String, enum: ['Draft', 'Submitted', 'Approved', 'Rejected'], default: 'Draft' },

@@ -27,7 +27,6 @@ import {
   Paper,
   TextField,
   Typography,
-  Snackbar,
   IconButton,
   Tooltip,
   SvgIcon,
@@ -36,6 +35,8 @@ import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { servicesService } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,7 +89,6 @@ export default function ServicesPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -184,7 +184,7 @@ export default function ServicesPage() {
       } else {
         await fetchServices({ nextPage: targetPage });
       }
-      setSuccessMessage('Service deleted successfully');
+      showSuccessToast('Service deleted successfully');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to delete service');
     } finally {
@@ -232,7 +232,7 @@ export default function ServicesPage() {
       if (importedCount > 0) {
         if (page !== 1) setPage(1);
         else await fetchServices({ nextPage: 1 });
-        setSuccessMessage(`Imported ${importedCount} services successfully`);
+        showSuccessToast(`Imported ${importedCount} services successfully`);
       }
 
       if (importErrors.length > 0) {
@@ -295,7 +295,7 @@ export default function ServicesPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Services');
     XLSX.writeFile(wb, 'services.csv');
-    setSuccessMessage(`CSV exported (${records.length} rows)`);
+    showSuccessToast(`CSV exported (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -315,7 +315,7 @@ export default function ServicesPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Services');
     XLSX.writeFile(wb, 'services.xlsx');
-    setSuccessMessage(`Excel exported (${records.length} rows)`);
+    showSuccessToast(`Excel exported (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -340,7 +340,7 @@ export default function ServicesPage() {
     });
 
     doc.save('services.pdf');
-    setSuccessMessage(`PDF exported (${records.length} rows)`);
+    showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -454,10 +454,10 @@ export default function ServicesPage() {
 
       if (editingId) {
         await servicesService.update(editingId, payload);
-        setSuccessMessage('Service updated successfully');
+        showSuccessToast('Service updated successfully');
       } else {
         await servicesService.create(payload);
-        setSuccessMessage('Service created successfully');
+        showSuccessToast('Service created successfully');
       }
 
       handleCloseForm();
@@ -476,9 +476,11 @@ export default function ServicesPage() {
   if (!mounted) return null;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Services</Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Services" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button variant="contained" onClick={handleAdd}>
           + Add Service
         </Button>
@@ -489,13 +491,6 @@ export default function ServicesPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <FormControl sx={{ flex: 1, minWidth: 200 }}>
               <InputLabel>Filter by Category</InputLabel>
               <Select
@@ -575,6 +570,11 @@ export default function ServicesPage() {
               total={total}
               onPageChange={setPage}
               showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
               loading={false}
             />
           </>
@@ -682,12 +682,7 @@ export default function ServicesPage() {
       </Dialog>
 
       {/* Success Message */}
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

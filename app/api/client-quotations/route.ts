@@ -17,8 +17,8 @@ interface RawServiceItem {
   additionalFeePerClass?: number;
   officialFee?: number;
   attorneyFee?: number;
-  officeFee?: number;
   otherFees?: number;
+  vatFee?: number; // VAT percent
   discount?: number;
 }
 
@@ -33,6 +33,9 @@ const toErrorPayload = (fallback: string, err: unknown) => {
 };
 
 const VALID_STATUS = new Set(['Draft', 'Submitted', 'Approved', 'Rejected']);
+const APPROVAL_STATUS = new Set(['Approved', 'Rejected']);
+
+const canManageApproval = (role: string) => role === 'admin';
 
 const getInquiryProcedureName = (inquiry: any): string => {
   if (Array.isArray(inquiry?.procedureIds) && inquiry.procedureIds.length > 0) {
@@ -44,21 +47,78 @@ const getInquiryProcedureName = (inquiry: any): string => {
   return inquiry?.procedureId?.name || '';
 };
 
-const calculateServices = (services: RawServiceItem[], serviceCategory: ServiceCategory) => {
-  const isTrademark = serviceCategory === 'Trademark';
+const parseOptionalNumber = (value: unknown): number | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const validateServiceRows = (services: RawServiceItem[]): string[] => {
+  const errors: string[] = [];
+
+  services.forEach((service, index) => {
+    const row = `Service row ${index + 1}`;
+    const classType = service.classType === 'multi' ? 'multi' : 'single';
+    const officialFee = parseOptionalNumber(service.officialFee);
+    const attorneyFee = parseOptionalNumber(service.attorneyFee);
+    const discount = parseOptionalNumber(service.discount);
+    const vat = parseOptionalNumber(service.vatFee);
+    const numberOfClasses = parseOptionalNumber(service.numberOfClasses);
+    const additionalFeePerClass = parseOptionalNumber(service.additionalFeePerClass);
+
+    if (!String(service?.procedureName || '').trim()) {
+      errors.push(`${row}: Procedure is required.`);
+    }
+
+    if (officialFee === null) errors.push(`${row}: Official Fee is required and must be a number.`);
+    else if (officialFee < 0) errors.push(`${row}: Official Fee cannot be negative.`);
+
+    if (attorneyFee === null) errors.push(`${row}: Attorney Fee is required and must be a number.`);
+    else if (attorneyFee < 0) errors.push(`${row}: Attorney Fee cannot be negative.`);
+
+    if (discount !== null) {
+      if (discount < 0) errors.push(`${row}: Discount cannot be negative.`);
+      if (attorneyFee !== null && discount > attorneyFee) {
+        errors.push(`${row}: Discount cannot be greater than Attorney Fee.`);
+      }
+    }
+
+    if (vat !== null) {
+      if (vat < 0) errors.push(`${row}: VAT cannot be negative.`);
+      if (vat > 100) errors.push(`${row}: VAT cannot be greater than 100.`);
+    }
+
+    if (classType === 'multi') {
+      if (numberOfClasses === null || numberOfClasses < 1) {
+        errors.push(`${row}: Number of Classes is required for multi class and must be at least 1.`);
+      }
+      if (additionalFeePerClass === null || additionalFeePerClass < 0) {
+        errors.push(`${row}: Additional Fee Per Class is required for multi class and cannot be negative.`);
+      }
+    }
+  });
+
+  return errors;
+};
+
+const calculateServices = (services: RawServiceItem[]) => {
   const normalized = services.map((service) => {
-    const classType = isTrademark && service.classType === 'multi' ? 'multi' : 'single';
+    const classType = service.classType === 'multi' ? 'multi' : 'single';
+    const numberOfClasses =
+      classType === 'multi' ? Math.max(1, Math.floor(toNumber(service.numberOfClasses, 1))) : 1;
+    const additionalFeePerClass =
+      classType === 'multi' ? Math.max(0, toNumber(service.additionalFeePerClass)) : 0;
+    const additionalClassFees = additionalFeePerClass * numberOfClasses;
     const officialFee = Math.max(0, toNumber(service.officialFee));
     const attorneyFee = Math.max(0, toNumber(service.attorneyFee));
-    const officeFee = Math.max(0, toNumber(service.officeFee));
     const otherFees = Math.max(0, toNumber(service.otherFees));
     const discount = Math.max(0, toNumber(service.discount));
-    const numberOfClasses = classType === 'multi' ? Math.max(1, Math.floor(toNumber(service.numberOfClasses, 1))) : 1;
-    const additionalFeePerClass = classType === 'multi' ? Math.max(0, toNumber(service.additionalFeePerClass)) : 0;
-    const additionalClassFees = classType === 'multi' ? additionalFeePerClass * numberOfClasses : 0;
-    const totalOfficialFees = officialFee + additionalClassFees;
-    const totalAmount = totalOfficialFees + attorneyFee + officeFee + otherFees;
-    const grandTotal = Math.max(0, totalAmount - discount);
+    const vatPercent = Math.max(0, toNumber(service.vatFee));
+    const totalOfficialFees = officialFee + (classType === 'multi' ? additionalClassFees : 0);
+    const attorneyFeeAfterDiscount = attorneyFee - discount;
+    const vatAmount = attorneyFeeAfterDiscount * (vatPercent / 100);
+    const totalAmount = totalOfficialFees + attorneyFeeAfterDiscount + vatAmount;
+    const grandTotal = totalAmount;
 
     return {
       procedureId:
@@ -73,8 +133,9 @@ const calculateServices = (services: RawServiceItem[], serviceCategory: ServiceC
       additionalClassFees,
       totalOfficialFees,
       attorneyFee,
-      officeFee,
+      officeFee: 0,
       otherFees,
+      vatFee: vatPercent,
       discount,
       totalAmount,
       grandTotal,
@@ -83,12 +144,14 @@ const calculateServices = (services: RawServiceItem[], serviceCategory: ServiceC
 
   const totals = normalized.reduce(
     (acc, item) => {
+      const vatAmount = (item.attorneyFee - item.discount) * (item.vatFee / 100);
       acc.totalOfficialFees += item.totalOfficialFees;
       acc.totalAttorneyFees += item.attorneyFee;
-      acc.totalOfficeFees += item.officeFee;
+      acc.totalOfficeFees += 0;
       acc.totalOtherFees += item.otherFees;
+      acc.totalVatFees += vatAmount;
       acc.totalDiscount += item.discount;
-      acc.grandTotal += item.grandTotal;
+      acc.grandTotal += item.totalAmount;
       return acc;
     },
     {
@@ -96,6 +159,7 @@ const calculateServices = (services: RawServiceItem[], serviceCategory: ServiceC
       totalAttorneyFees: 0,
       totalOfficeFees: 0,
       totalOtherFees: 0,
+      totalVatFees: 0,
       totalDiscount: 0,
       grandTotal: 0,
     }
@@ -183,6 +247,17 @@ export async function POST(req: NextRequest) {
     if (!client) return NextResponse.json({ error: 'Client not found' }, { status: 404 });
     if (!inquiry) return NextResponse.json({ error: 'Inquiry not found' }, { status: 404 });
 
+    const existingInquiryQuotation = await ClientQuotation.findOne({
+      inquiryId: body.inquiryId,
+      isActive: true,
+    }).lean();
+    if (existingInquiryQuotation) {
+      return NextResponse.json(
+        { error: 'This inquiry project already has a client quotation' },
+        { status: 409 }
+      );
+    }
+
     const serviceCategory = (inquiry.serviceId as any)?.category as ServiceCategory;
     if (!serviceCategory) {
       return NextResponse.json({ error: 'Inquiry service category is missing' }, { status: 400 });
@@ -192,14 +267,26 @@ export async function POST(req: NextRequest) {
     if (services.length === 0) {
       return NextResponse.json({ error: 'At least one service row is required' }, { status: 400 });
     }
-    if (services.some((service) => !String(service?.procedureName || '').trim())) {
-      return NextResponse.json({ error: 'Procedure name is required for all service rows' }, { status: 400 });
+    const validationErrors = validateServiceRows(services);
+    if (validationErrors.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Invalid fee values',
+          details: validationErrors,
+        },
+        { status: 400 }
+      );
     }
 
-    const { normalized, totals } = calculateServices(services, serviceCategory);
+    const { normalized, totals } = calculateServices(services);
 
-    if (body?.status !== undefined && !VALID_STATUS.has(String(body.status))) {
-      return NextResponse.json({ error: 'Invalid status value' }, { status: 400 });
+    if (body?.status !== undefined) {
+      if (!VALID_STATUS.has(String(body.status))) {
+        return NextResponse.json({ error: 'Invalid status value' }, { status: 400 });
+      }
+      if (APPROVAL_STATUS.has(String(body.status)) && !canManageApproval(user.role)) {
+        return NextResponse.json({ error: 'Forbidden: insufficient permissions' }, { status: 403 });
+      }
     }
 
     let requirementId: mongoose.Types.ObjectId | undefined;
@@ -237,7 +324,7 @@ export async function POST(req: NextRequest) {
       serviceCategory,
       services: normalized,
       ...totals,
-      status: body?.status || 'Draft',
+      status: body?.status || 'Submitted',
     });
 
     const populated = await clientQuotation.populate([

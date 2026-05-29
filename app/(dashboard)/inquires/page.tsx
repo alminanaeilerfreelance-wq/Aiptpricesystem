@@ -12,7 +12,6 @@ import {
   DialogContent,
   DialogTitle,
   Grid,
-  Snackbar,
   Stack,
   TextField,
   IconButton,
@@ -28,6 +27,8 @@ import { proceduresService, Procedure } from '@/services/procedures.service';
 import { countriesService, Country } from '@/services/countries.service';
 import { clientsService, Client } from '@/services/clients.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -236,7 +237,6 @@ export default function InquiresPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [services, setServices] = useState<Service[]>([]);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
@@ -543,10 +543,10 @@ export default function InquiresPage() {
       setError('');
       if (editingId) {
         await inquiresService.update(editingId, payload);
-        setSuccessMessage('Inquire updated successfully');
+        showSuccessToast('Inquire updated successfully');
       } else {
         await inquiresService.create(payload);
-        setSuccessMessage('Inquire created successfully');
+        showSuccessToast('Inquire created successfully');
       }
 
       handleCloseForm();
@@ -572,7 +572,7 @@ export default function InquiresPage() {
       if (page > totalPages) {
         setPage(totalPages);
       }
-      setSuccessMessage('Inquire deleted successfully');
+      showSuccessToast('Inquire deleted successfully');
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to delete inquire');
     } finally {
@@ -700,9 +700,11 @@ export default function InquiresPage() {
   if (!mounted) return null;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">Inquires</Typography>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Inquires" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
         <Button variant="contained" onClick={handleAdd}>
           + Add Inquire
         </Button>
@@ -1008,13 +1010,7 @@ export default function InquiresPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={5000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

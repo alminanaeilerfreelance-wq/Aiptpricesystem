@@ -8,7 +8,6 @@ import { StatusBadge } from '@/components/tables';
 import { TablePagination } from '@/components/tables';
 import { Button } from '@/components/ui';
 import { Select } from '@/components/ui';
-import { Input } from '@/components/ui';
 import { Modal } from '@/components/ui';
 import { quotationsService, Quotation } from '@/services/quotations.service';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -220,15 +219,6 @@ export default function QuotationsPage() {
                 </button>
               </div>
             )}
-            {/* Search */}
-            <div className="w-64">
-              <Input
-                placeholder="Search quotations..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                aria-label="Search quotations"
-              />
-            </div>
           </div>
           <Link href="/quotations/new">
             <Button variant="primary">+ New Quotation</Button>
@@ -250,6 +240,12 @@ export default function QuotationsPage() {
             emptyMessage="No quotations found"
             emptyDescription="Try adjusting your filters or create a new quotation."
             keyExtractor={(row: Quotation) => row._id}
+            searchTerm={searchInput}
+            onSearchTermChange={(value) => {
+              setSearchInput(value);
+              setCurrentPage(1);
+            }}
+            searchPlaceholder="Search quotations..."
           />
           <TablePagination
             currentPage={currentPage}

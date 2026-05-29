@@ -27,12 +27,13 @@ import {
   Paper,
   TextField,
   Typography,
-  Snackbar,
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { clientTypesService } from '@/services/client-types.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import Topbar from '@/components/layout/Topbar';
+import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,7 +55,6 @@ export default function ClientTypesPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -152,10 +152,10 @@ export default function ClientTypesPage() {
 
       if (editingId) {
         await clientTypesService.update(editingId, payload);
-        setSuccessMessage('Client type updated successfully');
+        showSuccessToast('Client type updated successfully');
       } else {
         await clientTypesService.create(payload);
-        setSuccessMessage('Client type created successfully');
+        showSuccessToast('Client type created successfully');
       }
 
       handleCloseForm();
@@ -192,7 +192,7 @@ export default function ClientTypesPage() {
       } else {
         await fetchItems({ nextPage: targetPage });
       }
-      setSuccessMessage('Client type deleted successfully');
+      showSuccessToast('Client type deleted successfully');
     } catch (err: any) {
       setError(err.message || 'Failed to delete');
     } finally {
@@ -244,7 +244,7 @@ export default function ClientTypesPage() {
       if (importedCount > 0) {
         if (page !== 1) setPage(1);
         else await fetchItems({ nextPage: 1 });
-        setSuccessMessage(`Imported ${importedCount} items`);
+        showSuccessToast(`Imported ${importedCount} items`);
       }
       if (importErrors.length > 0) {
         setError(
@@ -313,7 +313,7 @@ export default function ClientTypesPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Client Types');
     XLSX.writeFile(wb, 'client-types.csv');
-    setSuccessMessage(`CSV exported (${records.length} rows)`);
+    showSuccessToast(`CSV exported (${records.length} rows)`);
   };
 
   const handleExportExcel = async () => {
@@ -334,7 +334,7 @@ export default function ClientTypesPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Client Types');
     XLSX.writeFile(wb, 'client-types.xlsx');
-    setSuccessMessage(`Excel exported (${records.length} rows)`);
+    showSuccessToast(`Excel exported (${records.length} rows)`);
   };
 
   const handleExportPDF = async () => {
@@ -359,7 +359,7 @@ export default function ClientTypesPage() {
     });
 
     doc.save('client-types.pdf');
-    setSuccessMessage(`PDF exported (${records.length} rows)`);
+    showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / limit));
@@ -423,16 +423,18 @@ export default function ClientTypesPage() {
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box
-        sx={{
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Topbar title="Client Types" />
+
+      <Box sx={{ p: 3, flex: 1 }}>
+        <Box
+          sx={{
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
           mb: 3,
         }}
       >
-        <Typography variant="h4">Client Types</Typography>
         <Button variant="contained" onClick={handleAdd}>
           + Add Type
         </Button>
@@ -447,13 +449,6 @@ export default function ClientTypesPage() {
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              placeholder="Search all fields..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              size="small"
-              sx={{ flex: 1 }}
-            />
             <FormControl sx={{ minWidth: 160 }}>
               <InputLabel>Rows</InputLabel>
               <Select
@@ -535,6 +530,11 @@ export default function ClientTypesPage() {
               total={total}
               onPageChange={setPage}
               showToolbar
+            searchTerm={search}
+            onSearchTermChange={(nextSearch) => {
+              setSearch(nextSearch);
+              setPage(1);
+            }}
               loading={false}
             />
           </>
@@ -633,13 +633,7 @@ export default function ClientTypesPage() {
           </Button>
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={!!successMessage}
-        autoHideDuration={6000}
-        onClose={() => setSuccessMessage('')}
-        message={successMessage}
-      />
+      </Box>
     </Box>
   );
 }

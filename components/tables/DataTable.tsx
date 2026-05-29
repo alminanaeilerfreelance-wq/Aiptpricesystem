@@ -17,6 +17,9 @@ export interface DataTableProps<T = Record<string, unknown>> {
   emptyMessage?: string;
   emptyDescription?: string;
   keyExtractor?: (row: T, index: number) => string | number;
+  searchTerm?: string;
+  onSearchTermChange?: (value: string) => void;
+  searchPlaceholder?: string;
 }
 
 const alignClass = {
@@ -32,9 +35,28 @@ function DataTable<T = Record<string, unknown>>({
   emptyMessage = 'No records found',
   emptyDescription,
   keyExtractor,
+  searchTerm,
+  onSearchTermChange,
+  searchPlaceholder = 'Search table...',
 }: DataTableProps<T>) {
   return (
     <div className="w-full overflow-x-auto rounded-2xl border border-gray-100 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.07)]">
+      {onSearchTermChange && (
+        <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-sm">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-400">
+              /
+            </span>
+            <input
+              type="search"
+              value={searchTerm ?? ''}
+              onChange={(event) => onSearchTermChange(event.target.value)}
+              placeholder={searchPlaceholder}
+              className="w-full rounded-lg border border-gray-200 bg-white py-2 pl-8 pr-3 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+        </div>
+      )}
       <table className="w-full min-w-full table-separate border-spacing-y-2.5 px-2">
         <thead className="sticky top-0 z-10">
           <tr>

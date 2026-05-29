@@ -6,6 +6,10 @@ export interface User {
   email: string;
   role: 'admin' | 'manager' | 'user';
   isActive: boolean;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -16,6 +20,7 @@ export interface CreateUserDto {
   password: string;
   role?: 'admin' | 'manager' | 'user';
   isActive?: boolean;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
 }
 
 export interface UpdateUserDto {
@@ -24,6 +29,7 @@ export interface UpdateUserDto {
   password?: string;
   role?: 'admin' | 'manager' | 'user';
   isActive?: boolean;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
 }
 
 export interface UserListResponse {

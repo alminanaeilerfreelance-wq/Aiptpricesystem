@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import Topbar from '@/components/layout/Topbar';
 import { StatsCards } from '@/components/dashboard';
 import { QuotationsLineChart } from '@/components/dashboard';
@@ -8,10 +9,14 @@ import { TopCountriesPieChart } from '@/components/dashboard';
 import { RecentQuotationsTable } from '@/components/dashboard';
 import { reportsService, QuotationsReport } from '@/services/reports.service';
 import { quotationsService, Quotation } from '@/services/quotations.service';
+import { usersService, User } from '@/services/users.service';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const [report, setReport] = useState<QuotationsReport | null>(null);
   const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [pendingUsers, setPendingUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,6 +31,14 @@ export default function DashboardPage() {
         ]);
         setReport(reportData);
         setQuotations(quotationsData.quotations);
+        if (user?.role === 'admin') {
+          try {
+            const usersData = await usersService.list();
+            setPendingUsers(usersData.users.filter((item) => item.approvalStatus === 'pending'));
+          } catch {
+            setPendingUsers([]);
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
       } finally {
@@ -33,7 +46,7 @@ export default function DashboardPage() {
       }
     }
     fetchData();
-  }, []);
+  }, [user?.role]);
 
   // Monthly chart data from report.monthly array
   const lineChartData = (() => {
@@ -77,6 +90,31 @@ export default function DashboardPage() {
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
             {error}
+          </div>
+        )}
+
+        {user?.role === 'admin' && pendingUsers.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-amber-900">
+                  New user approval required
+                </p>
+                <p className="text-sm text-amber-700">
+                  {pendingUsers.length} registered user{pendingUsers.length > 1 ? 's are' : ' is'} waiting for admin approval.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {pendingUsers.slice(0, 3).map((pendingUser) => (
+                  <span key={pendingUser._id} className="rounded-lg bg-white px-3 py-1 text-xs font-medium text-amber-800">
+                    {pendingUser.name}
+                  </span>
+                ))}
+                <Link href="/users" className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700">
+                  Review users
+                </Link>
+              </div>
+            </div>
           </div>
         )}
 

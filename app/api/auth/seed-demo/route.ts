@@ -9,6 +9,7 @@ const DEMO_USERS = [
     password: 'demo1234',
     role: 'admin' as const,
     isActive: true,
+    approvalStatus: 'approved' as const,
   },
   {
     name: 'Demo User',
@@ -16,6 +17,7 @@ const DEMO_USERS = [
     password: 'demo1234',
     role: 'user' as const,
     isActive: true,
+    approvalStatus: 'approved' as const,
   },
 ];
 

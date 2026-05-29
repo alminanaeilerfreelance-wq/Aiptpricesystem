@@ -507,34 +507,9 @@ export default function ServicesPage() {
                 ))}
               </Select>
             </FormControl>
-            <FormControl sx={{ minWidth: 160 }}>
-              <InputLabel>Rows</InputLabel>
-              <Select
-                value={String(limit)}
-                onChange={(e) => {
-                  setLimit(Number(e.target.value));
-                  setPage(1);
-                }}
-                label="Rows"
-                size="small"
-              >
-                <MenuItem value="10">10</MenuItem>
-                <MenuItem value="25">25</MenuItem>
-                <MenuItem value="50">50</MenuItem>
-              </Select>
-            </FormControl>
           </Stack>
 
           <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
-            <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
-              Export CSV
-            </Button>
-            <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
-              Export Excel
-            </Button>
-            <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
-              Export PDF
-            </Button>
             <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportCSV} style={{ display: 'none' }} id="import-csv-input" />
             <label htmlFor="import-csv-input" style={{ margin: 0 }}>
               <Button size="small" variant="outlined" component="span">
@@ -569,6 +544,10 @@ export default function ServicesPage() {
               rowsPerPage={limit}
               total={total}
               onPageChange={setPage}
+              onRowsPerPageChange={(nextRowsPerPage) => {
+                setLimit(nextRowsPerPage);
+                setPage(1);
+              }}
               showToolbar
             searchTerm={search}
             onSearchTermChange={(nextSearch) => {

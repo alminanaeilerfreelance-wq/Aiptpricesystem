@@ -45,6 +45,7 @@ import companyDetailsService, { CompanyDetail } from '@/services/company-details
 import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@/components/feedback/heroToast';
+import { useSettingsContext } from '@/context/SettingsContext';
 
 type ServiceCategory = 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
 type ClassType = 'single' | 'multi';
@@ -211,6 +212,72 @@ const getCompanyDetailForQuotation = (
 
 const toPdfFileName = (value: string) =>
   value.replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '') || 'client-quotation-invoice';
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+const imageUrlToDataUrl = async (url?: string): Promise<string | null> => {
+  if (!url) return null;
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    return null;
+  }
+};
+
+const getDataUrlImageFormat = (dataUrl: string): 'PNG' | 'JPEG' =>
+  dataUrl.includes('image/jpeg') || dataUrl.includes('image/jpg') ? 'JPEG' : 'PNG';
+
+const normalizeHexColor = (color: string, fallback = '#FFFFFF') => {
+  const value = color.trim();
+  if (/^#[0-9a-f]{6}$/i.test(value)) return value.toUpperCase();
+  if (/^#[0-9a-f]{3}$/i.test(value)) {
+    const red = value.charAt(1);
+    const green = value.charAt(2);
+    const blue = value.charAt(3);
+    return `#${red}${red}${green}${green}${blue}${blue}`.toUpperCase();
+  }
+  return fallback;
+};
+
+const hexToRgbTuple = (color: string): [number, number, number] => {
+  const hex = normalizeHexColor(color).replace('#', '');
+  return [
+    Number.parseInt(hex.slice(0, 2), 16),
+    Number.parseInt(hex.slice(2, 4), 16),
+    Number.parseInt(hex.slice(4, 6), 16),
+  ];
+};
+
+const getReadableTextColor = (hexColor: string): string => {
+  const [red, green, blue] = hexToRgbTuple(hexColor);
+  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+  return luminance > 0.63 ? '#111827' : '#F9FAFB';
+};
+
+const getInvoiceExportCellColors = (
+  cellKey: string,
+  defaultBg: string,
+  defaultText: string,
+  customColors: Record<string, string>
+) => {
+  const hasCustomColor = Object.prototype.hasOwnProperty.call(customColors, cellKey);
+  const backgroundColor = normalizeHexColor(hasCustomColor ? customColors[cellKey] : defaultBg);
+  const textColor = normalizeHexColor(hasCustomColor ? getReadableTextColor(backgroundColor) : defaultText, '#111827');
+  return { backgroundColor, textColor };
+};
 
 const EyeIcon = () => (
   <SvgIcon fontSize="small" viewBox="0 0 24 24">
@@ -381,6 +448,7 @@ const toServiceDraftFromRow = (
 
 export default function ClientQuotationsPage() {
   const { user } = useAuth();
+  const { settings } = useSettingsContext();
   const [items, setItems] = useState<ClientQuotation[]>([]);
   const [loading, setLoading] = useState(true);
   const [openForm, setOpenForm] = useState(false);
@@ -456,13 +524,7 @@ export default function ClientQuotationsPage() {
   };
 
   const getContrastTextColor = (hexColor: string): string => {
-    const hex = hexColor.replace('#', '');
-    if (hex.length !== 6) return '#111827';
-    const red = Number.parseInt(hex.slice(0, 2), 16);
-    const green = Number.parseInt(hex.slice(2, 4), 16);
-    const blue = Number.parseInt(hex.slice(4, 6), 16);
-    const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
-    return luminance > 0.63 ? '#111827' : '#F9FAFB';
+    return getReadableTextColor(hexColor);
   };
 
   const getInvoiceCellSx = (cellKey: string, defaultBg: string, defaultText: string) => {
@@ -760,6 +822,7 @@ export default function ClientQuotationsPage() {
       }
 
       const company = getCompanyDetailForQuotation(quotation, companyDetails);
+      const logoDataUrl = await imageUrlToDataUrl(settings?.logoUrl);
       const jsPDF = await import('jspdf');
       const autoTable = await import('jspdf-autotable');
       const doc = new jsPDF.jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
@@ -774,12 +837,20 @@ export default function ClientQuotationsPage() {
 
       doc.setFillColor(11, 23, 57);
       doc.rect(0, 0, pageWidth, 118, 'F');
-      doc.setFillColor(37, 99, 235);
-      doc.roundedRect(margin, 32, 44, 44, 8, 8, 'F');
+      if (logoDataUrl) {
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(margin, 28, 54, 54, 8, 8, 'F');
+        doc.addImage(logoDataUrl, getDataUrlImageFormat(logoDataUrl), margin + 7, 35, 40, 40, undefined, 'FAST');
+      } else {
+        doc.setFillColor(37, 99, 235);
+        doc.roundedRect(margin, 32, 44, 44, 8, 8, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(20);
+        doc.text('A', margin + 17, 60);
+      }
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(20);
-      doc.text('A', margin + 17, 60);
       doc.setFontSize(18);
       doc.text(company?.companyName || 'AIP&T LAW FIRM', margin + 58, 48);
       doc.setFont('helvetica', 'normal');
@@ -827,58 +898,115 @@ export default function ClientQuotationsPage() {
         180
       );
 
-      const serviceRows = (quotation.services || []).map((service, index) => {
-        const vatAmount = computeVatAmount(
-          computeAttorneyFeeAfterDiscount(
-            Math.max(0, Number(service.attorneyFee || 0)),
-            Math.max(0, Number(service.discount || 0))
-          ),
-          Math.max(0, Number(service.vatFee || 0))
-        );
+      const isTrademarkInvoice = serviceCategory === 'Trademark';
+      const serviceRows = (quotation.services || []).map((service) => {
         const classLabel =
           service.classType === 'multi'
-            ? `Multi (${Math.max(1, Number(service.numberOfClasses || 1))})`
+            ? `Multi | ${Math.max(1, Number(service.numberOfClasses || 1))} classes`
             : 'Single';
         return [
-          String(index + 1),
-          service.procedureName || '-',
-          classLabel,
+          `${service.procedureName || '-'}${isTrademarkInvoice ? `\n${classLabel}` : ''}`,
           toCurrency(service.totalOfficialFees || service.officialFee || 0),
           toCurrency(service.attorneyFee || 0),
-          toCurrency(service.discount || 0),
-          toCurrency(vatAmount),
           toCurrency(service.grandTotal || 0),
         ];
       });
+      const serviceBodyRows = serviceRows.length > 0 ? serviceRows : [['No service details available.', '-', '-', '-']];
+      const tableColumns = ['procedure', 'official', 'attorney', 'total'];
+      const borderRgb = hexToRgbTuple(invoiceServiceTableColors.borderColor);
+      const applyPdfCellColors = (data: any) => {
+        const columnKey = tableColumns[data.column.index] || 'procedure';
+        let cellKey = '';
+        let defaultBg = invoiceServiceTableColors.rowBg;
+        let defaultText = invoiceServiceTableColors.rowText;
+
+        if (data.section === 'head') {
+          if (data.row.index === 0) {
+            cellKey = `header-${columnKey}`;
+            defaultBg = invoiceServiceTableColors.headerBg;
+            defaultText = invoiceServiceTableColors.headerText;
+          } else {
+            cellKey = `subheader-${columnKey}`;
+            defaultBg = invoiceServiceTableColors.subHeaderBg;
+            defaultText = invoiceServiceTableColors.subHeaderText;
+          }
+        } else {
+          const isGrandTotalRow = data.row.index === serviceBodyRows.length;
+          if (isGrandTotalRow) {
+            cellKey = `grand-${columnKey}`;
+            defaultBg = invoiceServiceTableColors.totalRowBg;
+            defaultText = invoiceServiceTableColors.totalRowText;
+          } else {
+            cellKey = `row-${data.row.index}-${columnKey}`;
+            defaultBg = data.row.index % 2 === 0
+              ? invoiceServiceTableColors.rowBg
+              : invoiceServiceTableColors.altRowBg;
+            defaultText =
+              columnKey === 'procedure'
+                ? invoiceServiceTableColors.procedureColText
+                : columnKey === 'official'
+                  ? invoiceServiceTableColors.officialColText
+                  : columnKey === 'attorney'
+                    ? invoiceServiceTableColors.attorneyColText
+                    : invoiceServiceTableColors.totalColText;
+          }
+        }
+
+        const { backgroundColor, textColor } = getInvoiceExportCellColors(
+          cellKey,
+          defaultBg,
+          defaultText,
+          invoiceCellColors
+        );
+        data.cell.styles.fillColor = hexToRgbTuple(backgroundColor);
+        data.cell.styles.textColor = hexToRgbTuple(textColor);
+      };
 
       autoTable.default(doc, {
         startY: 258,
-        head: [['#', 'Procedure', 'Class', 'Official', 'Attorney', 'Discount', 'VAT', 'Total']],
-        body: serviceRows.length > 0 ? serviceRows : [['-', 'No service details', '-', '-', '-', '-', '-', '-']],
+        head: [
+          ['Procedure Name', 'Official Fees', 'Attorney Fees', 'Total'],
+          ...(isTrademarkInvoice
+            ? [['Class Type / No. Classes', 'per mark per class', 'per mark per class', 'per mark per class']]
+            : []),
+        ],
+        body: [
+          ...serviceBodyRows,
+          [
+            'Grand Total',
+            toCurrency(quotation.totalOfficialFees || 0),
+            toCurrency(quotation.totalAttorneyFees || 0),
+            toCurrency(quotation.grandTotal || 0),
+          ],
+        ],
         theme: 'grid',
         styles: {
           font: 'helvetica',
           fontSize: 8.5,
           cellPadding: 6,
-          lineColor: [226, 232, 240],
+          lineColor: borderRgb,
           lineWidth: 0.4,
+          overflow: 'linebreak',
+          valign: 'middle',
         },
         headStyles: {
-          fillColor: [11, 23, 57],
-          textColor: [255, 255, 255],
           fontStyle: 'bold',
         },
         columnStyles: {
-          0: { cellWidth: 24, halign: 'center' },
-          1: { cellWidth: 150 },
-          2: { cellWidth: 58 },
+          0: { cellWidth: 220 },
+          1: { halign: 'right' },
+          2: { halign: 'right' },
           3: { halign: 'right' },
-          4: { halign: 'right' },
-          5: { halign: 'right' },
-          6: { halign: 'right' },
-          7: { halign: 'right', fontStyle: 'bold' },
         },
-        alternateRowStyles: { fillColor: [248, 250, 252] },
+        didParseCell: (data: any) => {
+          applyPdfCellColors(data);
+          if (data.section === 'head' && data.row.index === 1) {
+            data.cell.styles.fontStyle = 'italic';
+          }
+          if (data.section === 'body' && data.row.index === serviceBodyRows.length) {
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
         margin: { left: margin, right: margin },
       });
 
@@ -937,6 +1065,170 @@ export default function ClientQuotationsPage() {
       showErrorToast(err?.message || 'Failed to download invoice PDF.');
     } finally {
       setDownloadingPdfId(null);
+    }
+  };
+
+  const handleDownloadInvoiceWord = async (quotation: ClientQuotation) => {
+    try {
+      let companyDetails = invoiceCompanyDetails;
+      if (companyDetails.length === 0) {
+        const response = await companyDetailsService.list({ page: 1, limit: 1000 });
+        companyDetails = Array.isArray(response?.companyDetails) ? response.companyDetails : [];
+        setInvoiceCompanyDetails(companyDetails);
+      }
+
+      const company = getCompanyDetailForQuotation(quotation, companyDetails);
+      const logoDataUrl = await imageUrlToDataUrl(settings?.logoUrl);
+      const invoiceNo = quotation.quotationNo || quotation._id;
+      const invoiceDate = quotation.createdAt ? new Date(quotation.createdAt).toLocaleDateString() : '-';
+      const serviceCategory = quotation.serviceCategory || quotation.inquirySnapshot?.serviceCategory || '-';
+      const countryNames = quotation.inquirySnapshot?.countryNames?.join(', ') || '-';
+      const isTrademarkInvoice = serviceCategory === 'Trademark';
+      const wordCellStyle = (cellKey: string, defaultBg: string, defaultText: string, align: 'left' | 'right' = 'left') => {
+        const { backgroundColor, textColor } = getInvoiceExportCellColors(
+          cellKey,
+          defaultBg,
+          defaultText,
+          invoiceCellColors
+        );
+        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, '#D1D5DB')};padding:9px 10px;text-align:${align};vertical-align:top;`;
+      };
+      const serviceHeaderHtml = `
+        <tr>
+          <th style="${wordCellStyle('header-procedure', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Procedure Name</th>
+          <th style="${wordCellStyle('header-official', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Official Fees</th>
+          <th style="${wordCellStyle('header-attorney', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Attorney Fees</th>
+          <th style="${wordCellStyle('header-total', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Total</th>
+        </tr>
+        ${isTrademarkInvoice ? `
+          <tr>
+            <td style="${wordCellStyle('subheader-procedure', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText)}"><em>Class Type / No. Classes</em></td>
+            <td style="${wordCellStyle('subheader-official', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText, 'right')}"><em>per mark per class</em></td>
+            <td style="${wordCellStyle('subheader-attorney', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText, 'right')}"><em>per mark per class</em></td>
+            <td style="${wordCellStyle('subheader-total', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText, 'right')}"><em>per mark per class</em></td>
+          </tr>
+        ` : ''}
+      `;
+      const servicesHtml = (quotation.services || [])
+        .map((service, index) => {
+          const classInfo = isTrademarkInvoice
+            ? `${service.classType === 'multi' ? 'Multi' : 'Single'} | ${Math.max(1, Number(service.numberOfClasses || 1))} class${Math.max(1, Number(service.numberOfClasses || 1)) > 1 ? 'es' : ''}`
+            : '';
+          const baseRowBg =
+            index % 2 === 0
+              ? invoiceServiceTableColors.rowBg
+              : invoiceServiceTableColors.altRowBg;
+          return `
+            <tr>
+              <td style="${wordCellStyle(`row-${index}-procedure`, baseRowBg, invoiceServiceTableColors.procedureColText)}"><strong>${escapeHtml(service.procedureName || '-')}</strong>${classInfo ? `<br/><span>${escapeHtml(classInfo)}</span>` : ''}</td>
+              <td style="${wordCellStyle(`row-${index}-official`, baseRowBg, invoiceServiceTableColors.officialColText, 'right')}">${toCurrency(service.totalOfficialFees || service.officialFee || 0)}</td>
+              <td style="${wordCellStyle(`row-${index}-attorney`, baseRowBg, invoiceServiceTableColors.attorneyColText, 'right')}">${toCurrency(service.attorneyFee || 0)}</td>
+              <td style="${wordCellStyle(`row-${index}-total`, baseRowBg, invoiceServiceTableColors.totalColText, 'right')}"><strong>${toCurrency(service.grandTotal || 0)}</strong></td>
+            </tr>
+          `;
+        })
+        .join('');
+      const html = `
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>${escapeHtml(invoiceNo)} Invoice</title>
+            <style>
+              @page { size: A4 portrait; margin: 18mm; }
+              body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; }
+              .page { width: 100%; }
+              .hero { background: #0b1739; color: #fff; padding: 28px; border-radius: 14px; }
+              .logo { width: 54px; height: 54px; border-radius: 10px; background: #fff; object-fit: contain; }
+              .mark { width: 54px; height: 54px; border-radius: 10px; background: #2563eb; color: #fff; text-align: center; font-size: 24px; font-weight: 800; line-height: 54px; }
+              .hero h1 { margin: 18px 0 4px; font-size: 26px; letter-spacing: .5px; }
+              .meta { color: #dbeafe; font-size: 12px; }
+              .layout-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+              .layout-table td { vertical-align: top; }
+              .gap-cell { width: 14px; }
+              .panel { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; background: #f8fafc; }
+              .panel h2 { font-size: 12px; margin: 0 0 10px; letter-spacing: .08em; text-transform: uppercase; color: #475569; }
+              p { margin: 4px 0; font-size: 12px; }
+              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18px; font-size: 12px; page-break-inside: avoid; }
+              .service-table th { font-weight: 800; }
+              .service-table td, .service-table th { word-break: normal; overflow-wrap: break-word; }
+              .footer { margin-top: 22px; color: #64748b; font-size: 11px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+            </style>
+          </head>
+          <body>
+            <div class="page">
+              <div class="hero">
+                <table class="layout-table">
+                  <tr>
+                    <td style="width:66px;">${logoDataUrl ? `<img class="logo" src="${logoDataUrl}" />` : '<div class="mark">A</div>'}</td>
+                    <td>
+                      <strong>${escapeHtml(company?.companyName || settings?.companyName || 'AIP&T LAW FIRM')}</strong>
+                      <div class="meta">${escapeHtml(company?.address || settings?.companyAddress || 'Professional IP legal services')}</div>
+                      <div class="meta">${escapeHtml(company?.email || settings?.companyEmail || '')} ${escapeHtml(company?.contact || settings?.companyPhone || '')}</div>
+                    </td>
+                  </tr>
+                </table>
+                <h1>CLIENT QUOTATION INVOICE</h1>
+                <div class="meta">Invoice No: ${escapeHtml(invoiceNo)} | Date: ${escapeHtml(invoiceDate)} | Status: ${escapeHtml(quotation.status || 'Submitted')}</div>
+              </div>
+              <table class="layout-table" style="margin:18px 0;">
+                <tr>
+                  <td>
+                    <div class="panel">
+                      <h2>Bill To</h2>
+                      <p><strong>${escapeHtml(quotation.clientSnapshot?.name || 'Client')}</strong></p>
+                      <p>${escapeHtml(quotation.clientSnapshot?.email || '-')}</p>
+                      <p>${escapeHtml(quotation.clientSnapshot?.phone || '-')}</p>
+                      <p>${escapeHtml(quotation.clientSnapshot?.country || '-')}</p>
+                    </div>
+                  </td>
+                  <td class="gap-cell"></td>
+                  <td>
+                    <div class="panel">
+                      <h2>Project Details</h2>
+                      <p><strong>Inquiry:</strong> ${escapeHtml(quotation.inquirySnapshot?.referenceNo || quotation.inquiryProjects?.join(', ') || '-')}</p>
+                      <p><strong>Service:</strong> ${escapeHtml(String(serviceCategory))}</p>
+                      <p><strong>Procedure:</strong> ${escapeHtml(quotation.inquirySnapshot?.procedureName || '-')}</p>
+                      <p><strong>Country:</strong> ${escapeHtml(countryNames)}</p>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <table class="service-table">
+                <colgroup>
+                  <col style="width:44%;" />
+                  <col style="width:19%;" />
+                  <col style="width:19%;" />
+                  <col style="width:18%;" />
+                </colgroup>
+                <thead>${serviceHeaderHtml}</thead>
+                <tbody>
+                  ${servicesHtml || `<tr><td colspan="4" style="${wordCellStyle('row-0-procedure', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">No service details available.</td></tr>`}
+                  <tr>
+                    <td style="${wordCellStyle('grand-procedure', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText)}"><strong>Grand Total</strong></td>
+                    <td style="${wordCellStyle('grand-official', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalOfficialFees || 0)}</strong></td>
+                    <td style="${wordCellStyle('grand-attorney', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalAttorneyFees || 0)}</strong></td>
+                    <td style="${wordCellStyle('grand-total', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.grandTotal || 0)}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="footer">
+                Official fees are subject to changes by the relevant government office. Thank you for choosing our firm.
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+      const blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${toPdfFileName(invoiceNo)}-invoice.doc`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      showSuccessToast('Invoice Word document downloaded successfully.');
+    } catch (err: any) {
+      showErrorToast(err?.message || 'Failed to download invoice Word document.');
     }
   };
 
@@ -1474,6 +1766,7 @@ export default function ClientQuotationsPage() {
             },
             '.client-quotation-invoice-print, .client-quotation-invoice-print *': {
               visibility: 'visible',
+              boxSizing: 'border-box',
             },
             '.client-quotation-invoice-print': {
               position: 'absolute',
@@ -1487,6 +1780,25 @@ export default function ClientQuotationsPage() {
               border: '0 !important',
               borderRadius: '0 !important',
               boxShadow: 'none !important',
+            },
+            '.client-quotation-invoice-print .invoice-print-hidden': {
+              display: 'none !important',
+            },
+            '.client-quotation-invoice-print .MuiCard-root': {
+              breakInside: 'avoid',
+              pageBreakInside: 'avoid',
+            },
+            '.client-quotation-invoice-print .MuiTableContainer-root': {
+              overflow: 'visible !important',
+            },
+            '.client-quotation-invoice-print table': {
+              tableLayout: 'fixed',
+              width: '100% !important',
+            },
+            '.client-quotation-invoice-print .MuiTableCell-root': {
+              wordBreak: 'normal',
+              overflowWrap: 'break-word',
+              padding: '8px !important',
             },
             '.MuiDialog-root, .MuiDialog-container, .MuiDialog-paper, .MuiDialogContent-root': {
               position: 'static !important',
@@ -2135,7 +2447,7 @@ export default function ClientQuotationsPage() {
       </Dialog>
 
       <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>Client Quotation Invoice</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>Client Quotation Invoice</DialogTitle>
         <DialogContent>
           {viewingItem && (
             <Box
@@ -2145,33 +2457,70 @@ export default function ClientQuotationsPage() {
                 p: { xs: 2, md: 3 },
                 border: '1px solid',
                 borderColor: 'divider',
-                borderRadius: 3,
-                bgcolor: '#FAFBFF',
+                borderRadius: 2,
+                bgcolor: '#F8FAFC',
               }}
             >
               <Card
-                variant="outlined"
                 sx={{
                   mb: 2,
-                  borderRadius: 3,
-                  borderColor: '#E5E7EB',
-                  background:
-                    'linear-gradient(135deg, rgba(37,99,235,0.08) 0%, rgba(147,51,234,0.06) 100%)',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  border: '1px solid #DDE7F3',
+                  bgcolor: '#0B1739',
+                  color: '#fff',
                 }}
               >
-                <CardContent>
-                  <Grid container spacing={2} sx={{ alignItems: 'center' }}>
-                    <Grid size={{ xs: 12, md: 8 }}>
-                      <Typography
-                        variant="overline"
-                        sx={{ letterSpacing: 1.6, color: 'text.secondary', fontWeight: 700 }}
-                      >
-                        Invoice
-                      </Typography>
-                      <Typography variant="h4" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
-                        CLIENT QUOTATION
-                      </Typography>
-                      <Stack direction="row" spacing={1} sx={{ mt: 1.5, flexWrap: 'wrap' }}>
+                <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
+                  <Grid container spacing={2.5} sx={{ alignItems: 'center' }}>
+                    <Grid size={{ xs: 12, md: 7 }}>
+                      <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                        {settings?.logoUrl ? (
+                          <Box
+                            component="img"
+                            src={settings.logoUrl}
+                            alt="Company logo"
+                            sx={{
+                              width: 64,
+                              height: 64,
+                              objectFit: 'contain',
+                              bgcolor: '#fff',
+                              borderRadius: 2,
+                              p: 1,
+                            }}
+                          />
+                        ) : (
+                          <Box
+                            sx={{
+                              width: 64,
+                              height: 64,
+                              borderRadius: 2,
+                              bgcolor: '#2563EB',
+                              display: 'grid',
+                              placeItems: 'center',
+                              fontSize: 28,
+                              fontWeight: 900,
+                            }}
+                          >
+                            A
+                          </Box>
+                        )}
+                        <Box>
+                          <Typography
+                            variant="overline"
+                            sx={{ letterSpacing: 1.6, color: '#BFDBFE', fontWeight: 800 }}
+                          >
+                            Professional Invoice
+                          </Typography>
+                          <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.05 }}>
+                            CLIENT QUOTATION
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#CBD5E1', mt: 0.75 }}>
+                            {selectedInvoiceCompanyDetail?.companyName || settings?.companyName || 'AIP&T LAW FIRM'}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                      <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
                         <Box
                           component="span"
                           sx={{
@@ -2180,15 +2529,8 @@ export default function ClientQuotationsPage() {
                             borderRadius: 999,
                             fontWeight: 700,
                             fontSize: 12,
-                            color:
-                              SERVICE_COLOR_MAP[
-                                (viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory || 'Trademark') as ServiceCategory
-                              ] || '#2563EB',
-                            bgcolor: `${
-                              SERVICE_COLOR_MAP[
-                                (viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory || 'Trademark') as ServiceCategory
-                              ] || '#2563EB'
-                            }1A`,
+                            color: '#DBEAFE',
+                            bgcolor: 'rgba(37,99,235,0.26)',
                           }}
                         >
                           {viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory || '-'}
@@ -2201,35 +2543,42 @@ export default function ClientQuotationsPage() {
                             borderRadius: 999,
                             fontWeight: 700,
                             fontSize: 12,
-                            color: '#7E57C2',
-                            bgcolor: '#7E57C21A',
+                            color: '#E9D5FF',
+                            bgcolor: 'rgba(147,51,234,0.24)',
                           }}
                         >
                           Procedure: {viewingItem.inquirySnapshot?.procedureName || '-'}
                         </Box>
                       </Stack>
                     </Grid>
-                    <Grid size={{ xs: 12, md: 4 }}>
-                      <Stack spacing={0.75}>
-                        <Typography variant="body2">
-                          <strong>Invoice No:</strong> {viewingItem.quotationNo || viewingItem._id}
-                        </Typography>
-                        <Typography variant="body2">
-                          <strong>Date:</strong>{' '}
-                          {viewingItem.createdAt ? new Date(viewingItem.createdAt).toLocaleDateString() : '-'}
-                        </Typography>
-                        <Typography variant="body2">
-                          <strong>Inquiry Project:</strong>{' '}
-                          {viewingItem.inquirySnapshot?.referenceNo || viewingItem.inquiryProjects?.join(', ') || '-'}
-                        </Typography>
-                        <Typography variant="body2">
-                          <strong>Country:</strong> {viewingItem.inquirySnapshot?.countryNames?.join(', ') || '-'}
-                        </Typography>
-                        <Typography variant="body2">
-                          <strong>Prepared By:</strong>{' '}
-                          {selectedInvoiceCompanyDetail?.companyName || 'AIP&T LAW FIRM'}
-                        </Typography>
-                      </Stack>
+                    <Grid size={{ xs: 12, md: 5 }}>
+                      <Box
+                        sx={{
+                          bgcolor: 'rgba(255,255,255,0.08)',
+                          border: '1px solid rgba(255,255,255,0.16)',
+                          borderRadius: 2,
+                          p: 2,
+                        }}
+                      >
+                        <Grid container spacing={1.25}>
+                          {[
+                            ['Invoice No', viewingItem.quotationNo || viewingItem._id],
+                            ['Date', viewingItem.createdAt ? new Date(viewingItem.createdAt).toLocaleDateString() : '-'],
+                            ['Inquiry Project', viewingItem.inquirySnapshot?.referenceNo || viewingItem.inquiryProjects?.join(', ') || '-'],
+                            ['Country', viewingItem.inquirySnapshot?.countryNames?.join(', ') || '-'],
+                            ['Prepared By', selectedInvoiceCompanyDetail?.companyName || settings?.companyName || 'AIP&T LAW FIRM'],
+                          ].map(([label, value]) => (
+                            <Grid key={label} size={{ xs: 12, sm: 6 }}>
+                              <Typography variant="caption" sx={{ color: '#93C5FD', fontWeight: 800 }}>
+                                {label}
+                              </Typography>
+                              <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>
+                                {value}
+                              </Typography>
+                            </Grid>
+                          ))}
+                        </Grid>
+                      </Box>
                     </Grid>
                   </Grid>
                 </CardContent>
@@ -2237,7 +2586,7 @@ export default function ClientQuotationsPage() {
 
               <Grid container spacing={2} sx={{ mb: 2 }}>
                 <Grid size={{ xs: 12, md: 6 }}>
-                  <Card variant="outlined" sx={{ borderRadius: 3, height: '100%' }}>
+                  <Card variant="outlined" sx={{ borderRadius: 2, height: '100%', borderColor: '#DDE7F3' }}>
                     <CardContent>
                       <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
                         Company Details
@@ -2268,7 +2617,7 @@ export default function ClientQuotationsPage() {
                   </Card>
                 </Grid>
                 <Grid size={{ xs: 12, md: 6 }}>
-                  <Card variant="outlined" sx={{ borderRadius: 3, height: '100%' }}>
+                  <Card variant="outlined" sx={{ borderRadius: 2, height: '100%', borderColor: '#DDE7F3' }}>
                     <CardContent>
                       <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
                         Client Details
@@ -2284,7 +2633,7 @@ export default function ClientQuotationsPage() {
                   </Card>
                 </Grid>
                 <Grid size={{ xs: 12 }}>
-                  <Card variant="outlined" sx={{ borderRadius: 3 }}>
+                  <Card variant="outlined" sx={{ borderRadius: 2, borderColor: '#DDE7F3' }}>
                     <CardContent>
                       <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
                         Requirement Details
@@ -2317,6 +2666,7 @@ export default function ClientQuotationsPage() {
               <Card variant="outlined" sx={{ borderRadius: 3 }}>
                 <CardContent>
                   <Stack
+                    className="invoice-print-hidden"
                     direction={{ xs: 'column', sm: 'row' }}
                     spacing={1.25}
                     sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, mb: 1.25 }}
@@ -2769,6 +3119,16 @@ export default function ClientQuotationsPage() {
           )}
         </DialogContent>
         <DialogActions>
+          {viewingItem && (
+            <>
+              <Button variant="outlined" onClick={() => handleDownloadInvoicePdf(viewingItem)}>
+                Download PDF
+              </Button>
+              <Button variant="outlined" onClick={() => handleDownloadInvoiceWord(viewingItem)}>
+                Download Word
+              </Button>
+            </>
+          )}
           <Button onClick={() => window.print()}>Print Invoice</Button>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
         </DialogActions>

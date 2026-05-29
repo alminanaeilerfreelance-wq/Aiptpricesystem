@@ -266,45 +266,6 @@ export default function ProfitLossAnalysisPage() {
         </Grid>
       </Grid>
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 7 }}>
-            </Grid>
-            <Grid size={{ xs: 12, md: 2 }}>
-              <TextField
-                select
-                label="Rows"
-                value={String(limit)}
-                onChange={(event) => {
-                  setLimit(Number(event.target.value));
-                  setPage(1);
-                }}
-                size="small"
-                fullWidth
-              >
-                <MenuItem value="10">10</MenuItem>
-                <MenuItem value="25">25</MenuItem>
-                <MenuItem value="50">50</MenuItem>
-              </TextField>
-            </Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
-              <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                <Button size="small" variant="outlined" onClick={() => handleExportCSV().catch(() => setError('Export failed'))}>
-                  CSV
-                </Button>
-                <Button size="small" variant="outlined" onClick={() => handleExportExcel().catch(() => setError('Export failed'))}>
-                  Excel
-                </Button>
-                <Button size="small" variant="outlined" onClick={() => handleExportPDF().catch(() => setError('Export failed'))}>
-                  PDF
-                </Button>
-              </Stack>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-
       {loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
           <CircularProgress />
@@ -326,6 +287,10 @@ export default function ProfitLossAnalysisPage() {
             rowsPerPage={limit}
             total={total}
             onPageChange={setPage}
+            onRowsPerPageChange={(nextRowsPerPage) => {
+              setLimit(nextRowsPerPage);
+              setPage(1);
+            }}
             showToolbar
             searchTerm={search}
             onSearchTermChange={(nextSearch) => {

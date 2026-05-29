@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
-import { signToken } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,12 +16,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email already registered' }, { status: 409 });
     }
 
-    const user = await User.create({ name, email, password });
-    const token = signToken({ userId: String(user._id), email: user.email, name: user.name, role: user.role });
+    const user = await User.create({
+      name,
+      email,
+      password,
+      role: 'user',
+      isActive: false,
+      approvalStatus: 'pending',
+    });
 
-    const res = NextResponse.json({ user, token }, { status: 201 });
-    res.cookies.set('token', token, { httpOnly: true, path: '/', maxAge: 60 * 60 * 24 * 7 });
-    return res;
+    return NextResponse.json(
+      {
+        user,
+        message: 'Account created successfully. Please wait for an admin to approve your access.',
+      },
+      { status: 201 }
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Registration failed';
     return NextResponse.json({ error: message }, { status: 500 });

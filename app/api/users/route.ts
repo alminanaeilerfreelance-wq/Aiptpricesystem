@@ -53,7 +53,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'A user with this email already exists' }, { status: 409 });
     }
 
-    const newUser = await User.create({ name, email, password, role });
+    const newUser = await User.create({
+      name,
+      email,
+      password,
+      role,
+      isActive: true,
+      approvalStatus: 'approved',
+      approvedBy: user.userId,
+      approvedAt: new Date(),
+    });
 
     // Return user without password (toJSON transform handles it, but explicitly select to be safe)
     const userResponse = await User.findById(newUser._id).select('-password');

@@ -659,47 +659,7 @@ export default function CompanyDetailsPage() {
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-
-            <TextField
-              select
-              label="Rows"
-              value={String(limit)}
-              onChange={(e) => {
-                setLimit(Number(e.target.value));
-                setPage(1);
-              }}
-              size="small"
-              sx={{ width: 120 }}
-            >
-              <MenuItem value="10">10</MenuItem>
-              <MenuItem value="25">25</MenuItem>
-              <MenuItem value="50">50</MenuItem>
-            </TextField>
-          </Stack>
-
-          <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => handleExportCSV().catch(() => setError('Export failed'))}
-            >
-              Export CSV
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => handleExportExcel().catch(() => setError('Export failed'))}
-            >
-              Export Excel
-            </Button>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => handleExportPDF().catch(() => setError('Export failed'))}
-            >
-              Export PDF
-            </Button>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
             <input
               type="file"
               accept=".csv,.xlsx,.xls"
@@ -739,6 +699,10 @@ export default function CompanyDetailsPage() {
             rowsPerPage={limit}
             total={total}
             onPageChange={setPage}
+            onRowsPerPageChange={(nextRowsPerPage) => {
+              setLimit(nextRowsPerPage);
+              setPage(1);
+            }}
             showToolbar
             searchTerm={search}
             onSearchTermChange={(nextSearch) => {

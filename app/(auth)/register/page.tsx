@@ -9,11 +9,13 @@ export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
+    setSuccess('');
     if (form.password !== form.confirm) {
       setError('Passwords do not match');
       return;
@@ -25,9 +27,9 @@ export default function RegisterPage() {
         email: form.email,
         password: form.password,
       });
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
-      router.push('/dashboard');
+      setSuccess(data.message || 'Account created. Please wait for admin approval.');
+      setForm({ name: '', email: '', password: '', confirm: '' });
+      window.setTimeout(() => router.push('/login'), 1800);
     } catch (err: unknown) {
       const message =
         axios.isAxiosError(err) ? err.response?.data?.error || 'Registration failed' : 'Registration failed';
@@ -54,6 +56,11 @@ export default function RegisterPage() {
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
               {error}
+            </div>
+          )}
+          {success && (
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+              {success}
             </div>
           )}
 

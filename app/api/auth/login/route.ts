@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 });
     }
 
-    const user = await User.findOne({ email, isActive: true }).select('+password');
+    const user = await User.findOne({ email }).select('+password');
     if (!user) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
     }
@@ -20,6 +20,24 @@ export async function POST(req: NextRequest) {
     const valid = await user.comparePassword(password);
     if (!valid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
+
+    if (user.approvalStatus === 'pending') {
+      return NextResponse.json(
+        { error: 'Your account is pending admin approval.' },
+        { status: 403 }
+      );
+    }
+
+    if (user.approvalStatus === 'rejected') {
+      return NextResponse.json(
+        { error: 'Your account registration was rejected by admin.' },
+        { status: 403 }
+      );
+    }
+
+    if (!user.isActive) {
+      return NextResponse.json({ error: 'Your account is inactive.' }, { status: 403 });
     }
 
     const token = signToken({ userId: String(user._id), email: user.email, name: user.name, role: user.role });

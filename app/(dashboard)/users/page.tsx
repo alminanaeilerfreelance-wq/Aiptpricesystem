@@ -23,6 +23,12 @@ const roleColorMap: Record<string, string> = {
   user: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700',
 };
 
+const approvalColorMap: Record<string, string> = {
+  pending: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700',
+  approved: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700',
+  rejected: 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700',
+};
+
 interface FormState {
   name: string;
   email: string;
@@ -150,6 +156,15 @@ export default function UsersPage() {
     }
   };
 
+  const handleApprovalChange = async (target: User, approvalStatus: 'approved' | 'rejected') => {
+    try {
+      await usersService.update(target._id, { approvalStatus });
+      await fetchUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to ${approvalStatus} user`);
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -188,6 +203,18 @@ export default function UsersPage() {
       render: (row: User) => <StatusBadge isActive={row.isActive} />,
     },
     {
+      key: 'approvalStatus',
+      label: 'Approval',
+      render: (row: User) => {
+        const status = row.approvalStatus || 'approved';
+        return (
+          <span className={approvalColorMap[status] ?? approvalColorMap.approved}>
+            {status.charAt(0).toUpperCase() + status.slice(1)}
+          </span>
+        );
+      },
+    },
+    {
       key: 'createdAt',
       label: 'Created At',
       render: (row: User) => (
@@ -202,6 +229,16 @@ export default function UsersPage() {
           <Button variant="ghost" size="sm" onClick={() => openEditModal(row)}>
             Edit
           </Button>
+          {(row.approvalStatus || 'approved') === 'pending' && (
+            <>
+              <Button variant="primary" size="sm" onClick={() => handleApprovalChange(row, 'approved')}>
+                Approve
+              </Button>
+              <Button variant="danger" size="sm" onClick={() => handleApprovalChange(row, 'rejected')}>
+                Reject
+              </Button>
+            </>
+          )}
           <Button
             variant={row.isActive ? 'danger' : 'secondary'}
             size="sm"
@@ -213,6 +250,7 @@ export default function UsersPage() {
       ),
     },
   ];
+  const pendingUsers = users.filter((user) => user.approvalStatus === 'pending');
 
   return (
     <div className="flex flex-col h-full">
@@ -225,6 +263,28 @@ export default function UsersPage() {
         {error && (
           <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
             {error}
+          </div>
+        )}
+
+        {pendingUsers.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-amber-900">
+                  {pendingUsers.length} user{pendingUsers.length > 1 ? 's' : ''} waiting for approval
+                </p>
+                <p className="text-xs text-amber-700">
+                  Review new registrations and approve or reject access.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {pendingUsers.slice(0, 3).map((pendingUser) => (
+                  <span key={pendingUser._id} className="rounded-lg bg-white px-3 py-1 text-xs font-medium text-amber-800">
+                    {pendingUser.name}
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 

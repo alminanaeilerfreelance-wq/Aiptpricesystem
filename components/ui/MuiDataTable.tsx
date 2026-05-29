@@ -132,6 +132,7 @@ export default function MuiDataTable<RowType>({
     columns.map((column) => column.id)
   );
   const [columnMenuAnchor, setColumnMenuAnchor] = useState<null | HTMLElement>(null);
+  const [exportMenuAnchor, setExportMenuAnchor] = useState<null | HTMLElement>(null);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -264,6 +265,77 @@ export default function MuiDataTable<RowType>({
     URL.revokeObjectURL(url);
   };
 
+  const handleExportExcel = () => {
+    const exportColumns = visibleColumns.filter((column) => column.id !== 'actions');
+    if (exportColumns.length === 0) return;
+
+    const records = sortedRows.map((row) =>
+      Object.fromEntries(
+        exportColumns.map((column) => [column.label, getExportText(row, column)])
+      )
+    );
+    const worksheet = XLSX.utils.json_to_sheet(records);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
+    XLSX.writeFile(workbook, `${exportFileName}.xlsx`);
+  };
+
+  const handleExportWord = () => {
+    const exportColumns = visibleColumns.filter((column) => column.id !== 'actions');
+    if (exportColumns.length === 0) return;
+
+    const escapeHtml = (value: string) =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <style>
+            @page { size: A4 landscape; margin: 14mm; }
+            body { font-family: Arial, sans-serif; color: #111827; }
+            h1 { font-size: 20px; margin: 0 0 12px; }
+            table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+            th { background: #f1f5f9; color: #111827; font-weight: 700; }
+            th, td { border: 1px solid #d8dee8; padding: 7px; vertical-align: top; overflow-wrap: break-word; }
+            tr:nth-child(even) td { background: #f8fafc; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(title || exportFileName)}</h1>
+          <table>
+            <thead>
+              <tr>${exportColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr>
+            </thead>
+            <tbody>
+              ${sortedRows
+                .map(
+                  (row) =>
+                    `<tr>${exportColumns
+                      .map((column) => `<td>${escapeHtml(getExportText(row, column))}</td>`)
+                      .join('')}</tr>`
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    const blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${exportFileName}.doc`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportPdf = () => {
     const exportColumns = visibleColumns.filter((column) => column.id !== 'actions');
     if (exportColumns.length === 0) return;
@@ -326,6 +398,7 @@ export default function MuiDataTable<RowType>({
   const showingFrom = total === 0 ? 0 : (page - 1) * rowsPerPage + 1;
   const showingTo = Math.min(page * rowsPerPage, total);
   const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
+  const visibleColumnCount = visibleColumns.filter((column) => column.id !== 'actions').length;
 
   return (
     <Paper
@@ -403,6 +476,7 @@ export default function MuiDataTable<RowType>({
             sx={{
               p: { xs: 2, md: 2.5 },
               justifyContent: 'space-between',
+              alignItems: { xs: 'stretch', lg: 'center' },
             }}
           >
             <TextField
@@ -414,7 +488,7 @@ export default function MuiDataTable<RowType>({
                   : setInternalSearch(event.target.value)
               }
               size="small"
-              sx={{ flex: 1, minWidth: 240 }}
+              sx={{ flex: 1, minWidth: { xs: '100%', sm: 280 } }}
               slotProps={{
                 input: {
                   startAdornment: (
@@ -428,26 +502,28 @@ export default function MuiDataTable<RowType>({
               }}
             />
 
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
               <Button
                 variant="outlined"
                 onClick={(event) => setColumnMenuAnchor(event.currentTarget)}
-                sx={{ borderRadius: 2 }}
+                sx={{ borderRadius: 2, whiteSpace: 'nowrap' }}
               >
-                Filter
+                Columns
               </Button>
-              <Button variant="outlined" onClick={handleExportCsv} sx={{ borderRadius: 2 }}>
-                Export CSV
-              </Button>
-              <Button variant="outlined" onClick={handleExportPdf} sx={{ borderRadius: 2 }}>
-                Export PDF
+              <Button
+                variant="outlined"
+                disabled={visibleColumnCount === 0}
+                onClick={(event) => setExportMenuAnchor(event.currentTarget)}
+                sx={{ borderRadius: 2, whiteSpace: 'nowrap' }}
+              >
+                Export
               </Button>
               {onImportData && (
                 <Button
                   variant="outlined"
                   onClick={handleImportClick}
                   disabled={importing}
-                  sx={{ borderRadius: 2 }}
+                  sx={{ borderRadius: 2, whiteSpace: 'nowrap' }}
                 >
                   {importing ? (
                     <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -476,6 +552,45 @@ export default function MuiDataTable<RowType>({
                 </MenuItem>
               );
             })}
+          </Menu>
+
+          <Menu
+            anchorEl={exportMenuAnchor}
+            open={Boolean(exportMenuAnchor)}
+            onClose={() => setExportMenuAnchor(null)}
+          >
+            <MenuItem
+              onClick={() => {
+                handleExportCsv();
+                setExportMenuAnchor(null);
+              }}
+            >
+              Export CSV
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                handleExportExcel();
+                setExportMenuAnchor(null);
+              }}
+            >
+              Export Excel
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                handleExportPdf();
+                setExportMenuAnchor(null);
+              }}
+            >
+              Export PDF
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                handleExportWord();
+                setExportMenuAnchor(null);
+              }}
+            >
+              Export Word
+            </MenuItem>
           </Menu>
 
           <input

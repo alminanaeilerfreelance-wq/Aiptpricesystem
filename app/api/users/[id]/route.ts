@@ -48,6 +48,16 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     await connectDB();
 
     const body = await req.json();
+    if (body.approvalStatus === 'approved') {
+      body.isActive = true;
+      body.approvedBy = user.userId;
+      body.approvedAt = new Date();
+      body.rejectedAt = undefined;
+    }
+    if (body.approvalStatus === 'rejected') {
+      body.isActive = false;
+      body.rejectedAt = new Date();
+    }
 
     // Prevent direct password update via PATCH without proper handling
     // If password is being changed, it must go through the User model pre-save hook

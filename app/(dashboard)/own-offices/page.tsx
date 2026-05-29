@@ -253,28 +253,6 @@ export default function OwnOfficesPage() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-            <TextField
-              select
-              label="Rows"
-              value={String(limit)}
-              onChange={(e) => {
-                setLimit(Number(e.target.value));
-                setPage(1);
-              }}
-              size="small"
-              sx={{ width: 120 }}
-            >
-              <MenuItem value="10">10</MenuItem>
-              <MenuItem value="25">25</MenuItem>
-              <MenuItem value="50">50</MenuItem>
-            </TextField>
-          </Stack>
-        </CardContent>
-      </Card>
-
       {loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
           <CircularProgress />
@@ -298,6 +276,10 @@ export default function OwnOfficesPage() {
             rowsPerPage={limit}
             total={total}
             onPageChange={setPage}
+            onRowsPerPageChange={(nextRowsPerPage) => {
+              setLimit(nextRowsPerPage);
+              setPage(1);
+            }}
             showToolbar
             searchTerm={search}
             onSearchTermChange={(nextSearch) => {

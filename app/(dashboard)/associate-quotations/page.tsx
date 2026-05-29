@@ -740,32 +740,6 @@ export default function AssociateQuotationsPage() {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 9 }}>
-            </Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
-              <TextField
-                select
-                label="Rows"
-                value={String(limit)}
-                onChange={(event) => {
-                  setLimit(Number(event.target.value));
-                  setPage(1);
-                }}
-                size="small"
-                fullWidth
-              >
-                <MenuItem value="10">10</MenuItem>
-                <MenuItem value="25">25</MenuItem>
-                <MenuItem value="50">50</MenuItem>
-              </TextField>
-            </Grid>
-          </Grid>
-        </CardContent>
-      </Card>
-
       {loading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
           <CircularProgress />
@@ -800,6 +774,10 @@ export default function AssociateQuotationsPage() {
               rowsPerPage={limit}
               total={total}
               onPageChange={setPage}
+              onRowsPerPageChange={(nextRowsPerPage) => {
+                setLimit(nextRowsPerPage);
+                setPage(1);
+              }}
               showToolbar
             searchTerm={search}
             onSearchTermChange={(nextSearch) => {

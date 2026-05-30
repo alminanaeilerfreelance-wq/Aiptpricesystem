@@ -11,6 +11,8 @@ import { Select } from '@/components/ui';
 import { Modal } from '@/components/ui';
 import { quotationsService, Quotation } from '@/services/quotations.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePermission } from '@/hooks/usePermission';
+import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/utils/currency';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +28,9 @@ const STATUS_OPTIONS = [
 const PAGE_SIZE = 10;
 
 export default function QuotationsPage() {
+  const { user } = useAuth();
+  const { canAdd, canEdit, canDelete, canView, canApprove, canReject } = usePermission();
+  
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -153,23 +158,47 @@ export default function QuotationsPage() {
       label: 'Actions',
       render: (row: Quotation) => (
         <div className="flex items-center gap-2">
-          <Link href={`/quotations/${row._id}`}>
-            <Button variant="secondary" size="sm">
-              View
+          {canView('quotations') && (
+            <Link href={`/quotations/${row._id}`}>
+              <Button variant="secondary" size="sm">
+                View
+              </Button>
+            </Link>
+          )}
+          {canEdit('quotations') && (
+            <Link href={`/quotations/${row._id}/edit`}>
+              <Button variant="secondary" size="sm">
+                Edit
+              </Button>
+            </Link>
+          )}
+          {canDelete('quotations') && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => setDeleteTarget(row)}
+            >
+              Delete
             </Button>
-          </Link>
-          <Link href={`/quotations/${row._id}/edit`}>
-            <Button variant="secondary" size="sm">
-              Edit
+          )}
+          {canApprove('quotations') && row.status === 'Pending' && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {/* Approve logic */}}
+            >
+              Approve
             </Button>
-          </Link>
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() => setDeleteTarget(row)}
-          >
-            Delete
-          </Button>
+          )}
+          {canReject('quotations') && row.status === 'Pending' && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => {/* Reject logic */}}
+            >
+              Reject
+            </Button>
+          )}
         </div>
       ),
     },
@@ -220,9 +249,11 @@ export default function QuotationsPage() {
               </div>
             )}
           </div>
-          <Link href="/quotations/new">
-            <Button variant="primary">+ New Quotation</Button>
-          </Link>
+          {canAdd('quotations') && (
+            <Link href="/quotations/new">
+              <Button variant="primary">+ New Quotation</Button>
+            </Link>
+          )}
         </div>
 
         {error && (

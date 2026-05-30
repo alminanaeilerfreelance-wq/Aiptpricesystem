@@ -35,6 +35,8 @@ import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { servicesService } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePermission } from '@/hooks/usePermission';
+import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 

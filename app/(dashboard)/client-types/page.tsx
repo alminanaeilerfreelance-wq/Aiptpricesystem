@@ -32,6 +32,8 @@ import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { clientTypesService } from '@/services/client-types.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePermission } from '@/hooks/usePermission';
+import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 
@@ -46,6 +48,8 @@ interface ClientType {
 }
 
 export default function ClientTypesPage() {
+  const { user } = useAuth();
+  const { canAdd, canEdit, canDelete, canView } = usePermission();
   const [mounted, setMounted] = useState(false);
   const [items, setItems] = useState<ClientType[]>([]);
   const [loading, setLoading] = useState(true);

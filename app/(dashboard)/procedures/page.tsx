@@ -33,6 +33,8 @@ import { proceduresService } from '@/services/procedures.service';
 import { countriesService } from '@/services/countries.service';
 import { servicesService } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePermission } from '@/hooks/usePermission';
+import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 
@@ -87,6 +89,8 @@ const TrashIcon = () => (
 );
 
 export default function ProceduresPage() {
+  const { user } = useAuth();
+  const { canAdd, canEdit, canDelete, canView } = usePermission();
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   const [procedures, setProcedures] = useState<Procedure[]>([]);

@@ -33,6 +33,8 @@ import type { MuiDataTableColumn } from '@/components/ui';
 import { departmentsService } from '@/services/departments.service';
 import { countriesService } from '@/services/countries.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePermission } from '@/hooks/usePermission';
+import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 
@@ -59,6 +61,8 @@ const getCountryName = (country: Department['country']) => {
 };
 
 export default function DepartmentsPage() {
+  const { user } = useAuth();
+  const { canAdd, canEdit, canDelete, canView } = usePermission();
   const [mounted, setMounted] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);

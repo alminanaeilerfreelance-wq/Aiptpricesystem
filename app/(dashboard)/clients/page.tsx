@@ -21,6 +21,8 @@ import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { clientsService, Client } from '@/services/clients.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePermission } from '@/hooks/usePermission';
+import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 
@@ -48,6 +50,9 @@ const defaultForm: ClientForm = {
 
 export default function ClientsPage() {
   const [mounted, setMounted] = useState(false);
+  const { user } = useAuth();
+  const { canAdd, canEdit, canDelete, canView } = usePermission();
+  
   const [items, setItems] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -426,15 +431,21 @@ export default function ClientsPage() {
       sortable: false,
       render: (row) => (
         <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
-            View
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
-            Edit
-          </Button>
-          <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(row._id)}>
-            Delete
-          </Button>
+          {canView('clients') && (
+            <Button size="small" variant="outlined" onClick={() => handleView(row)}>
+              View
+            </Button>
+          )}
+          {canEdit('clients') && (
+            <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
+              Edit
+            </Button>
+          )}
+          {canDelete('clients') && (
+            <Button size="small" color="error" variant="outlined" onClick={() => handleDeleteClick(row._id)}>
+              Delete
+            </Button>
+          )}
         </Stack>
       ),
     },
@@ -448,9 +459,11 @@ export default function ClientsPage() {
 
       <Box sx={{ p: 3, flex: 1 }}>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
-        <Button variant="contained" onClick={handleAdd}>
-          + Add Client
-        </Button>
+        {canAdd('clients') && (
+          <Button variant="contained" onClick={handleAdd}>
+            + Add Client
+          </Button>
+        )}
       </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

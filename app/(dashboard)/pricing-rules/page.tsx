@@ -34,6 +34,8 @@ import { pricingRulesService } from '@/services/pricing-rules.service';
 import { countriesService } from '@/services/countries.service';
 import { proceduresService } from '@/services/procedures.service';
 import { useDebounce } from '@/hooks/useDebounce';
+import { usePermission } from '@/hooks/usePermission';
+import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 
@@ -66,6 +68,8 @@ interface ProcedureOption {
 const CATEGORIES = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
 
 export default function PricingRulesPage() {
+  const { user } = useAuth();
+  const { canAdd, canEdit, canDelete, canView } = usePermission();
   const [mounted, setMounted] = useState(false);
   const [items, setItems] = useState<PricingRule[]>([]);
   const [countries, setCountries] = useState<CountryOption[]>([]);

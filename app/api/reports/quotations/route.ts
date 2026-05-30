@@ -102,6 +102,111 @@ export async function GET(req: NextRequest) {
       value: item.value,
     }));
 
+    // --- By user (team performance) ---
+    const byUserRaw = await Quotation.aggregate([
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'createdBy',
+          foreignField: '_id',
+          as: 'creator',
+        },
+      },
+      {
+        $group: {
+          _id: '$createdBy',
+          name: { $first: { $arrayElemAt: ['$creator.name', 0] } },
+          total: { $sum: 1 },
+          approved: {
+            $sum: { $cond: [{ $eq: ['$status', 'Approved'] }, 1, 0] },
+          },
+          pending: {
+            $sum: { $cond: [{ $eq: ['$status', 'Pending'] }, 1, 0] },
+          },
+          draft: {
+            $sum: { $cond: [{ $eq: ['$status', 'Draft'] }, 1, 0] },
+          },
+        },
+      },
+      { $sort: { total: -1 } },
+      { $limit: 10 },
+    ]);
+
+    const byUser = byUserRaw.map((item) => ({
+      userId: item._id?.toString() || '',
+      name: item.name || 'Unknown',
+      total: item.total,
+      approved: item.approved,
+      pending: item.pending,
+      draft: item.draft,
+    }));
+
+    // --- Top clients by revenue ---
+    const topClientsRaw = await Quotation.aggregate([
+      {
+        $match: { status: 'Approved' },
+      },
+      {
+        $group: {
+          _id: '$clientName',
+          value: { $sum: '$total' },
+        },
+      },
+      { $sort: { value: -1 } },
+      { $limit: 8 },
+    ]);
+
+    const topClients = topClientsRaw.map((item) => ({
+      name: item._id,
+      value: item.value,
+    }));
+
+    // --- Quotation age analysis (pending only) ---
+    const now = new Date();
+    const pendingQuotations = await Quotation.find({ status: 'Pending' });
+
+    const ageAnalysis = {
+      lessThan7Days: 0,
+      days7to14: 0,
+      days14to30: 0,
+      moreThan30Days: 0,
+    };
+
+    pendingQuotations.forEach((q) => {
+      const createdDate = new Date(q.createdAt);
+      const daysOld = Math.floor(
+        (now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+      );
+
+      if (daysOld < 7) ageAnalysis.lessThan7Days++;
+      else if (daysOld < 14) ageAnalysis.days7to14++;
+      else if (daysOld < 30) ageAnalysis.days14to30++;
+      else ageAnalysis.moreThan30Days++;
+    });
+
+    // --- Amount distribution ---
+    const allQuotations = await Quotation.find({});
+    const amountBuckets: Record<string, number> = {
+      '0-5K': 0,
+      '5K-10K': 0,
+      '10K-25K': 0,
+      '25K-50K': 0,
+      '50K+': 0,
+    };
+
+    allQuotations.forEach((q) => {
+      if (q.total < 5000) amountBuckets['0-5K']++;
+      else if (q.total < 10000) amountBuckets['5K-10K']++;
+      else if (q.total < 25000) amountBuckets['10K-25K']++;
+      else if (q.total < 50000) amountBuckets['25K-50K']++;
+      else amountBuckets['50K+']++;
+    });
+
+    const amountDistribution = Object.entries(amountBuckets).map(([range, count]) => ({
+      range,
+      count,
+    }));
+
     return NextResponse.json({
       total: totalQuotations,
       approved: approvedCount,
@@ -112,6 +217,10 @@ export async function GET(req: NextRequest) {
       byService,
       byCountry,
       monthly,
+      byUser,
+      topClients,
+      quotationAgeAnalysis: ageAnalysis,
+      amountDistribution,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Operation failed';

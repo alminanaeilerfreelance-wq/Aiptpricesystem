@@ -9,3 +9,11 @@ export type { TopCountriesPieChartProps, CountryData } from './TopCountriesPieCh
 
 export { default as RecentQuotationsTable } from './RecentQuotationsTable';
 export type { RecentQuotationsTableProps, RecentQuotation } from './RecentQuotationsTable';
+
+export { TeamPerformanceChart } from './TeamPerformanceChart';
+export { ServiceDemandChart } from './ServiceDemandChart';
+export { ConversionFunnelCard } from './ConversionFunnelCard';
+export { RevenueByClientChart } from './RevenueByClientChart';
+export { QuotationAgeAnalysisCard } from './QuotationAgeAnalysisCard';
+export { UserActivityTable } from './UserActivityTable';
+export { QuotationAmountDistributionChart } from './QuotationAmountDistributionChart';

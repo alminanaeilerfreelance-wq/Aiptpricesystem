@@ -54,7 +54,9 @@ export default function UsersPage() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [viewTarget, setViewTarget] = useState<User | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
 
   const fetchUsers = useCallback(async () => {
@@ -165,6 +167,20 @@ export default function UsersPage() {
     }
   };
 
+  const handleDeleteConfirm = async () => {
+    if (!deactivateTarget) return;
+    setDeleting(true);
+    try {
+      await usersService.delete(deactivateTarget._id);
+      setDeactivateTarget(null);
+      await fetchUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete user');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -225,7 +241,10 @@ export default function UsersPage() {
       key: 'actions',
       label: 'Actions',
       render: (row: User) => (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 flex-wrap">
+          <Button variant="ghost" size="sm" onClick={() => setViewTarget(row)}>
+            View
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => openEditModal(row)}>
             Edit
           </Button>
@@ -245,6 +264,9 @@ export default function UsersPage() {
             onClick={() => setDeactivateTarget(row)}
           >
             {row.isActive ? 'Deactivate' : 'Activate'}
+          </Button>
+          <Button variant="danger" size="sm" onClick={() => setDeactivateTarget({...row, _id: row._id})} title="Delete user">
+            Delete
           </Button>
         </div>
       ),
@@ -357,28 +379,123 @@ export default function UsersPage() {
         </div>
       </Modal>
 
-      {/* Deactivate / Activate Confirmation Modal */}
+      {/* View User Details Modal */}
+      <Modal
+        isOpen={!!viewTarget}
+        onClose={() => setViewTarget(null)}
+        title="User Details"
+        size="md"
+      >
+        {viewTarget && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase">Name</label>
+                <p className="mt-1 text-sm text-gray-900">{viewTarget.name}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase">Email</label>
+                <p className="mt-1 text-sm text-gray-900">{viewTarget.email}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase">Role</label>
+                <p className="mt-1">
+                  <span className={roleColorMap[viewTarget.role] ?? roleColorMap.user}>
+                    {viewTarget.role.charAt(0).toUpperCase() + viewTarget.role.slice(1)}
+                  </span>
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase">Status</label>
+                <p className="mt-1">
+                  <span className={viewTarget.isActive ? 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700' : 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700'}>
+                    {viewTarget.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase">Approval Status</label>
+                <p className="mt-1">
+                  <span className={approvalColorMap[viewTarget.approvalStatus || 'approved'] ?? approvalColorMap.approved}>
+                    {(viewTarget.approvalStatus || 'approved').charAt(0).toUpperCase() + (viewTarget.approvalStatus || 'approved').slice(1)}
+                  </span>
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase">Created At</label>
+                <p className="mt-1 text-sm text-gray-900">{formatDate(viewTarget.createdAt)}</p>
+              </div>
+            </div>
+
+            {viewTarget.approvedAt && (
+              <div className="pt-4 border-t border-gray-200">
+                <label className="block text-xs font-semibold text-gray-500 uppercase mb-2">Approval Information</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Approved By</label>
+                    <p className="mt-1 text-sm text-gray-900">{viewTarget.approvedBy || '—'}</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600">Approved At</label>
+                    <p className="mt-1 text-sm text-gray-900">{formatDate(viewTarget.approvedAt)}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setViewTarget(null)}>
+                Close
+              </Button>
+              <Button variant="primary" onClick={() => {
+                setViewTarget(null);
+                openEditModal(viewTarget);
+              }}>
+                Edit User
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
       <Modal
         isOpen={!!deactivateTarget}
         onClose={() => setDeactivateTarget(null)}
-        title={deactivateTarget?.isActive ? 'Deactivate User' : 'Activate User'}
+        title={deactivateTarget?.isActive ? 'Deactivate User' : 'Delete User'}
         size="sm"
       >
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            Are you sure you want to {deactivateTarget?.isActive ? 'deactivate' : 'activate'}{' '}
-            <span className="font-semibold text-gray-900">{deactivateTarget?.name}</span>?
+            {deactivateTarget?.isActive ? (
+              <>
+                Are you sure you want to <span className="font-semibold">deactivate</span> <span className="font-semibold text-gray-900">{deactivateTarget?.name}</span>?
+              </>
+            ) : (
+              <>
+                Are you sure you want to <span className="font-semibold text-red-600">permanently delete</span> <span className="font-semibold text-gray-900">{deactivateTarget?.name}</span>?
+              </>
+            )}
           </p>
+          {!deactivateTarget?.isActive && (
+            <p className="text-xs text-red-600 font-medium">
+              ⚠️ This action cannot be undone.
+            </p>
+          )}
           <div className="flex justify-end gap-3">
-            <Button variant="secondary" onClick={() => setDeactivateTarget(null)} disabled={deactivating}>
+            <Button variant="secondary" onClick={() => setDeactivateTarget(null)} disabled={deactivating || deleting}>
               Cancel
             </Button>
             <Button
-              variant={deactivateTarget?.isActive ? 'danger' : 'primary'}
-              onClick={handleDeactivateConfirm}
-              loading={deactivating}
+              variant={deactivateTarget?.isActive ? 'danger' : 'danger'}
+              onClick={() => {
+                if (deactivateTarget?.isActive) {
+                  handleDeactivateConfirm();
+                } else {
+                  handleDeleteConfirm();
+                }
+              }}
+              loading={deactivating || deleting}
             >
-              {deactivateTarget?.isActive ? 'Deactivate' : 'Activate'}
+              {deactivateTarget?.isActive ? 'Deactivate' : 'Delete'}
             </Button>
           </div>
         </div>

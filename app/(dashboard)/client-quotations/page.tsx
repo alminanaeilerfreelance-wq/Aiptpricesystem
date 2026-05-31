@@ -1612,15 +1612,12 @@ export default function ClientQuotationsPage() {
           : [];
         const requirementsAcc: RequirementOption[] = [];
         for (const countryId of countryIds) {
-          const response = await requirementsService.list(
-            1,
-            1000,
-            undefined,
-            countryId,
-            undefined,
-            undefined,
-            (selectedServiceCategory || undefined) as ServiceCategory | undefined
-          );
+          const response = await requirementsService.list({
+          page: 1,
+          limit: 1000,
+          countryId,
+          serviceCategory: (selectedServiceCategory || undefined) as ServiceCategory | undefined,
+        });
           const rows = Array.isArray(response.data?.data) ? response.data.data : [];
           rows.forEach((row: any) => {
             requirementsAcc.push({

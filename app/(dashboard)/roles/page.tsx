@@ -249,7 +249,7 @@ export default function RolesPage() {
             value={form.name}
             onChange={(e) => handleFormChange('name', e.target.value)}
             placeholder="e.g., Content Manager, Reviewer"
-            disabled={editTarget && ['admin', 'manager', 'user'].includes(editTarget.name.toLowerCase())}
+            disabled={editTarget ? ['admin', 'manager', 'user'].includes(editTarget.name.toLowerCase()) : undefined}
           />
           <Input
             label="Description (Optional)"

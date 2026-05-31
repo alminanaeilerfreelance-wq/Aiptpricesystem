@@ -14,7 +14,9 @@ interface Requirement {
 
 interface RequirementInput {
   country: string;
+  serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   requirements: string;
+  upsertByCountry?: boolean;
 }
 
 interface ListResponse {
@@ -27,15 +29,38 @@ interface ListResponse {
   };
 }
 
-const requirementsService = {
-  list: (page: number = 1, limit: number = 10, search?: string, countryId?: string) => {
-    const params = new URLSearchParams();
-    params.append('page', page.toString());
-    params.append('limit', limit.toString());
-    if (search) params.append('search', search);
-    if (countryId) params.append('countryId', countryId);
+interface RequirementListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  countryId?: string;
+  sortBy?: 'createdAt' | 'country';
+  sortOrder?: 'asc' | 'desc';
+  serviceCategory?: string;
+}
 
-    return apiClient.get<ListResponse>(`/requirements?${params.toString()}`);
+const requirementsService = {
+  list: (params: RequirementListParams = {}) => {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      countryId,
+      sortBy,
+      sortOrder,
+      serviceCategory,
+    } = params;
+
+    const searchParams = new URLSearchParams();
+    searchParams.append('page', page.toString());
+    searchParams.append('limit', limit.toString());
+    if (search) searchParams.append('search', search);
+    if (countryId) searchParams.append('countryId', countryId);
+    if (sortBy) searchParams.append('sortBy', sortBy);
+    if (sortOrder) searchParams.append('sortOrder', sortOrder);
+    if (serviceCategory) searchParams.append('serviceCategory', serviceCategory);
+
+    return apiClient.get<ListResponse>(`/requirements?${searchParams.toString()}`);
   },
 
   getById: (id: string) => {

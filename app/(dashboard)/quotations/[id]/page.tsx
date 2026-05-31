@@ -108,7 +108,7 @@ export default function QuotationDetailPage() {
   }, [id]);
 
   useEffect(() => {
-    if (!quotation) return;
+    if (!quotation || !quotation.country) return;
 
     const hasAssignedRequirements =
       Array.isArray(quotation.requirementIds) &&
@@ -122,7 +122,7 @@ export default function QuotationDetailPage() {
     }
 
     requirementsService
-      .list(1, 100, quotation.country)
+      .list({ page: 1, limit: 100 })
       .then((res) => {
         const normalizedCountry = quotation.country.trim().toLowerCase();
         const list = Array.isArray(res?.data?.data) ? res.data.data : [];

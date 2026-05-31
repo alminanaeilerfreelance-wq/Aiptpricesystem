@@ -130,14 +130,14 @@ export default function RequirementsPage() {
     try {
       setLoading(true);
       setError('');
-      const response = await requirementsService.list(
-        nextPage,
+      const response = await requirementsService.list({
+        page: nextPage,
         limit,
-        nextSearch || undefined,
-        nextCountry || undefined,
+        search: nextSearch || undefined,
+        countryId: nextCountry || undefined,
         sortBy,
-        sortOrder
-      );
+        sortOrder,
+      });
       setRequirements(Array.isArray(response.data.data) ? response.data.data : []);
       setTotal(response.data.pagination?.total || 0);
     } catch (err: any) {
@@ -311,14 +311,14 @@ export default function RequirementsPage() {
 
   const getAllFilteredRequirements = useCallback(async () => {
     const pageSize = 100;
-    const firstResponse = await requirementsService.list(
-      1,
-      pageSize,
-      debouncedSearch || undefined,
-      countryFilter || undefined,
+    const firstResponse = await requirementsService.list({
+      page: 1,
+      limit: pageSize,
+      search: debouncedSearch || undefined,
+      countryId: countryFilter || undefined,
       sortBy,
-      sortOrder
-    );
+      sortOrder,
+    });
 
     const firstData = Array.isArray(firstResponse.data.data) ? firstResponse.data.data : [];
     const totalPagesFromApi = firstResponse.data.pagination?.pages || 1;
@@ -330,14 +330,14 @@ export default function RequirementsPage() {
     const remainingRequests: Array<Promise<any>> = [];
     for (let currentPage = 2; currentPage <= totalPagesFromApi; currentPage += 1) {
       remainingRequests.push(
-        requirementsService.list(
-          currentPage,
-          pageSize,
-          debouncedSearch || undefined,
-          countryFilter || undefined,
+        requirementsService.list({
+          page: currentPage,
+          limit: pageSize,
+          search: debouncedSearch || undefined,
+          countryId: countryFilter || undefined,
           sortBy,
-          sortOrder
-        )
+          sortOrder,
+        })
       );
     }
 

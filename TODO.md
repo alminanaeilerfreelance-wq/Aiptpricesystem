@@ -11,3 +11,18 @@
 - [ ] Mirror critical parity in `app/(dashboard)/quotations/[id]/edit/page.tsx`
 - [ ] Run type/lint checks
 - [ ] Update TODO progress
+
+✓ Compiled successfully in 36.6s
+  Running TypeScript  ...Failed to type check.
+
+./components/quotations/ServiceDetailsCard.tsx:83:16
+Type error: Expected 0-1 arguments, but got 4.
+
+  81 |     setLoadingReqs(true);
+  82 |     requirementsService
+> 83 |       .list(1, 100, '', countryId)
+     |                ^
+  84 |       .then((res) => {
+  85 |         setRequirements(res.data.data || []);
+  86 |       })
+Next.js build worker exited with code: 1 and signal: null

@@ -1,4 +1,11 @@
+'use client';
 import React, { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
+
+const ReactQuill = dynamic(
+  () => import('react-quill-new'),
+  { ssr: false }
+);
 import {
   Dialog,
   DialogTitle,
@@ -14,8 +21,6 @@ import {
   Box,
   Alert,
 } from '@mui/material';
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css';
 import { countriesService } from '@/services/countries.service';
 import requirementsService from '@/services/requirements.service';
 
@@ -86,8 +91,8 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         setLoading(true);
         const response = await requirementsService.getById(editingId);
         setFormData({
-          country: response.country._id,
-          requirements: response.requirements,
+          country: response.data.country._id,
+          requirements: response.data.requirements,
         });
         setError('');
       } catch (err) {

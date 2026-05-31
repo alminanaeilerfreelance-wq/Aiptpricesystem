@@ -80,7 +80,7 @@ export const ServiceDetailsCard: React.FC<ServiceDetailsCardProps> = ({
 
     setLoadingReqs(true);
     requirementsService
-      .list(1, 100, '', countryId)
+      .list({ page: 1, limit: 100, countryId })
       .then((res) => {
         setRequirements(res.data.data || []);
       })

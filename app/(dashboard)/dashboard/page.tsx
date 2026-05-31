@@ -21,8 +21,78 @@ import { quotationsService, Quotation } from '@/services/quotations.service';
 import { usersService, User } from '@/services/users.service';
 import { useAuth } from '@/hooks/useAuth';
 
+function getApiErrorMessage(err: unknown, fallback: string): string {
+  if (typeof err === 'object' && err !== null) {
+    const apiError = err as {
+      response?: { data?: { error?: string; details?: string }; status?: number };
+      message?: string;
+    };
+
+    return (
+      apiError.response?.data?.error ||
+      apiError.response?.data?.details ||
+      apiError.message ||
+      fallback
+    );
+  }
+
+  return fallback;
+}
+
+function buildReportFromQuotations(quotations: Quotation[]): QuotationsReport {
+  const statusCounts = quotations.reduce(
+    (acc, quotation) => {
+      acc[quotation.status] = (acc[quotation.status] || 0) + 1;
+      return acc;
+    },
+    {} as Record<Quotation['status'], number>
+  );
+
+  const byServiceMap = new Map<string, { service: string; count: number; value: number }>();
+  const byCountryMap = new Map<string, { country: string; count: number }>();
+  const monthlyMap = new Map<string, { month: string; count: number; value: number }>();
+
+  quotations.forEach((quotation) => {
+    const serviceItem =
+      byServiceMap.get(quotation.service) ||
+      { service: quotation.service, count: 0, value: 0 };
+    serviceItem.count += 1;
+    serviceItem.value += quotation.total;
+    byServiceMap.set(quotation.service, serviceItem);
+
+    const countryItem =
+      byCountryMap.get(quotation.country) ||
+      { country: quotation.country, count: 0 };
+    countryItem.count += 1;
+    byCountryMap.set(quotation.country, countryItem);
+
+    const createdAt = new Date(quotation.createdAt);
+    if (!Number.isNaN(createdAt.getTime())) {
+      const month = `${createdAt.getFullYear()}-${String(createdAt.getMonth() + 1).padStart(2, '0')}`;
+      const monthlyItem =
+        monthlyMap.get(month) ||
+        { month, count: 0, value: 0 };
+      monthlyItem.count += 1;
+      monthlyItem.value += quotation.total;
+      monthlyMap.set(month, monthlyItem);
+    }
+  });
+
+  return {
+    total: quotations.length,
+    approved: statusCounts.Approved || 0,
+    pending: statusCounts.Pending || 0,
+    draft: statusCounts.Draft || 0,
+    rejected: statusCounts.Rejected || 0,
+    totalValue: quotations.reduce((sum, quotation) => sum + quotation.total, 0),
+    byService: Array.from(byServiceMap.values()).sort((a, b) => b.count - a.count),
+    byCountry: Array.from(byCountryMap.values()).sort((a, b) => b.count - a.count),
+    monthly: Array.from(monthlyMap.values()).sort((a, b) => a.month.localeCompare(b.month)),
+  };
+}
+
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [report, setReport] = useState<QuotationsReport | null>(null);
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -33,35 +103,80 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function fetchData() {
+      if (authLoading) return;
+
+      if (!user) {
+        setLoading(false);
+        setReport(null);
+        setQuotations([]);
+        setActivities([]);
+        setAllUsers([]);
+        setPendingUsers([]);
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
-        const [reportData, quotationsData, activitiesData] = await Promise.all([
+        const [reportResult, quotationsResult] = await Promise.allSettled([
           reportsService.getQuotationsReport(),
-          quotationsService.list(),
-          reportsService.getUserActivities(15),
+          quotationsService.list({ limit: 100 }),
         ]);
-        setReport(reportData);
-        setQuotations(quotationsData.quotations);
-        setActivities(activitiesData);
-        if (user?.role === 'admin') {
-          try {
-            const usersData = await usersService.list();
-            setAllUsers(usersData.users);
-            setPendingUsers(usersData.users.filter((item) => item.approvalStatus === 'pending'));
-          } catch {
-            setAllUsers([]);
-            setPendingUsers([]);
-          }
+
+        const nextQuotations =
+          quotationsResult.status === 'fulfilled' ? quotationsResult.value.quotations : [];
+        const nextReport =
+          reportResult.status === 'fulfilled'
+            ? reportResult.value
+            : buildReportFromQuotations(nextQuotations);
+
+        if (reportResult.status === 'rejected' && quotationsResult.status === 'rejected') {
+          throw reportResult.reason;
+        }
+
+        if (reportResult.status === 'rejected') {
+          console.warn(
+            'Dashboard report API failed; using quotation data fallback.',
+            reportResult.reason
+          );
+        }
+
+        if (quotationsResult.status === 'rejected') {
+          console.warn('Dashboard quotation list failed.', quotationsResult.reason);
+        }
+
+        setReport(nextReport);
+        setQuotations(nextQuotations);
+
+        if (user.role === 'admin') {
+          const [activitiesResult, usersResult] = await Promise.allSettled([
+            reportsService.getUserActivities(15),
+            usersService.list(),
+          ]);
+
+          setActivities(
+            activitiesResult.status === 'fulfilled' ? activitiesResult.value : []
+          );
+
+          const users = usersResult.status === 'fulfilled' ? usersResult.value.users : [];
+          setAllUsers(users);
+          setPendingUsers(users.filter((item) => item.approvalStatus === 'pending'));
+        } else {
+          setActivities([]);
+          setAllUsers([]);
+          setPendingUsers([]);
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+        setReport(null);
+        setQuotations([]);
+        setActivities([]);
+        setError(getApiErrorMessage(err, 'Failed to load dashboard data'));
       } finally {
         setLoading(false);
       }
     }
     fetchData();
-  }, [user?.role]);
+  }, [authLoading, user]);
 
   // Monthly chart data from report.monthly array
   const lineChartData = (() => {

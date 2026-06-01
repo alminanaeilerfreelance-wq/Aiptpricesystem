@@ -17,6 +17,7 @@ import {
  */
 export function usePermission() {
   const { user } = useAuth();
+  const subject = user || { role: 'user' };
   const role = user?.role || 'user';
 
   return {
@@ -25,36 +26,36 @@ export function usePermission() {
      * @example: if (can('add', 'clients')) { ... }
      */
     can: (action: ResourceAction, resource: Resource) => {
-      return hasPermission(role, resource, action);
+      return hasPermission(subject, resource, action);
     },
 
     /**
      * Quick checks for common actions
      * @example: if (canAdd('clients')) { ... }
      */
-    canAdd: (resource: Resource) => permissionsCan.add(role, resource),
-    canEdit: (resource: Resource) => permissionsCan.edit(role, resource),
-    canUpdate: (resource: Resource) => permissionsCan.update(role, resource),
-    canDelete: (resource: Resource) => permissionsCan.delete(role, resource),
-    canAssign: (resource: Resource) => permissionsCan.assign(role, resource),
-    canView: (resource: Resource) => permissionsCan.view(role, resource),
-    canApprove: (resource: Resource) => permissionsCan.approve(role, resource),
-    canReject: (resource: Resource) => permissionsCan.reject(role, resource),
+    canAdd: (resource: Resource) => permissionsCan.add(subject, resource),
+    canEdit: (resource: Resource) => permissionsCan.edit(subject, resource),
+    canUpdate: (resource: Resource) => permissionsCan.update(subject, resource),
+    canDelete: (resource: Resource) => permissionsCan.delete(subject, resource),
+    canAssign: (resource: Resource) => permissionsCan.assign(subject, resource),
+    canView: (resource: Resource) => permissionsCan.view(subject, resource),
+    canApprove: (resource: Resource) => permissionsCan.approve(subject, resource),
+    canReject: (resource: Resource) => permissionsCan.reject(subject, resource),
 
     /**
      * Get all permissions for a resource
      */
-    getPermissions: (resource: Resource) => getPermissions(role, resource),
+    getPermissions: (resource: Resource) => getPermissions(subject, resource),
 
     /**
      * Check if user can perform multiple actions
      */
-    canAll: (resource: Resource, actions: ResourceAction[]) => canAll(role, resource, actions),
+    canAll: (resource: Resource, actions: ResourceAction[]) => canAll(subject, resource, actions),
 
     /**
      * Check if user can perform any of the actions
      */
-    canAny: (resource: Resource, actions: ResourceAction[]) => canAny(role, resource, actions),
+    canAny: (resource: Resource, actions: ResourceAction[]) => canAny(subject, resource, actions),
 
     /**
      * Get current user role

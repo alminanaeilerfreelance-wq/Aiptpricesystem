@@ -15,10 +15,6 @@ export async function GET(req: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (user.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden: admin access required' }, { status: 403 });
-    }
-
     await connectDB();
 
     const foundUser = await User.findById(id).select('-password');
@@ -39,10 +35,6 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     const user = getUserFromRequest(req);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (user.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden: admin access required' }, { status: 403 });
     }
 
     await connectDB();
@@ -95,10 +87,6 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
     const user = getUserFromRequest(req);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (user.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden: admin access required' }, { status: 403 });
     }
 
     // Prevent admin from deleting their own account

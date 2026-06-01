@@ -3,6 +3,24 @@ import connectDB from '@/lib/mongodb';
 import Role from '@/models/Role';
 import { getUserFromRequest } from '@/lib/auth';
 import { ObjectId } from 'mongodb';
+import {
+  flattenModulePermissions,
+  normalizeModulePermissions,
+  type ModulePermission,
+} from '@/lib/permissions';
+
+function normalizeRolePayload(data: any, roleName?: string) {
+  const modulePermissions = normalizeModulePermissions(
+    data.modulePermissions as ModulePermission[] | undefined,
+    data.permissions as string[] | undefined,
+    roleName || data.name
+  );
+
+  return {
+    modulePermissions,
+    permissions: flattenModulePermissions(modulePermissions),
+  };
+}
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -24,7 +42,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Role not found' }, { status: 404 });
     }
 
-    return NextResponse.json(role);
+    const normalized = normalizeRolePayload(role.toObject(), role.name);
+    return NextResponse.json({ ...role.toObject(), ...normalized });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });
@@ -54,7 +73,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Role name cannot be empty' }, { status: 400 });
     }
 
-    if (data.permissions && (!Array.isArray(data.permissions) || data.permissions.length === 0)) {
+    const normalized = normalizeRolePayload(data, data.name);
+
+    if (
+      (data.permissions || data.modulePermissions) &&
+      normalized.modulePermissions.length === 0
+    ) {
       return NextResponse.json({ error: 'At least one permission is required' }, { status: 400 });
     }
 
@@ -78,8 +102,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       role.description = data.description?.trim() || '';
     }
 
-    if (data.permissions) {
-      role.permissions = data.permissions;
+    if (data.permissions || data.modulePermissions) {
+      role.permissions = normalized.permissions;
+      role.modulePermissions = normalized.modulePermissions;
     }
 
     await role.save();

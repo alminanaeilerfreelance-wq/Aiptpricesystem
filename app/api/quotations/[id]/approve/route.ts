@@ -15,11 +15,6 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Only admins and managers can approve quotations
-    if (user.role !== 'admin' && user.role !== 'manager') {
-      return NextResponse.json({ error: 'Forbidden: insufficient permissions' }, { status: 403 });
-    }
-
     await connectDB();
 
     const quotation = await Quotation.findByIdAndUpdate(

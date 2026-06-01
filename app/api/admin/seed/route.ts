@@ -1,6 +1,6 @@
-import { connectDB } from '@/lib/mongodb';
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import connectDB from '@/lib/mongodb';
 import Role from '@/models/Role';
 import User from '@/models/User';
 import Service from '@/models/Service';
@@ -10,471 +10,247 @@ import ClientType from '@/models/ClientType';
 import PricingRule from '@/models/PricingRule';
 import Client from '@/models/Client';
 import Quotation from '@/models/Quotation';
+import Settings from '@/models/Settings';
+import {
+  DEFAULT_MODULE_PERMISSIONS,
+  flattenModulePermissions,
+  type UserRole,
+} from '@/lib/permissions';
 
-// Protect this endpoint with a secret token
 const SEED_SECRET = process.env.SEED_SECRET || 'your-seed-secret-key-change-in-production';
+
+const USERS = [
+  { name: 'Demo Admin', email: 'admin@demo.com', password: 'demo1234', role: 'admin' as UserRole },
+  { name: 'Demo User', email: 'user@demo.com', password: 'demo1234', role: 'user' as UserRole },
+  { name: 'Admin User', email: 'admin@example.com', password: 'Admin@123456', role: 'admin' as UserRole },
+  { name: 'Manager User', email: 'manager@example.com', password: 'Manager@123456', role: 'manager' as UserRole },
+  { name: 'Regular User', email: 'user@example.com', password: 'User@123456', role: 'user' as UserRole },
+];
+
+const SERVICES = [
+  { name: 'Trademark Registration', category: 'Trademark', basePrice: 2500 },
+  { name: 'Trademark Renewal', category: 'Trademark', basePrice: 1800 },
+  { name: 'Patent Filing', category: 'Patent', basePrice: 5000 },
+  { name: 'Design Registration', category: 'Design', basePrice: 1800 },
+  { name: 'Copyright Registration', category: 'Copyright', basePrice: 1200 },
+  { name: 'IP Litigation', category: 'Litigation', basePrice: 8000 },
+];
+
+const COUNTRIES = [
+  { name: 'Saudi Arabia', abbreviation: 'SA', flagCode: 'sa' },
+  { name: 'United Arab Emirates', abbreviation: 'AE', flagCode: 'ae' },
+  { name: 'Kuwait', abbreviation: 'KW', flagCode: 'kw' },
+  { name: 'Qatar', abbreviation: 'QA', flagCode: 'qa' },
+  { name: 'United States', abbreviation: 'US', flagCode: 'us' },
+  { name: 'United Kingdom', abbreviation: 'GB', flagCode: 'gb' },
+  { name: 'Germany', abbreviation: 'DE', flagCode: 'de' },
+];
+
+const CLIENT_TYPES = [
+  { name: 'Standard', description: 'Standard client rate', multiplier: 1 },
+  { name: 'Preferred', description: 'Preferred client rate', multiplier: 0.9 },
+  { name: 'VIP', description: 'VIP client rate', multiplier: 0.8 },
+  { name: 'Government', description: 'Government entity', multiplier: 1.1 },
+];
+
+const CLIENTS = [
+  { name: 'Al Khaleej Trading Company', email: 'info@alkhaleej.com', country: 'Saudi Arabia', type: 'Company', status: 'Big' },
+  { name: 'TechVision LLC', email: 'legal@techvision.ae', country: 'United Arab Emirates', type: 'Company', status: 'Big' },
+  { name: 'Global Innovations Inc.', email: 'ip@globalinnovations.com', country: 'United States', type: 'Company', status: 'Big' },
+  { name: 'Kuwait Finance House', email: 'legal@kfh.com.kw', country: 'Kuwait', type: 'Company', status: 'Big' },
+];
+
+const PRICING_RULES = [
+  { serviceCategory: 'Trademark', procedureName: 'Filing (New Application)', countryName: 'Saudi Arabia', countryAbbreviation: 'SA', officialFee: 1500, attorneyFee: 2000, classFee: 300 },
+  { serviceCategory: 'Trademark', procedureName: 'Filing (New Application)', countryName: 'United Arab Emirates', countryAbbreviation: 'AE', officialFee: 1800, attorneyFee: 2200, classFee: 350 },
+  { serviceCategory: 'Trademark', procedureName: 'Renewal', countryName: 'United States', countryAbbreviation: 'US', officialFee: 1800, attorneyFee: 2200, classFee: 300 },
+  { serviceCategory: 'Patent', procedureName: 'Filing (New Application)', countryName: 'United States', countryAbbreviation: 'US', officialFee: 5000, attorneyFee: 6000, classFee: 0 },
+  { serviceCategory: 'Design', procedureName: 'Filing (New Application)', countryName: 'Saudi Arabia', countryAbbreviation: 'SA', officialFee: 1000, attorneyFee: 1500, classFee: 0 },
+  { serviceCategory: 'Copyright', procedureName: 'Registration', countryName: 'Saudi Arabia', countryAbbreviation: 'SA', officialFee: 500, attorneyFee: 800, classFee: 0 },
+];
+
+const QUOTATIONS = [
+  { quotationNo: 'QT-2026-SEED-001', clientName: 'Al Khaleej Trading Company', clientEmail: 'info@alkhaleej.com', clientType: 'Standard', service: 'Trademark', procedure: 'Filing (New Application)', country: 'Saudi Arabia', numberOfClasses: 3, fees: { governmentFee: 1500, serviceFee: 2000, classFee: 300, procedureFee: 0 }, multiplier: 1, status: 'Approved' },
+  { quotationNo: 'QT-2026-SEED-002', clientName: 'TechVision LLC', clientEmail: 'legal@techvision.ae', clientType: 'Preferred', service: 'Patent', procedure: 'Filing (New Application)', country: 'United Arab Emirates', numberOfClasses: 1, fees: { governmentFee: 3500, serviceFee: 4500, classFee: 0, procedureFee: 0 }, multiplier: 0.9, status: 'Pending' },
+  { quotationNo: 'QT-2026-SEED-003', clientName: 'Global Innovations Inc.', clientEmail: 'ip@globalinnovations.com', clientType: 'VIP', service: 'Trademark', procedure: 'Renewal', country: 'United States', numberOfClasses: 2, fees: { governmentFee: 1800, serviceFee: 2200, classFee: 300, procedureFee: 0 }, multiplier: 0.8, status: 'Approved' },
+  { quotationNo: 'QT-2026-SEED-004', clientName: 'Kuwait Finance House', clientEmail: 'legal@kfh.com.kw', clientType: 'Government', service: 'Trademark', procedure: 'Filing (New Application)', country: 'Kuwait', numberOfClasses: 5, fees: { governmentFee: 1400, serviceFee: 1900, classFee: 280, procedureFee: 0 }, multiplier: 1.1, status: 'Draft' },
+];
+
+async function upsertRole(role: UserRole, description: string) {
+  const modulePermissions = DEFAULT_MODULE_PERMISSIONS[role];
+  await Role.findOneAndUpdate(
+    { name: role },
+    {
+      name: role,
+      description,
+      modulePermissions,
+      permissions: flattenModulePermissions(modulePermissions),
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+}
 
 export async function POST(req: NextRequest) {
   try {
-    // Verify secret token for security
     const authHeader = req.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
 
     if (token !== SEED_SECRET) {
-      return NextResponse.json(
-        { error: '❌ Unauthorized - Invalid seed secret' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized - invalid seed secret' }, { status: 401 });
     }
 
-    // Connect to database
     await connectDB();
 
-    console.log('🌱 IP Law Firm — API Database Seed');
+    await Promise.all([
+      upsertRole('admin', 'Full system access'),
+      upsertRole('manager', 'Operational management access'),
+      upsertRole('user', 'Basic quotation access'),
+    ]);
 
-    // ─── Create Roles ─────────────────────────────────────────────────────
-    const adminRole = await Role.findOneAndUpdate(
-      { name: 'admin' },
-      {
-        name: 'admin',
-        description: 'Administrator with full access',
-        permissions: [
-          'view_dashboard',
-          'manage_users',
-          'manage_roles',
-          'create_quotation',
-          'view_quotation',
-          'edit_quotation',
-          'approve_quotation',
-          'delete_quotation',
-          'view_reports',
-          'manage_clients',
-          'manage_services',
-          'manage_settings',
-          'manage_departments',
-          'manage_countries',
-          'manage_pricing',
-          'export_data',
-        ],
-      },
-      { upsert: true, new: true }
-    );
-
-    const managerRole = await Role.findOneAndUpdate(
-      { name: 'manager' },
-      {
-        name: 'manager',
-        description: 'Manager with mid-level access',
-        permissions: [
-          'view_dashboard',
-          'create_quotation',
-          'view_quotation',
-          'edit_quotation',
-          'approve_quotation',
-          'view_reports',
-          'manage_clients',
-          'manage_services',
-        ],
-      },
-      { upsert: true, new: true }
-    );
-
-    const userRole = await Role.findOneAndUpdate(
-      { name: 'user' },
-      {
-        name: 'user',
-        description: 'Regular user with limited access',
-        permissions: ['view_dashboard', 'create_quotation', 'view_quotation', 'view_reports'],
-      },
-      { upsert: true, new: true }
-    );
-
-    console.log('🔐 Roles created/updated');
-
-    // ─── Create Users ──────────────────────────────────────────────────────
-    const users = [
-      {
-        name: 'Admin User',
-        email: 'admin@example.com',
-        password: 'Admin@123456',
-        role: 'admin',
-        approvalStatus: 'approved',
-      },
-      {
-        name: 'Manager User',
-        email: 'manager@example.com',
-        password: 'Manager@123456',
-        role: 'manager',
-        approvalStatus: 'approved',
-      },
-      {
-        name: 'Regular User',
-        email: 'user@example.com',
-        password: 'User@123456',
-        role: 'user',
-        approvalStatus: 'approved',
-      },
-      {
-        name: 'Pending User',
-        email: 'pending@example.com',
-        password: 'Pending@123456',
-        role: 'user',
-        approvalStatus: 'pending',
-      },
-    ];
-
-    for (const userData of users) {
+    for (const seedUser of USERS) {
       await User.findOneAndUpdate(
-        { email: userData.email },
+        { email: seedUser.email },
         {
-          name: userData.name,
-          email: userData.email,
-          password: userData.password,
-          role: userData.role as any,
-          approvalStatus: userData.approvalStatus as any,
+          name: seedUser.name,
+          email: seedUser.email,
+          password: await bcrypt.hash(seedUser.password, 12),
+          role: seedUser.role,
           isActive: true,
+          approvalStatus: 'approved',
         },
-        { upsert: true, new: true }
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
       );
     }
 
-    console.log('👤 Users created/updated');
-
-    // ─── Create Services ──────────────────────────────────────────────────
-    const services = [
-      {
-        name: 'Trademark Registration',
-        description: 'Register and protect your brand',
-        category: 'Trademark',
-        basePrice: 500,
-      },
-      {
-        name: 'Trademark Renewal',
-        description: 'Renew existing trademark registration',
-        category: 'Trademark',
-        basePrice: 350,
-      },
-      {
-        name: 'Patent Filing',
-        description: 'File patent application for your invention',
-        category: 'Patent',
-        basePrice: 1500,
-      },
-      {
-        name: 'Patent Search',
-        description: 'Search existing patents',
-        category: 'Patent',
-        basePrice: 800,
-      },
-      {
-        name: 'Copyright Registration',
-        description: 'Register copyright for your work',
-        category: 'Copyright',
-        basePrice: 300,
-      },
-      {
-        name: 'Design Registration',
-        description: 'Register industrial design',
-        category: 'Design',
-        basePrice: 400,
-      },
-      {
-        name: 'Litigation Support',
-        description: 'IP litigation support services',
-        category: 'Litigation',
-        basePrice: 2000,
-      },
-      {
-        name: 'IP Consultation',
-        description: 'General IP consultation',
-        category: 'Trademark',
-        basePrice: 250,
-      },
-    ];
-
-    for (const service of services) {
+    for (const service of SERVICES) {
       await Service.findOneAndUpdate(
         { name: service.name },
-        {
-          name: service.name,
-          description: service.description,
-          category: service.category as any,
-          basePrice: service.basePrice,
-          isActive: true,
-        },
-        { upsert: true, new: true }
+        { ...service, description: service.name, isActive: true },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
       );
     }
 
-    console.log('⚙️ Services created/updated');
-
-    // ─── Create Countries ──────────────────────────────────────────────────
-    const countries = [
-      { name: 'United Arab Emirates', abbreviation: 'AE', flagCode: 'ae' },
-      { name: 'Saudi Arabia', abbreviation: 'SA', flagCode: 'sa' },
-      { name: 'Kuwait', abbreviation: 'KW', flagCode: 'kw' },
-      { name: 'Qatar', abbreviation: 'QA', flagCode: 'qa' },
-      { name: 'Bahrain', abbreviation: 'BH', flagCode: 'bh' },
-      { name: 'Oman', abbreviation: 'OM', flagCode: 'om' },
-      { name: 'United States', abbreviation: 'US', flagCode: 'us' },
-      { name: 'United Kingdom', abbreviation: 'GB', flagCode: 'gb' },
-      { name: 'Germany', abbreviation: 'DE', flagCode: 'de' },
-      { name: 'France', abbreviation: 'FR', flagCode: 'fr' },
-      { name: 'China', abbreviation: 'CN', flagCode: 'cn' },
-      { name: 'Japan', abbreviation: 'JP', flagCode: 'jp' },
-      { name: 'India', abbreviation: 'IN', flagCode: 'in' },
-      { name: 'Singapore', abbreviation: 'SG', flagCode: 'sg' },
-      { name: 'Hong Kong', abbreviation: 'HK', flagCode: 'hk' },
-    ];
-
-    for (const country of countries) {
+    for (const country of COUNTRIES) {
       await Country.findOneAndUpdate(
         { name: country.name },
-        {
-          name: country.name,
-          abbreviation: country.abbreviation,
-          flagCode: country.flagCode,
-          isActive: true,
-        },
-        { upsert: true, new: true }
+        { ...country, isActive: true },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
       );
     }
 
-    console.log('🌍 Countries created/updated');
-
-    // ─── Create Procedures ──────────────────────────────────────────────────
-    const procedures = [
-      { name: 'Filing', serviceCategory: 'Trademark' },
-      { name: 'Renewal', serviceCategory: 'Trademark' },
-      { name: 'Amendment', serviceCategory: 'Trademark' },
-      { name: 'Opposition', serviceCategory: 'Trademark' },
-      { name: 'Application', serviceCategory: 'Patent' },
-      { name: 'Examination', serviceCategory: 'Patent' },
-      { name: 'Grant', serviceCategory: 'Patent' },
-      { name: 'Maintenance', serviceCategory: 'Patent' },
-      { name: 'Registration', serviceCategory: 'Copyright' },
-      { name: 'Infringement', serviceCategory: 'Litigation' },
-      { name: 'Settlement', serviceCategory: 'Litigation' },
-      { name: 'Appeal', serviceCategory: 'Design' },
-    ];
-
-    for (const procedure of procedures) {
-      await Procedure.findOneAndUpdate(
-        { name: procedure.name, serviceCategory: procedure.serviceCategory },
-        {
-          name: procedure.name,
-          description: `${procedure.name} process for ${procedure.serviceCategory}`,
-          serviceCategory: procedure.serviceCategory,
-          isActive: true,
-        },
-        { upsert: true, new: true }
-      );
-    }
-
-    console.log('📋 Procedures created/updated');
-
-    // ─── Create Client Types ──────────────────────────────────────────────
-    const clientTypes = [
-      { name: 'Standard', description: 'Standard client' },
-      { name: 'Preferred', description: 'Preferred client with discounts' },
-      { name: 'VIP', description: 'VIP client with special treatment' },
-      { name: 'Government', description: 'Government agency' },
-      { name: 'Startup', description: 'Startup company' },
-      { name: 'Educational', description: 'Educational institution' },
-    ];
-
-    for (const type of clientTypes) {
+    for (const clientType of CLIENT_TYPES) {
       await ClientType.findOneAndUpdate(
-        { name: type.name },
-        {
-          name: type.name,
-          description: type.description,
-          isActive: true,
-        },
-        { upsert: true, new: true }
+        { name: clientType.name },
+        { ...clientType, isActive: true },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
       );
     }
 
-    console.log('🏷️ Client Types created/updated');
-
-    // ─── Create Pricing Rules ──────────────────────────────────────────────
-    const pricingRules = [
-      {
-        service: 'Trademark Registration',
-        country: 'United Arab Emirates',
-        procedure: 'Filing',
-        basePrice: 500,
-        discount: 0,
-      },
-      {
-        service: 'Trademark Registration',
-        country: 'United States',
-        procedure: 'Filing',
-        basePrice: 800,
-        discount: 5,
-      },
-      {
-        service: 'Patent Filing',
-        country: 'United Arab Emirates',
-        procedure: 'Application',
-        basePrice: 1500,
-        discount: 0,
-      },
-      {
-        service: 'Patent Filing',
-        country: 'United States',
-        procedure: 'Application',
-        basePrice: 2500,
-        discount: 10,
-      },
-      {
-        service: 'Copyright Registration',
-        country: 'United Arab Emirates',
-        procedure: 'Registration',
-        basePrice: 300,
-        discount: 0,
-      },
-      {
-        service: 'Copyright Registration',
-        country: 'United Kingdom',
-        procedure: 'Registration',
-        basePrice: 400,
-        discount: 5,
-      },
-    ];
-
-    for (const rule of pricingRules) {
+    for (const rule of PRICING_RULES) {
       await PricingRule.findOneAndUpdate(
-        { service: rule.service, country: rule.country, procedure: rule.procedure },
         {
-          service: rule.service,
-          country: rule.country,
-          procedure: rule.procedure,
-          basePrice: rule.basePrice,
-          discount: rule.discount,
-          isActive: true,
+          serviceCategory: rule.serviceCategory,
+          procedureName: rule.procedureName,
+          countryName: rule.countryName,
         },
-        { upsert: true, new: true }
+        { ...rule, isActive: true },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
       );
     }
 
-    console.log('💰 Pricing Rules created/updated');
+    const trademarkService = await Service.findOne({ category: 'Trademark' });
+    const patentService = await Service.findOne({ category: 'Patent' });
+    const saudiArabia = await Country.findOne({ name: 'Saudi Arabia' });
+    const unitedStates = await Country.findOne({ name: 'United States' });
 
-    // ─── Create Clients ──────────────────────────────────────────────────
-    const clients = [
-      {
-        name: 'Tech Innovations LLC',
-        email: 'contact@techinnovations.com',
-        clientType: 'Standard',
-        country: 'United Arab Emirates',
-      },
-      {
-        name: 'Global Brands Inc',
-        email: 'info@globalbrands.com',
-        clientType: 'VIP',
-        country: 'United States',
-      },
-      {
-        name: 'StartUp Hub',
-        email: 'hello@startuphub.com',
-        clientType: 'Startup',
-        country: 'United Kingdom',
-      },
-      {
-        name: 'Government Affairs Dept',
-        email: 'legal@gov.ae',
-        clientType: 'Government',
-        country: 'United Arab Emirates',
-      },
+    const procedureSeeds = [
+      { name: 'Filing (New Application)', service: trademarkService, country: saudiArabia },
+      { name: 'Renewal', service: trademarkService, country: unitedStates },
+      { name: 'Filing (New Application)', service: patentService, country: unitedStates },
     ];
 
-    for (const client of clients) {
+    for (const item of procedureSeeds) {
+      if (!item.service || !item.country) continue;
+      await Procedure.findOneAndUpdate(
+        { name: item.name, serviceId: item.service._id, countryId: item.country._id },
+        {
+          name: item.name,
+          serviceId: item.service._id,
+          serviceName: item.service.name,
+          serviceCategory: item.service.category,
+          countryId: item.country._id,
+          countryName: item.country.name,
+          isActive: true,
+        },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+      );
+    }
+
+    for (const client of CLIENTS) {
       await Client.findOneAndUpdate(
         { email: client.email },
-        {
-          name: client.name,
-          email: client.email,
-          clientType: client.clientType,
-          country: client.country,
-          isActive: true,
-        },
-        { upsert: true, new: true }
+        { ...client, isActive: true },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
       );
     }
 
-    console.log('🏢 Clients created/updated');
+    await Settings.findOneAndUpdate(
+      {},
+      {
+        companyName: 'AIP&T Law Firm',
+        companyEmail: 'info@aiptlaw.com',
+        companyPhone: '+966 11 000 0000',
+        companyAddress: 'Riyadh, Saudi Arabia',
+        currency: 'SAR',
+        defaultValidDays: 30,
+        termsAndConditions: 'This quotation is valid for the specified number of days from the issue date.',
+      },
+      { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+    );
 
-    // ─── Create Sample Quotations ──────────────────────────────────────────
-    const quotationData = [
-      {
-        quotationNumber: 'Q-2024-001',
-        client: 'Tech Innovations LLC',
-        services: ['Trademark Registration'],
-        status: 'Draft',
-        totalAmount: 500,
-      },
-      {
-        quotationNumber: 'Q-2024-002',
-        client: 'Global Brands Inc',
-        services: ['Patent Filing', 'Trademark Registration'],
-        status: 'Pending',
-        totalAmount: 2300,
-      },
-      {
-        quotationNumber: 'Q-2024-003',
-        client: 'StartUp Hub',
-        services: ['Copyright Registration'],
-        status: 'Approved',
-        totalAmount: 300,
-      },
-    ];
+    const admin = await User.findOne({ role: 'admin' });
+    for (const quotation of QUOTATIONS) {
+      const subtotal =
+        quotation.fees.governmentFee +
+        quotation.fees.serviceFee +
+        quotation.fees.classFee * quotation.numberOfClasses +
+        quotation.fees.procedureFee;
+      const total = subtotal * quotation.multiplier;
+      const client = await Client.findOne({ email: quotation.clientEmail });
 
-    for (const qData of quotationData) {
-      const client = await Client.findOne({ name: qData.client });
-      if (client) {
-        await Quotation.findOneAndUpdate(
-          { quotationNumber: qData.quotationNumber },
-          {
-            quotationNumber: qData.quotationNumber,
-            client: client._id,
-            services: qData.services,
-            status: qData.status as any,
-            totalAmount: qData.totalAmount,
-            isActive: true,
-          },
-          { upsert: true, new: true }
-        );
-      }
+      await Quotation.findOneAndUpdate(
+        { quotationNo: quotation.quotationNo },
+        {
+          ...quotation,
+          clientId: client?._id,
+          subtotal,
+          total,
+          currency: 'SAR',
+          validDays: 30,
+          createdBy: admin?._id,
+          approvedBy: quotation.status === 'Approved' ? admin?._id : undefined,
+          approvalDate: quotation.status === 'Approved' ? new Date() : undefined,
+        },
+        { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
+      );
     }
 
-    console.log('📄 Quotations created/updated');
-
-    return NextResponse.json(
-      {
-        success: true,
-        message: '✅ Database seed completed successfully!',
-        data: {
-          roles: 3,
-          users: 4,
-          services: 8,
-          countries: 15,
-          procedures: 12,
-          clientTypes: 6,
-          pricingRules: 6,
-          clients: 4,
-          quotations: 3,
-        },
+    return NextResponse.json({
+      success: true,
+      message: 'Database seed completed successfully',
+      data: {
+        roles: 3,
+        users: USERS.length,
+        services: SERVICES.length,
+        countries: COUNTRIES.length,
+        clientTypes: CLIENT_TYPES.length,
+        pricingRules: PRICING_RULES.length,
+        clients: CLIENTS.length,
+        quotations: QUOTATIONS.length,
       },
-      { status: 200 }
-    );
-  } catch (error: any) {
-    console.error('❌ Seed error:', error.message);
-    return NextResponse.json(
-      {
-        success: false,
-        error: error.message || 'Seed failed',
-      },
-      { status: 500 }
-    );
+    });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Seed failed';
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

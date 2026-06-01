@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import User from '@/models/User';
 import { signToken } from '@/lib/auth';
+import { getRoleAccess } from '@/lib/server-permissions';
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,8 +41,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Your account is inactive.' }, { status: 403 });
     }
 
-    const token = signToken({ userId: String(user._id), email: user.email, name: user.name, role: user.role });
-    const safeUser = user.toJSON();
+    const access = await getRoleAccess(user.role);
+    const token = signToken({
+      userId: String(user._id),
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      permissions: access.permissions,
+    });
+    const safeUser = { ...user.toJSON(), ...access };
 
     const res = NextResponse.json({ user: safeUser, token });
     res.cookies.set('token', token, { httpOnly: true, path: '/', maxAge: 60 * 60 * 24 * 7 });

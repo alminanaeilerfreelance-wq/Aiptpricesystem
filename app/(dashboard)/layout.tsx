@@ -6,6 +6,7 @@ import { SettingsProvider } from '@/context/SettingsContext';
 import { ToastProvider } from '@/components/feedback/ToastProvider';
 import { Box } from '@mui/material';
 import { ToastProvider as HeroToastProvider } from '@heroui/toast';
+import PermissionGate from '@/components/auth/PermissionGate';
 import AppSidebar, { APP_DRAWER_WIDTH } from '@/components/layout/AppSidebar';
 import {
   LayoutShellProvider,
@@ -35,7 +36,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             }),
         }}
       >
-        {children}
+        <PermissionGate>{children}</PermissionGate>
       </Box>
     </Box>
   );

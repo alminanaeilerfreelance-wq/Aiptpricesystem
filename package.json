@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "seed": "node scripts/seed.mjs",
+    "seed:online": "node scripts/seed-online.mjs",
     "seed:inquires": "node scripts/seed-inquires.mjs",
     "migrate:inquire:procedure-ids": "node scripts/migrate-inquire-procedure-ids.mjs"
   },

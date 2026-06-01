@@ -17,12 +17,17 @@ import {
   useMediaQuery,
 } from '@mui/material';
 import { useAuth } from '@/hooks/useAuth';
+import { usePermission } from '@/hooks/usePermission';
+import { useSettingsContext } from '@/context/SettingsContext';
+import type { Resource, ResourceAction } from '@/lib/permissions';
 import { useLayoutShell } from './LayoutShellContext';
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
+  module?: Resource;
+  action?: ResourceAction;
   isActive?: (pathname: string) => boolean;
 }
 
@@ -120,39 +125,43 @@ const ChevronIcon = ({ open }: { open: boolean }) => (
 );
 
 const mainNavItems: NavItem[] = [
-  { label: 'Dashboard', href: '/dashboard', icon: <DashboardIcon />, isActive: (pathname) => pathname === '/dashboard' },
-  { label: 'New Quotation', href: '/quotations/new', icon: <PlusIcon />, isActive: (pathname) => pathname === '/quotations/new' },
+  { label: 'Dashboard', href: '/dashboard', icon: <DashboardIcon />, module: 'dashboard', isActive: (pathname) => pathname === '/dashboard' },
+  { label: 'New Quotation', href: '/quotations/new', icon: <PlusIcon />, module: 'quotations', action: 'add', isActive: (pathname) => pathname === '/quotations/new' },
   {
     label: 'All Quotations',
     href: '/quotations',
     icon: <ListIcon />,
+    module: 'quotations',
     isActive: (pathname) => pathname.startsWith('/quotations') && pathname !== '/quotations/new',
   },
-  { label: 'Client Quotations', href: '/client-quotations', icon: <ListIcon /> },
-  { label: 'Associate Quotations', href: '/associate-quotations', icon: <ListIcon /> },
-  { label: 'Inquires', href: '/inquires', icon: <ListIcon /> },
-  { label: 'Procedures', href: '/procedures', icon: <ClipboardIcon /> },
-  { label: 'Requirements', href: '/requirements', icon: <TagIcon /> },
-  { label: 'Pricing Rules', href: '/pricing-rules', icon: <TagIcon /> },
-  { label: 'Quotations Report', href: '/reports/quotations', icon: <ChartBarIcon /> },
-  { label: 'Profit/Loss Analysis', href: '/profit-loss-analysis', icon: <ChartBarIcon /> },
-  { label: 'Revenue Report', href: '/reports/revenue', icon: <CurrencyIcon /> },
+  { label: 'Client Quotations', href: '/client-quotations', icon: <ListIcon />, module: 'client-quotations' },
+  { label: 'Associate Quotations', href: '/associate-quotations', icon: <ListIcon />, module: 'associate-quotations' },
+  { label: 'Inquires', href: '/inquires', icon: <ListIcon />, module: 'inquiries' },
+  { label: 'Procedures', href: '/procedures', icon: <ClipboardIcon />, module: 'procedures' },
+  { label: 'Requirements', href: '/requirements', icon: <TagIcon />, module: 'requirements' },
+  { label: 'Pricing Rules', href: '/pricing-rules', icon: <TagIcon />, module: 'pricing-rules' },
+  { label: 'Quotations Report', href: '/reports/quotations', icon: <ChartBarIcon />, module: 'reports' },
+  { label: 'Profit/Loss Analysis', href: '/profit-loss-analysis', icon: <ChartBarIcon />, module: 'profit-loss-analysis' },
+  { label: 'Revenue Report', href: '/reports/revenue', icon: <CurrencyIcon />, module: 'reports' },
 ];
 
 const masterDataItems: NavItem[] = [
-  { label: 'Client', href: '/clients', icon: <UsersIcon /> },
-  { label: 'Associte', href: '/associte', icon: <UsersIcon /> },
-  { label: 'Own Offices', href: '/own-offices', icon: <BriefcaseIcon /> },
-  { label: 'Company Details', href: '/company-details', icon: <BriefcaseIcon /> },
-  { label: 'Department', href: '/departments', icon: <BriefcaseIcon /> },
-  { label: 'Services', href: '/services', icon: <BriefcaseIcon /> },
-  { label: 'Countries', href: '/countries', icon: <GlobeIcon /> },
-  { label: 'Continents', href: '/continents', icon: <GlobeIcon /> },
-  { label: 'Classifications of Fees', href: '/classification-of-fees', icon: <TagIcon /> },
-  { label: 'Client Type', href: '/client-types', icon: <UsersIcon /> },
+  { label: 'Client', href: '/clients', icon: <UsersIcon />, module: 'clients' },
+  { label: 'Associte', href: '/associte', icon: <UsersIcon />, module: 'associates' },
+  { label: 'Own Offices', href: '/own-offices', icon: <BriefcaseIcon />, module: 'own-offices' },
+  { label: 'Company Details', href: '/company-details', icon: <BriefcaseIcon />, module: 'company-details' },
+  { label: 'Department', href: '/departments', icon: <BriefcaseIcon />, module: 'departments' },
+  { label: 'Services', href: '/services', icon: <BriefcaseIcon />, module: 'services' },
+  { label: 'Countries', href: '/countries', icon: <GlobeIcon />, module: 'countries' },
+  { label: 'Continents', href: '/continents', icon: <GlobeIcon />, module: 'continents' },
+  { label: 'Classifications of Fees', href: '/classification-of-fees', icon: <TagIcon />, module: 'classification-of-fees' },
+  { label: 'Client Type', href: '/client-types', icon: <UsersIcon />, module: 'client-types' },
 ];
 
-const secondaryNavItems: NavItem[] = [{ label: 'Users', href: '/users', icon: <UsersIcon /> }];
+const secondaryNavItems: NavItem[] = [
+  { label: 'Users', href: '/users', icon: <UsersIcon />, module: 'users' },
+  { label: 'Roles', href: '/roles', icon: <ClipboardIcon />, module: 'roles' },
+];
 
 const itemButtonSx = {
   borderRadius: 2,
@@ -204,10 +213,21 @@ function SidebarSectionTitle({ title }: { title: string }) {
 function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
   const pathname = usePathname();
   const { user } = useAuth();
+  const { settings } = useSettingsContext();
+  const { can, canView } = usePermission();
+
+  const canAccess = (item: NavItem) => {
+    if (!item.module) return true;
+    return item.action ? can(item.action, item.module) : canView(item.module);
+  };
+
+  const visibleMainNavItems = useMemo(() => mainNavItems.filter(canAccess), [user]);
+  const visibleMasterDataItems = useMemo(() => masterDataItems.filter(canAccess), [user]);
+  const visibleSecondaryNavItems = useMemo(() => secondaryNavItems.filter(canAccess), [user]);
 
   const masterHasActive = useMemo(
-    () => masterDataItems.some((item) => pathname.startsWith(item.href)),
-    [pathname]
+    () => visibleMasterDataItems.some((item) => pathname.startsWith(item.href)),
+    [pathname, visibleMasterDataItems]
   );
 
   const [masterDataOpen, setMasterDataOpen] = useState(masterHasActive);
@@ -231,6 +251,9 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
     .join('')
     .toUpperCase()
     .slice(0, 2);
+  const companyName = settings?.companyName?.trim() || 'AIP&T LAW FIRM';
+  const logoUrl = settings?.logoUrl?.trim();
+  const companyInitial = companyName.charAt(0).toUpperCase() || 'A';
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: '#0B1739' }}>
@@ -244,33 +267,49 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
           borderBottom: '1px solid rgba(255,255,255,0.10)',
         }}
       >
-        <Box
-          sx={{
-            width: 34,
-            height: 34,
-            borderRadius: 2,
-            backgroundColor: '#2563EB',
-            color: '#fff',
-            display: 'grid',
-            placeItems: 'center',
-            fontWeight: 800,
-            fontSize: '0.95rem',
-          }}
-        >
-          A
-        </Box>
+        {logoUrl ? (
+          <Box
+            component="img"
+            src={logoUrl}
+            alt={`${companyName} logo`}
+            sx={{
+              width: 38,
+              height: 38,
+              borderRadius: 2,
+              objectFit: 'cover',
+              backgroundColor: '#fff',
+            }}
+          />
+        ) : (
+          <Box
+            sx={{
+              width: 38,
+              height: 38,
+              borderRadius: 2,
+              backgroundColor: '#2563EB',
+              color: '#fff',
+              display: 'grid',
+              placeItems: 'center',
+              fontWeight: 800,
+              fontSize: '0.95rem',
+            }}
+          >
+            {companyInitial}
+          </Box>
+        )}
         <Typography
           variant="subtitle2"
-          sx={{ color: '#fff', fontWeight: 700, letterSpacing: '0.04em' }}
+          sx={{ color: '#fff', fontWeight: 700, letterSpacing: 0, minWidth: 0 }}
+          noWrap
         >
-          AIP&T LAW FIRM
+          {companyName}
         </Typography>
       </Box>
 
       <Box sx={{ flex: 1, overflowY: 'auto', px: 1.5, py: 1.5 }}>
         <SidebarSectionTitle title="Main" />
         <List dense disablePadding>
-          {mainNavItems.map((item) => (
+          {visibleMainNavItems.map((item) => (
             <ListItemButton
               key={item.href}
               component={Link}
@@ -305,7 +344,7 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
 
           <Collapse in={masterDataOpen} timeout="auto" unmountOnExit>
             <List disablePadding dense sx={{ pt: 0.5 }}>
-              {masterDataItems.map((item) => (
+              {visibleMasterDataItems.map((item) => (
                 <ListItemButton
                   key={item.href}
                   component={Link}
@@ -328,7 +367,7 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
 
         <SidebarSectionTitle title="Administration" />
         <List dense disablePadding>
-          {secondaryNavItems.map((item) => (
+          {visibleSecondaryNavItems.map((item) => (
             <ListItemButton
               key={item.href}
               component={Link}

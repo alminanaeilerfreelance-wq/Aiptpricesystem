@@ -39,8 +39,6 @@ const toErrorPayload = (fallback: string, err: unknown) => {
 const VALID_STATUS = new Set(['Draft', 'Submitted', 'Approved', 'Rejected']);
 const APPROVAL_STATUS = new Set(['Approved', 'Rejected']);
 
-const canManageApproval = (role: string) => role === 'admin';
-
 const getInquiryProcedureName = (inquiry: any): string => {
   if (Array.isArray(inquiry?.procedureIds) && inquiry.procedureIds.length > 0) {
     const names = inquiry.procedureIds
@@ -221,9 +219,6 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     if (body?.status !== undefined) {
       if (!VALID_STATUS.has(String(body.status))) {
         return NextResponse.json({ error: 'Invalid status value' }, { status: 400 });
-      }
-      if (APPROVAL_STATUS.has(String(body.status)) && !canManageApproval(user.role)) {
-        return NextResponse.json({ error: 'Forbidden: insufficient permissions' }, { status: 403 });
       }
       updatePayload.status = body.status;
     }

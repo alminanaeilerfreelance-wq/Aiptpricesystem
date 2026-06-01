@@ -9,6 +9,7 @@ import React, {
   ReactNode,
 } from 'react';
 import { authService } from '@/services/auth.service';
+import type { ModulePermission } from '@/lib/permissions';
 
 export interface AuthUser {
   _id: string;
@@ -16,6 +17,8 @@ export interface AuthUser {
   email: string;
   role: 'admin' | 'manager' | 'user';
   isActive: boolean;
+  permissions?: string[];
+  modulePermissions?: ModulePermission[];
 }
 
 export interface AuthContextValue {
@@ -34,8 +37,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // On mount, restore session from localStorage
+  // On mount, restore session from localStorage and refresh permissions.
   useEffect(() => {
+    let cancelled = false;
     const storedToken = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
 
@@ -44,6 +48,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const parsedUser: AuthUser = JSON.parse(storedUser);
         setToken(storedToken);
         setUser(parsedUser);
+
+        authService
+          .getMe()
+          .then((data) => {
+            if (cancelled) return;
+            const refreshedUser: AuthUser = {
+              _id: data.user._id,
+              name: data.user.name,
+              email: data.user.email,
+              role: data.user.role,
+              isActive: data.user.isActive,
+              permissions: data.user.permissions,
+              modulePermissions: data.user.modulePermissions,
+            };
+            localStorage.setItem('user', JSON.stringify(refreshedUser));
+            setUser(refreshedUser);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setToken(null);
+            setUser(null);
+          })
+          .finally(() => {
+            if (!cancelled) setLoading(false);
+          });
+        return () => {
+          cancelled = true;
+        };
       } catch {
         // Corrupted storage — clear it
         localStorage.removeItem('token');
@@ -52,6 +86,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     setLoading(false);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string): Promise<void> => {
@@ -64,6 +101,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email: data.user.email,
         role: data.user.role,
         isActive: data.user.isActive,
+        permissions: data.user.permissions,
+        modulePermissions: data.user.modulePermissions,
       };
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(authUser));

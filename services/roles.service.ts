@@ -1,10 +1,12 @@
 import apiClient from './apiClient';
+import type { ModulePermission } from '@/lib/permissions';
 
 export interface Role {
   _id: string;
   name: string;
   description?: string;
   permissions: string[];
+  modulePermissions: ModulePermission[];
   createdAt: string;
   updatedAt: string;
 }
@@ -12,23 +14,34 @@ export interface Role {
 export interface CreateRoleDto {
   name: string;
   description?: string;
-  permissions: string[];
+  permissions?: string[];
+  modulePermissions: ModulePermission[];
 }
 
 export interface UpdateRoleDto {
   name?: string;
   description?: string;
   permissions?: string[];
+  modulePermissions?: ModulePermission[];
 }
 
 export interface RoleListResponse {
   roles: Role[];
   total: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+}
+
+export interface RoleListParams {
+  search?: string;
+  page?: number;
+  limit?: number;
 }
 
 export const rolesService = {
-  async list(): Promise<RoleListResponse> {
-    const response = await apiClient.get<RoleListResponse>('/api/roles');
+  async list(params?: RoleListParams): Promise<RoleListResponse> {
+    const response = await apiClient.get<RoleListResponse>('/api/roles', { params });
     return response.data;
   },
 

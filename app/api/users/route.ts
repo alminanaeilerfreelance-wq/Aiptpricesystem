@@ -10,10 +10,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (user.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden: admin access required' }, { status: 403 });
-    }
-
     await connectDB();
 
     const users = await User.find({}).select('-password').sort({ createdAt: -1 });
@@ -30,10 +26,6 @@ export async function POST(req: NextRequest) {
     const user = getUserFromRequest(req);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (user.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden: admin access required' }, { status: 403 });
     }
 
     await connectDB();

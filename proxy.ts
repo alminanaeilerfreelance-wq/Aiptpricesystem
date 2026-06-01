@@ -1,7 +1,23 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import {
+  DEFAULT_MODULE_PERMISSIONS,
+  flattenModulePermissions,
+  hasPermission,
+  type Resource,
+  type ResourceAction,
+} from '@/lib/permissions';
 
-const PUBLIC_PATHS = ['/login', '/register', '/api/auth/login', '/api/auth/register', '/api/auth/seed-demo'];
+const PUBLIC_PATHS = [
+  '/login',
+  '/register',
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/seed-demo',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/admin/seed',
+];
 
 // Allowed origins for CORS (add more as needed for different environments)
 const ALLOWED_ORIGINS = [
@@ -22,6 +38,69 @@ function isTokenPresent(token: string | null): boolean {
   // Basic structure check: JWT has 3 parts separated by dots
   const parts = token.split('.');
   return parts.length === 3;
+}
+
+function decodeTokenPayload(token: string): { role?: string; permissions?: string[] } | null {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+function getFallbackPermissions(role?: string): string[] {
+  if (role !== 'admin' && role !== 'manager' && role !== 'user') return [];
+  return flattenModulePermissions(DEFAULT_MODULE_PERMISSIONS[role]);
+}
+
+function getApiPermission(pathname: string, method: string): { module: Resource; action: ResourceAction } | null {
+  const normalizedMethod = method.toUpperCase();
+  let action: ResourceAction;
+
+  if (normalizedMethod === 'GET') action = 'view';
+  else if (normalizedMethod === 'POST') action = 'add';
+  else if (normalizedMethod === 'PUT' || normalizedMethod === 'PATCH') action = 'update';
+  else if (normalizedMethod === 'DELETE') action = 'delete';
+  else return null;
+
+  const mappings: Array<[string, Resource]> = [
+    ['/api/quotations', 'quotations'],
+    ['/api/client-quotations', 'client-quotations'],
+    ['/api/associate-quotations', 'associate-quotations'],
+    ['/api/inquires', 'inquiries'],
+    ['/api/procedures', 'procedures'],
+    ['/api/requirements', 'requirements'],
+    ['/api/pricing-rules', 'pricing-rules'],
+    ['/api/reports', 'reports'],
+    ['/api/profit-loss', 'profit-loss-analysis'],
+    ['/api/clients', 'clients'],
+    ['/api/associte', 'associates'],
+    ['/api/own-offices', 'own-offices'],
+    ['/api/company-details', 'company-details'],
+    ['/api/departments', 'departments'],
+    ['/api/services', 'services'],
+    ['/api/countries', 'countries'],
+    ['/api/continents', 'continents'],
+    ['/api/classification-of-fees', 'classification-of-fees'],
+    ['/api/client-types', 'client-types'],
+    ['/api/settings', 'settings'],
+    ['/api/users', 'users'],
+    ['/api/roles', 'roles'],
+  ];
+
+  const match = mappings.find(([prefix]) => pathname.startsWith(prefix));
+  if (!match) return null;
+
+  if (pathname.includes('/approve')) action = 'update';
+  if (pathname.includes('/pdf')) action = 'view';
+  if (pathname.includes('/send-email')) action = 'update';
+  if (pathname.includes('/countries-in-use')) action = 'view';
+
+  return { module: match[1], action };
 }
 
 function getCorsHeaders(origin: string | null): Record<string, string> {
@@ -70,6 +149,29 @@ export function proxy(req: NextRequest) {
   const token = getToken(req);
   if (!isTokenPresent(token)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: corsHeaders });
+  }
+
+  const requiredPermission = getApiPermission(pathname, req.method);
+  if (requiredPermission && token) {
+    const payload = decodeTokenPayload(token);
+    const permissions = payload?.permissions?.length
+      ? payload.permissions
+      : getFallbackPermissions(payload?.role);
+
+    if (
+      !hasPermission(
+        { role: payload?.role, permissions },
+        requiredPermission.module,
+        requiredPermission.action
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: `Forbidden: ${requiredPermission.action} permission required for ${requiredPermission.module}`,
+        },
+        { status: 403, headers: corsHeaders }
+      );
+    }
   }
 
   const response = NextResponse.next();

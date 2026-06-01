@@ -51,10 +51,6 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (user.role !== 'admin') {
-      return NextResponse.json({ error: 'Forbidden: admin access required' }, { status: 403 });
-    }
-
     await connectDB();
 
     const body = await req.json();

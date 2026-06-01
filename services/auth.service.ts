@@ -1,35 +1,31 @@
 import apiClient from './apiClient';
+import type { ModulePermission } from '@/lib/permissions';
 
-export interface LoginResponse {
-  token: string;
-  user: {
-    _id: string;
-    name: string;
-    email: string;
-    role: 'admin' | 'manager' | 'user';
-    isActive: boolean;
-  };
-}
-
-export interface RegisterResponse {
-  token: string;
-  user: {
-    _id: string;
-    name: string;
-    email: string;
-    role: 'admin' | 'manager' | 'user';
-    isActive: boolean;
-  };
-}
-
-export interface MeResponse {
+export interface AuthUserPayload {
   _id: string;
   name: string;
   email: string;
   role: 'admin' | 'manager' | 'user';
   isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+  permissions?: string[];
+  modulePermissions?: ModulePermission[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: AuthUserPayload;
+}
+
+export interface RegisterResponse {
+  token?: string;
+  user: AuthUserPayload;
+  message?: string;
+}
+
+export interface MeResponse {
+  user: AuthUserPayload;
 }
 
 export const authService = {

@@ -126,6 +126,7 @@ const mainNavItems: NavItem[] = [
   { label: 'Procedures', href: '/procedures', icon: <ClipboardIcon />, module: 'procedures' },
   { label: 'Requirements', href: '/requirements', icon: <TagIcon />, module: 'requirements' },
   { label: 'Pricing Rules', href: '/pricing-rules', icon: <TagIcon />, module: 'pricing-rules' },
+  { label: 'Fee Report Builder', href: '/reports/fee-builder', icon: <ChartBarIcon />, module: 'reports' },
   { label: 'Quotations Report', href: '/reports/quotations', icon: <ChartBarIcon />, module: 'reports' },
   { label: 'Profit/Loss Analysis', href: '/profit-loss-analysis', icon: <ChartBarIcon />, module: 'profit-loss-analysis' },
   { label: 'Revenue Report', href: '/reports/revenue', icon: <CurrencyIcon />, module: 'reports' },

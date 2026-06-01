@@ -417,7 +417,7 @@ export default function DashboardPage() {
           <>
             <div className="border-t border-gray-200 pt-6 mt-8">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">Administration</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Users Management Card */}
                 <Link href="/users">
                   <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
@@ -441,6 +441,28 @@ export default function DashboardPage() {
                           <p className="text-lg font-semibold text-orange-600">{pendingUsers.length}</p>
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </Link>
+
+                {/* Fee Report Builder Card */}
+                <Link href="/reports/fee-builder">
+                  <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-emerald-50 to-cyan-100 border border-emerald-200">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-emerald-950">Fee Report Builder</h3>
+                        <p className="text-sm text-emerald-800 mt-2">
+                          Create IP fee comparison reports with grouped service columns
+                        </p>
+                      </div>
+                      <div className="h-10 w-10 rounded-lg bg-white/80 flex items-center justify-center text-sm font-bold text-emerald-900 border border-emerald-200">
+                        IP
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-4 border-t border-emerald-200">
+                      <p className="text-xs text-emerald-700">
+                        Export Excel, PDF, CSV, JSON, and print-ready reports
+                      </p>
                     </div>
                   </div>
                 </Link>

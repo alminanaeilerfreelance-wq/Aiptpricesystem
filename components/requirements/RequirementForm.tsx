@@ -12,7 +12,6 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  TextField,
   FormControl,
   InputLabel,
   Select,
@@ -41,21 +40,30 @@ interface Country {
   updatedAt: string;
 }
 
-interface Requirement {
-  _id: string;
-  country: {
-    _id: string;
-    name: string;
-    code: string;
-  };
+type ServiceCategory = 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+
+const SERVICE_CATEGORY_OPTIONS: ServiceCategory[] = [
+  'Trademark',
+  'Patent',
+  'Copyright',
+  'Design',
+  'Litigation',
+];
+
+const INITIAL_FORM_DATA: {
+  country: string;
+  serviceCategory: ServiceCategory | '';
   requirements: string;
-}
+} = {
+  country: '',
+  serviceCategory: '',
+  requirements: '',
+};
+
+const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
 
 const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSuccess, editingId }) => {
-  const [formData, setFormData] = useState({
-    country: '',
-    requirements: '',
-  });
+  const [formData, setFormData] = useState(INITIAL_FORM_DATA);
 
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(false);
@@ -92,6 +100,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         const response = await requirementsService.getById(editingId);
         setFormData({
           country: response.data.country._id,
+          serviceCategory: response.data.serviceCategory || '',
           requirements: response.data.requirements,
         });
         setError('');
@@ -106,17 +115,14 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
     if (open && editingId) {
       fetchRequirement();
     } else if (open && !editingId) {
-      setFormData({ country: '', requirements: '' });
+      setFormData(INITIAL_FORM_DATA);
     }
   }, [open, editingId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    console.log('handleSubmit called with formData:', formData);
-
-    if (!formData.country || !formData.requirements.trim()) {
-      console.log('Validation failed - missing fields');
+    if (!formData.country || !formData.serviceCategory || !stripHtml(formData.requirements)) {
       setError('Please fill in all required fields');
       return;
     }
@@ -124,20 +130,19 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
     try {
       setLoading(true);
       setError('');
+      const payload = {
+        country: formData.country,
+        serviceCategory: formData.serviceCategory,
+        requirements: formData.requirements,
+      };
 
-      console.log('About to call create/update with:', formData);
       if (editingId) {
-        console.log('Updating requirement:', editingId);
-        await requirementsService.update(editingId, formData);
+        await requirementsService.update(editingId, payload);
       } else {
-        console.log('Creating new requirement');
-        const result = await requirementsService.create(formData);
-        console.log('Create result:', result);
+        await requirementsService.create(payload);
       }
 
-      console.log('About to call onSuccess');
       onSuccess();
-      console.log('onSuccess called, now calling handleClose');
       handleClose();
     } catch (err: any) {
       console.error('Failed to save requirement:', err);
@@ -148,7 +153,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   };
 
   const handleClose = () => {
-    setFormData({ country: '', requirements: '' });
+    setFormData(INITIAL_FORM_DATA);
     setError('');
     onClose();
   };
@@ -173,6 +178,25 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
                 {countries.map((country) => (
                   <MenuItem key={country._id} value={country._id}>
                     {country.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl fullWidth>
+              <InputLabel>Service Category *</InputLabel>
+              <Select
+                value={formData.serviceCategory}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  serviceCategory: e.target.value as ServiceCategory | '',
+                })}
+                label="Service Category *"
+              >
+                <MenuItem value="">Select a service category</MenuItem>
+                {SERVICE_CATEGORY_OPTIONS.map((serviceCategory) => (
+                  <MenuItem key={serviceCategory} value={serviceCategory}>
+                    {serviceCategory}
                   </MenuItem>
                 ))}
               </Select>

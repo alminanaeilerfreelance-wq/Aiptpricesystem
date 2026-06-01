@@ -52,12 +52,6 @@ const DashboardIcon = () => (
   </IconBase>
 );
 
-const PlusIcon = () => (
-  <IconBase>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-  </IconBase>
-);
-
 const ListIcon = () => (
   <IconBase>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6M9 8h6M9 16h4M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z" />
@@ -126,14 +120,6 @@ const ChevronIcon = ({ open }: { open: boolean }) => (
 
 const mainNavItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard', icon: <DashboardIcon />, module: 'dashboard', isActive: (pathname) => pathname === '/dashboard' },
-  { label: 'New Quotation', href: '/quotations/new', icon: <PlusIcon />, module: 'quotations', action: 'add', isActive: (pathname) => pathname === '/quotations/new' },
-  {
-    label: 'All Quotations',
-    href: '/quotations',
-    icon: <ListIcon />,
-    module: 'quotations',
-    isActive: (pathname) => pathname.startsWith('/quotations') && pathname !== '/quotations/new',
-  },
   { label: 'Client Quotations', href: '/client-quotations', icon: <ListIcon />, module: 'client-quotations' },
   { label: 'Associate Quotations', href: '/associate-quotations', icon: <ListIcon />, module: 'associate-quotations' },
   { label: 'Inquires', href: '/inquires', icon: <ListIcon />, module: 'inquiries' },

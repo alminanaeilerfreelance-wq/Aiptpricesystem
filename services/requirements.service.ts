@@ -7,6 +7,7 @@ interface Requirement {
     name: string;
     code: string;
   };
+  serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   requirements: string;
   createdAt: string;
   updatedAt: string;
@@ -14,7 +15,7 @@ interface Requirement {
 
 interface RequirementInput {
   country: string;
-  serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   requirements: string;
   upsertByCountry?: boolean;
 }
@@ -60,23 +61,23 @@ const requirementsService = {
     if (sortOrder) searchParams.append('sortOrder', sortOrder);
     if (serviceCategory) searchParams.append('serviceCategory', serviceCategory);
 
-    return apiClient.get<ListResponse>(`/requirements?${searchParams.toString()}`);
+    return apiClient.get<ListResponse>(`/api/requirements?${searchParams.toString()}`);
   },
 
   getById: (id: string) => {
-    return apiClient.get<Requirement>(`/requirements/${id}`);
+    return apiClient.get<Requirement>(`/api/requirements/${id}`);
   },
 
   create: (data: RequirementInput) => {
-    return apiClient.post<Requirement>('/requirements', data);
+    return apiClient.post<Requirement>('/api/requirements', data);
   },
 
   update: (id: string, data: RequirementInput) => {
-    return apiClient.put<Requirement>(`/requirements/${id}`, data);
+    return apiClient.put<Requirement>(`/api/requirements/${id}`, data);
   },
 
   delete: (id: string) => {
-    return apiClient.delete(`/requirements/${id}`);
+    return apiClient.delete(`/api/requirements/${id}`);
   },
 };
 

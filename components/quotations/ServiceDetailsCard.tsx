@@ -10,6 +10,7 @@ import requirementsService from '@/services/requirements.service';
 interface Requirement {
   _id: string;
   country: { _id: string; name: string };
+  serviceCategory?: string;
   requirements: string;
 }
 
@@ -71,22 +72,22 @@ export const ServiceDetailsCard: React.FC<ServiceDetailsCardProps> = ({
 
   const stripHtml = (value: string) => value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // Load requirements when country changes
+  // Load requirements when country and service category change.
   useEffect(() => {
-    if (!countryId) {
+    if (!countryId || !service) {
       setRequirements([]);
       return;
     }
 
     setLoadingReqs(true);
     requirementsService
-      .list({ page: 1, limit: 100, countryId })
+      .list({ page: 1, limit: 100, countryId, serviceCategory: service })
       .then((res) => {
         setRequirements(res.data.data || []);
       })
       .catch(() => setRequirements([]))
       .finally(() => setLoadingReqs(false));
-  }, [countryId]);
+  }, [countryId, service]);
 
   const serviceOptions = [
     { value: '', label: 'Select service' },

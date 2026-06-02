@@ -40,6 +40,8 @@ type ServiceKey = 'Trademark' | 'Patent' | 'Design' | 'Copyright' | 'Litigation'
 type StatusFilter = 'all' | 'active' | 'inactive';
 type FeeField = 'officialFee' | 'attorneyFee';
 type ColumnKey = 'country' | 'procedure' | 'officeFee' | 'attorneyFee' | 'total' | 'status' | 'updatedAt';
+type PrintOrientation = 'portrait' | 'landscape';
+type PaperFormat = 'A4' | 'A3' | 'Letter';
 
 interface PricingRuleRow extends PricingRule {
   status?: string;
@@ -60,6 +62,17 @@ interface RowValidation {
   attorneyFee?: string;
 }
 
+interface CountryFeeRow {
+  key: string;
+  countryName: string;
+  countryAbbreviation: string;
+  flagRule: PricingRuleRow;
+  rules: PricingRuleRow[];
+  rulesByProcedure: Record<string, PricingRuleRow>;
+  isActive: boolean;
+  updatedAt: string;
+}
+
 interface FeeBuilderDraft {
   id: string;
   name: string;
@@ -76,6 +89,10 @@ interface FeeBuilderDraft {
   flagHeight: number;
   headerColor: string;
   rowColor: string;
+  fontColor?: string;
+  highlightColor?: string;
+  printOrientation?: PrintOrientation;
+  paperFormat?: PaperFormat;
 }
 
 interface AuditEntry {
@@ -88,6 +105,15 @@ const SERVICES: ServiceKey[] = ['Trademark', 'Patent', 'Design', 'Copyright', 'L
 const FONT_OPTIONS = ['Arial', 'Times New Roman', 'Calibri', 'Verdana', 'Tahoma', 'Georgia', 'Courier New'];
 const DRAFT_STORAGE_KEY = 'fee-builder-pricing-rule-drafts';
 const AUTOSAVE_STORAGE_KEY = 'fee-builder-pricing-rule-autosave';
+const PRICING_RULE_PAGE_SIZE = 100;
+const DEFAULT_ROW_HEIGHT = 22;
+const DEFAULT_COLUMN_WIDTH = 72;
+const DEFAULT_FLAG_WIDTH = 26;
+const DEFAULT_FLAG_HEIGHT = 16;
+const DEFAULT_FONT_COLOR = '#111827';
+const DEFAULT_HIGHLIGHT_COLOR = '#FFF2CC';
+const PAPER_FORMATS: PaperFormat[] = ['A4', 'A3', 'Letter'];
+const PRINT_ORIENTATIONS: PrintOrientation[] = ['landscape', 'portrait'];
 
 const COLUMN_LABELS: Record<ColumnKey, string> = {
   country: 'Country',
@@ -144,10 +170,20 @@ const normalizeNumberInput = (value: string) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const makeCountryKey = (rule: PricingRuleRow) =>
+  `${rule.countryName || 'Unknown'}::${rule.countryAbbreviation || ''}`.toLowerCase();
+
+const escapeHtml = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 export default function FeeReportBuilderPage() {
   const [selectedService, setSelectedService] = useState<ServiceKey>('Trademark');
   const [pricingRules, setPricingRules] = useState<PricingRuleRow[]>([]);
-  const [totalRows, setTotalRows] = useState(0);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [search, setSearch] = useState('');
@@ -159,12 +195,16 @@ export default function FeeReportBuilderPage() {
   const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
   const [columnVisibility, setColumnVisibility] = useState<Record<ColumnKey, boolean>>(DEFAULT_COLUMNS);
   const [fontFamily, setFontFamily] = useState('Calibri');
-  const [rowHeight, setRowHeight] = useState(38);
-  const [columnWidth, setColumnWidth] = useState(132);
-  const [flagWidth, setFlagWidth] = useState(28);
-  const [flagHeight, setFlagHeight] = useState(18);
+  const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
+  const [columnWidth, setColumnWidth] = useState(DEFAULT_COLUMN_WIDTH);
+  const [flagWidth, setFlagWidth] = useState(DEFAULT_FLAG_WIDTH);
+  const [flagHeight, setFlagHeight] = useState(DEFAULT_FLAG_HEIGHT);
   const [headerColor, setHeaderColor] = useState('#EAF2FF');
   const [rowColor, setRowColor] = useState('#FFFFFF');
+  const [fontColor, setFontColor] = useState(DEFAULT_FONT_COLOR);
+  const [highlightColor, setHighlightColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
+  const [printOrientation, setPrintOrientation] = useState<PrintOrientation>('landscape');
+  const [paperFormat, setPaperFormat] = useState<PaperFormat>('A4');
   const [drafts, setDrafts] = useState<FeeBuilderDraft[]>([]);
   const [activeDraftId, setActiveDraftId] = useState('');
   const [draftName, setDraftName] = useState('');
@@ -175,6 +215,7 @@ export default function FeeReportBuilderPage() {
   const [error, setError] = useState('');
   const [hydrated, setHydrated] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const autoSaveTimersRef = useRef<Record<string, number>>({});
 
   const addAudit = (action: string) => {
     setAuditLog((current) => [
@@ -199,6 +240,10 @@ export default function FeeReportBuilderPage() {
     flagHeight,
     headerColor,
     rowColor,
+    fontColor,
+    highlightColor,
+    printOrientation,
+    paperFormat,
   });
 
   const applyDraft = (draft: FeeBuilderDraft) => {
@@ -209,12 +254,16 @@ export default function FeeReportBuilderPage() {
     setRowOrder(draft.rowOrder || []);
     setColumnVisibility({ ...DEFAULT_COLUMNS, ...(draft.columnVisibility || {}) });
     setFontFamily(draft.fontFamily || 'Calibri');
-    setRowHeight(draft.rowHeight || 38);
-    setColumnWidth(draft.columnWidth || 132);
-    setFlagWidth(draft.flagWidth || 28);
-    setFlagHeight(draft.flagHeight || 18);
+    setRowHeight(draft.rowHeight || DEFAULT_ROW_HEIGHT);
+    setColumnWidth(draft.columnWidth || DEFAULT_COLUMN_WIDTH);
+    setFlagWidth(draft.flagWidth || DEFAULT_FLAG_WIDTH);
+    setFlagHeight(draft.flagHeight || DEFAULT_FLAG_HEIGHT);
     setHeaderColor(draft.headerColor || '#EAF2FF');
     setRowColor(draft.rowColor || '#FFFFFF');
+    setFontColor(draft.fontColor || DEFAULT_FONT_COLOR);
+    setHighlightColor(draft.highlightColor || DEFAULT_HIGHLIGHT_COLOR);
+    setPrintOrientation(draft.printOrientation || 'landscape');
+    setPaperFormat(draft.paperFormat || 'A4');
     setDirtyRows({});
     setRowErrors({});
     setPage(0);
@@ -252,6 +301,10 @@ export default function FeeReportBuilderPage() {
     flagHeight,
     headerColor,
     rowColor,
+    fontColor,
+    highlightColor,
+    printOrientation,
+    paperFormat,
     draftName,
     activeDraftId,
   ]);
@@ -263,19 +316,38 @@ export default function FeeReportBuilderPage() {
       setLoading(true);
       setError('');
       try {
-        const response = await pricingRulesService.list({
+        const baseParams = {
           category: selectedService,
           search: search.trim() || undefined,
           status: statusFilter,
-          page: page + 1,
-          limit: rowsPerPage,
+          limit: PRICING_RULE_PAGE_SIZE,
+        };
+        const firstResponse = await pricingRulesService.list({
+          ...baseParams,
+          page: 1,
         });
+
+        const total = firstResponse.total || 0;
+        const pageCount = Math.ceil(total / PRICING_RULE_PAGE_SIZE);
+        const remainingResponses =
+          pageCount > 1
+            ? await Promise.all(
+                Array.from({ length: pageCount - 1 }, (_item, index) =>
+                  pricingRulesService.list({
+                    ...baseParams,
+                    page: index + 2,
+                  })
+                )
+              )
+            : [];
 
         if (!active) return;
 
-        const nextRules = response.pricingRules as PricingRuleRow[];
+        const nextRules = [
+          ...(firstResponse.pricingRules || []),
+          ...remainingResponses.flatMap((response) => response.pricingRules || []),
+        ] as PricingRuleRow[];
         setPricingRules(nextRules);
-        setTotalRows(response.total || 0);
         setEditedFees((current) => {
           const next = { ...current };
           nextRules.forEach((rule) => {
@@ -291,7 +363,6 @@ export default function FeeReportBuilderPage() {
       } catch (err) {
         if (!active) return;
         setPricingRules([]);
-        setTotalRows(0);
         setError(err instanceof Error ? err.message : 'Failed to load pricing rules');
       } finally {
         if (active) setLoading(false);
@@ -303,19 +374,84 @@ export default function FeeReportBuilderPage() {
     return () => {
       active = false;
     };
-  }, [page, rowsPerPage, search, selectedService, statusFilter]);
+  }, [search, selectedService, statusFilter]);
 
-  const orderedRules = useMemo(() => {
+  useEffect(
+    () => () => {
+      Object.values(autoSaveTimersRef.current).forEach((timer) => window.clearTimeout(timer));
+    },
+    []
+  );
+
+  const sortedPricingRules = useMemo(
+    () =>
+      [...pricingRules].sort((a, b) => {
+        const countrySort = a.countryName.localeCompare(b.countryName, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+        if (countrySort !== 0) return countrySort;
+        return a.procedureName.localeCompare(b.procedureName, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      }),
+    [pricingRules]
+  );
+
+  const procedureColumns = useMemo(
+    () =>
+      Array.from(new Set(sortedPricingRules.map((rule) => rule.procedureName).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      ),
+    [sortedPricingRules]
+  );
+
+  const countryRows = useMemo<CountryFeeRow[]>(() => {
+    const groupedRows = new Map<string, CountryFeeRow>();
+
+    sortedPricingRules.forEach((rule) => {
+      const key = makeCountryKey(rule);
+      const existing = groupedRows.get(key);
+      if (existing) {
+        existing.rules.push(rule);
+        existing.rulesByProcedure[rule.procedureName] = rule;
+        existing.isActive = existing.isActive || rule.isActive;
+        if (!existing.updatedAt || new Date(rule.updatedAt).getTime() > new Date(existing.updatedAt).getTime()) {
+          existing.updatedAt = rule.updatedAt;
+        }
+        if (!existing.flagRule.country && rule.country) {
+          existing.flagRule = rule;
+        }
+      } else {
+        groupedRows.set(key, {
+          key,
+          countryName: rule.countryName,
+          countryAbbreviation: rule.countryAbbreviation,
+          flagRule: rule,
+          rules: [rule],
+          rulesByProcedure: { [rule.procedureName]: rule },
+          isActive: rule.isActive,
+          updatedAt: rule.updatedAt,
+        });
+      }
+    });
+
     const orderMap = new Map(rowOrder.map((id, index) => [id, index]));
-    return [...pricingRules].sort((a, b) => {
-      const aIndex = orderMap.get(a._id);
-      const bIndex = orderMap.get(b._id);
+    return Array.from(groupedRows.values()).sort((a, b) => {
+      const aIndex = orderMap.get(a.key);
+      const bIndex = orderMap.get(b.key);
       if (aIndex !== undefined && bIndex !== undefined) return aIndex - bIndex;
       if (aIndex !== undefined) return -1;
       if (bIndex !== undefined) return 1;
-      return 0;
+      return a.countryName.localeCompare(b.countryName, undefined, { numeric: true, sensitivity: 'base' });
     });
-  }, [pricingRules, rowOrder]);
+  }, [rowOrder, sortedPricingRules]);
+
+  const pagedCountryRows = useMemo(
+    () => countryRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [countryRows, page, rowsPerPage]
+  );
 
   const getFeeValue = (rule: PricingRuleRow, field: FeeField) =>
     editedFees[rule._id]?.[field] ?? String(rule[field] ?? 0);
@@ -327,10 +463,8 @@ export default function FeeReportBuilderPage() {
     return officeFee + attorneyFee;
   };
 
-  const validateRow = (rule: PricingRuleRow) => {
+  const validateFeeValues = (ruleId: string, officialValue: string, attorneyValue: string) => {
     const nextErrors: RowValidation = {};
-    const officialValue = getFeeValue(rule, 'officialFee');
-    const attorneyValue = getFeeValue(rule, 'attorneyFee');
     const officialFee = normalizeNumberInput(officialValue);
     const attorneyFee = normalizeNumberInput(attorneyValue);
 
@@ -342,7 +476,7 @@ export default function FeeReportBuilderPage() {
     else if (attorneyFee === null) nextErrors.attorneyFee = 'Attorney Fee must be a number';
     else if (attorneyFee < 0) nextErrors.attorneyFee = 'Attorney Fee cannot be negative';
 
-    setRowErrors((current) => ({ ...current, [rule._id]: nextErrors }));
+    setRowErrors((current) => ({ ...current, [ruleId]: nextErrors }));
 
     return {
       isValid: Object.keys(nextErrors).length === 0,
@@ -351,20 +485,20 @@ export default function FeeReportBuilderPage() {
     };
   };
 
-  const updateFee = (rule: PricingRuleRow, field: FeeField, value: string) => {
-    setEditedFees((current) => ({
-      ...current,
-      [rule._id]: {
-        officialFee: field === 'officialFee' ? value : getFeeValue(rule, 'officialFee'),
-        attorneyFee: field === 'attorneyFee' ? value : getFeeValue(rule, 'attorneyFee'),
-      },
-    }));
-    setDirtyRows((current) => ({ ...current, [rule._id]: true }));
-    setRowErrors((current) => ({ ...current, [rule._id]: { ...current[rule._id], [field]: undefined } }));
+  const clearAutoSaveTimer = (ruleId: string) => {
+    const timer = autoSaveTimersRef.current[ruleId];
+    if (timer) window.clearTimeout(timer);
+    delete autoSaveTimersRef.current[ruleId];
   };
 
-  const saveRow = async (rule: PricingRuleRow) => {
-    const validation = validateRow(rule);
+  const saveRuleFees = async (
+    rule: PricingRuleRow,
+    officialValue: string,
+    attorneyValue: string,
+    options: { quiet?: boolean } = {}
+  ) => {
+    clearAutoSaveTimer(rule._id);
+    const validation = validateFeeValues(rule._id, officialValue, attorneyValue);
     if (!validation.isValid) return;
 
     try {
@@ -385,11 +519,31 @@ export default function FeeReportBuilderPage() {
       setDirtyRows((current) => ({ ...current, [rule._id]: false }));
       setRowErrors((current) => ({ ...current, [rule._id]: {} }));
       addAudit(`Row Saved: ${rule.countryName} / ${rule.procedureName}`);
-      showSuccessToast('Row saved');
+      if (!options.quiet) showSuccessToast('Row saved');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save row');
     }
   };
+
+  const updateFee = (rule: PricingRuleRow, field: FeeField, value: string) => {
+    const nextFees = {
+      officialFee: field === 'officialFee' ? value : getFeeValue(rule, 'officialFee'),
+      attorneyFee: field === 'attorneyFee' ? value : getFeeValue(rule, 'attorneyFee'),
+    };
+    setEditedFees((current) => ({
+      ...current,
+      [rule._id]: nextFees,
+    }));
+    setDirtyRows((current) => ({ ...current, [rule._id]: true }));
+    setRowErrors((current) => ({ ...current, [rule._id]: { ...current[rule._id], [field]: undefined } }));
+    clearAutoSaveTimer(rule._id);
+    autoSaveTimersRef.current[rule._id] = window.setTimeout(() => {
+      saveRuleFees(rule, nextFees.officialFee, nextFees.attorneyFee, { quiet: true });
+    }, 900);
+  };
+
+  const saveRow = (rule: PricingRuleRow) =>
+    saveRuleFees(rule, getFeeValue(rule, 'officialFee'), getFeeValue(rule, 'attorneyFee'));
 
   const saveDraft = () => {
     const name = draftName.trim() || `Draft ${new Date().toLocaleString()}`;
@@ -418,15 +572,19 @@ export default function FeeReportBuilderPage() {
     setEditedFees(nextEditedFees);
     setDirtyRows({});
     setRowErrors({});
-    setRowOrder(pricingRules.map((rule) => rule._id));
+    setRowOrder(Array.from(new Set(pricingRules.map((rule) => makeCountryKey(rule)))));
     setColumnVisibility(DEFAULT_COLUMNS);
     setFontFamily('Calibri');
-    setRowHeight(38);
-    setColumnWidth(132);
-    setFlagWidth(28);
-    setFlagHeight(18);
+    setRowHeight(DEFAULT_ROW_HEIGHT);
+    setColumnWidth(DEFAULT_COLUMN_WIDTH);
+    setFlagWidth(DEFAULT_FLAG_WIDTH);
+    setFlagHeight(DEFAULT_FLAG_HEIGHT);
     setHeaderColor('#EAF2FF');
     setRowColor('#FFFFFF');
+    setFontColor(DEFAULT_FONT_COLOR);
+    setHighlightColor(DEFAULT_HIGHLIGHT_COLOR);
+    setPrintOrientation('landscape');
+    setPaperFormat('A4');
     addAudit('New Draft Created');
   };
 
@@ -440,7 +598,7 @@ export default function FeeReportBuilderPage() {
 
   const handleRowDrop = (targetRowId: string) => {
     if (!draggedRowId || draggedRowId === targetRowId) return;
-    const ids = orderedRules.map((rule) => rule._id);
+    const ids = countryRows.map((row) => row.key);
     const fromIndex = ids.indexOf(draggedRowId);
     const toIndex = ids.indexOf(targetRowId);
     if (fromIndex < 0 || toIndex < 0) return;
@@ -454,18 +612,23 @@ export default function FeeReportBuilderPage() {
   };
 
   const exportRows = () =>
-    orderedRules.map((rule) => ({
-      ID: rule._id,
-      Service: rule.serviceCategory,
-      Country: rule.countryName,
-      Code: rule.countryAbbreviation,
-      Procedure: rule.procedureName,
-      'Office Fee': getFeeValue(rule, 'officialFee'),
-      'Attorney Fee': getFeeValue(rule, 'attorneyFee'),
-      Total: getRowTotal(rule) === null ? '' : getRowTotal(rule),
-      Status: rule.isActive ? 'Active' : 'Inactive',
-      Updated: rule.updatedAt,
-    }));
+    countryRows.flatMap((countryRow) =>
+      procedureColumns
+        .map((procedure) => countryRow.rulesByProcedure[procedure])
+        .filter((rule): rule is PricingRuleRow => Boolean(rule))
+        .map((rule) => ({
+          ID: rule._id,
+          Service: rule.serviceCategory,
+          Country: rule.countryName,
+          Code: rule.countryAbbreviation,
+          Procedure: rule.procedureName,
+          'Office Fee': getFeeValue(rule, 'officialFee'),
+          'Attorney Fee': getFeeValue(rule, 'attorneyFee'),
+          Total: getRowTotal(rule) === null ? '' : getRowTotal(rule),
+          Status: rule.isActive ? 'Active' : 'Inactive',
+          Updated: rule.updatedAt,
+        }))
+    );
 
   const exportCsv = () => {
     const rows = exportRows();
@@ -497,14 +660,31 @@ export default function FeeReportBuilderPage() {
     addAudit('CSV Export Generated');
   };
 
-  const exportExcel = async () => {
-    const XLSX = await import('xlsx');
-    const worksheet = XLSX.utils.json_to_sheet(exportRows());
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, selectedService);
-    XLSX.writeFile(workbook, `pricing-rules-${selectedService.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`);
-    addAudit('Excel Export Generated');
-    showSuccessToast('Excel exported');
+  const exportExcel = () => {
+    const html = buildStyledTableHtml();
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pricing-rules-${selectedService.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xls`;
+    link.click();
+    URL.revokeObjectURL(url);
+    addAudit('Styled Excel Export Generated');
+    showSuccessToast('Styled Excel exported');
+  };
+
+  const openPrintView = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      setError('Print window was blocked. Allow popups and try again.');
+      return;
+    }
+
+    printWindow.document.write(buildStyledTableHtml(true));
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => printWindow.print(), 250);
+    addAudit('Print View Opened');
   };
 
   const exportDraftJson = () => {
@@ -570,7 +750,227 @@ export default function FeeReportBuilderPage() {
     return flagCode ? `https://flagcdn.com/w80/${flagCode}.png` : '';
   };
 
-  const visibleColumnCount = Object.values(columnVisibility).filter(Boolean).length + 1;
+  const visibleFeeColumnCount = [columnVisibility.officeFee, columnVisibility.attorneyFee, columnVisibility.total].filter(Boolean).length;
+  const showProcedureColumns = columnVisibility.procedure && visibleFeeColumnCount > 0;
+  const visibleColumnCount = Math.max(
+    1,
+    (columnVisibility.country ? 3 : 0) +
+      (showProcedureColumns ? procedureColumns.length * visibleFeeColumnCount : 0)
+  );
+  const feeColumnWidth = Math.max(58, columnWidth);
+  const countryNameWidth = Math.max(178, Math.min(240, columnWidth * 2.5));
+  const rowNumberWidth = 34;
+  const flagColumnWidth = Math.max(32, flagWidth + 8);
+  const tableMinWidth =
+    (columnVisibility.country ? rowNumberWidth + flagColumnWidth + countryNameWidth : 0) +
+    (showProcedureColumns ? procedureColumns.length * visibleFeeColumnCount * feeColumnWidth : 0);
+  const usesDefaultHeaderColor = headerColor === '#EAF2FF';
+  const usesDefaultRowColor = rowColor === '#FFFFFF';
+  const excelHeaderColor = usesDefaultHeaderColor
+    ? selectedService === 'Patent' || selectedService === 'Design'
+      ? '#DCE7C0'
+      : '#F2BD88'
+    : headerColor;
+  const excelSubHeaderColor = usesDefaultHeaderColor
+    ? selectedService === 'Patent' || selectedService === 'Design'
+      ? '#E7EED3'
+      : '#F7CA9B'
+    : headerColor;
+  const excelRowColor = usesDefaultRowColor ? '#74BFD0' : rowColor;
+  const excelAltRowColor = usesDefaultRowColor ? '#69B6C8' : rowColor;
+  const excelHoverColor = usesDefaultRowColor ? '#8BD5DF' : rowColor;
+  const lastVisibleFeeColumn: FeeField | 'total' = columnVisibility.total
+    ? 'total'
+    : columnVisibility.attorneyFee
+      ? 'attorneyFee'
+      : 'officialFee';
+
+  function buildStyledTableHtml(forPrint = false) {
+    const title = `${selectedService} Pricing Rules`;
+    const cssFontFamily = `"${fontFamily.replace(/"/g, '')}", Arial, sans-serif`;
+    const procedureHeaderHtml = showProcedureColumns
+      ? procedureColumns
+          .map(
+            (procedure) => `
+              <th class="main-header procedure-header" colspan="${visibleFeeColumnCount}" style="width:${visibleFeeColumnCount * feeColumnWidth}px">
+                ${escapeHtml(procedure)}
+              </th>`
+          )
+          .join('')
+      : '';
+
+    const feeHeaderHtml = showProcedureColumns
+      ? procedureColumns
+          .map(
+            () => `
+              ${
+                columnVisibility.officeFee
+                  ? `<th class="sub-header ${lastVisibleFeeColumn === 'officialFee' ? 'group-end' : ''}" style="width:${feeColumnWidth}px">Official<br>Fees (US$)</th>`
+                  : ''
+              }
+              ${
+                columnVisibility.attorneyFee
+                  ? `<th class="sub-header ${lastVisibleFeeColumn === 'attorneyFee' ? 'group-end' : ''}" style="width:${feeColumnWidth}px">Attorney<br>Fees (US$)</th>`
+                  : ''
+              }
+              ${columnVisibility.total ? `<th class="sub-header total-header group-end" style="width:${feeColumnWidth}px">TOTAL<br>(US$)</th>` : ''}
+            `
+          )
+          .join('')
+      : '';
+
+    const bodyHtml = countryRows
+      .map((countryRow, rowIndex) => {
+        const flagSrc = getFlagSrc(countryRow.flagRule);
+        const rowBackground = rowIndex % 2 === 0 ? excelRowColor : excelAltRowColor;
+        const feeCells = showProcedureColumns
+          ? procedureColumns
+              .map((procedure) => {
+                const rule = countryRow.rulesByProcedure[procedure];
+                const total = rule ? getRowTotal(rule) : null;
+                const official = rule ? escapeHtml(getFeeValue(rule, 'officialFee')) : 'N/A';
+                const attorney = rule ? escapeHtml(getFeeValue(rule, 'attorneyFee')) : 'N/A';
+                const totalText = rule ? (total === null ? '-' : formatMoney(total)) : 'N/A';
+
+                return `
+                  ${
+                    columnVisibility.officeFee
+                      ? `<td class="fee-cell ${lastVisibleFeeColumn === 'officialFee' ? 'group-end' : ''}" style="width:${feeColumnWidth}px">${official}</td>`
+                      : ''
+                  }
+                  ${
+                    columnVisibility.attorneyFee
+                      ? `<td class="fee-cell ${lastVisibleFeeColumn === 'attorneyFee' ? 'group-end' : ''}" style="width:${feeColumnWidth}px">${attorney}</td>`
+                      : ''
+                  }
+                  ${columnVisibility.total ? `<td class="fee-cell total-cell group-end" style="width:${feeColumnWidth}px">${escapeHtml(totalText)}</td>` : ''}
+                `;
+              })
+              .join('')
+          : '';
+
+        return `
+          <tr style="background:${rowBackground}">
+            ${
+              columnVisibility.country
+                ? `
+                  <td class="row-number" style="width:${rowNumberWidth}px">${rowIndex + 1}</td>
+                  <td class="flag-cell" style="width:${flagColumnWidth}px">
+                    ${
+                      flagSrc
+                        ? `<img src="${escapeHtml(flagSrc)}" width="${flagWidth}" height="${flagHeight}" alt="${escapeHtml(countryRow.countryName)}">`
+                        : '-'
+                    }
+                  </td>
+                  <td class="country-cell group-end" style="width:${countryNameWidth}px">${escapeHtml(countryRow.countryName)}</td>
+                `
+                : ''
+            }
+            ${feeCells}
+          </tr>
+        `;
+      })
+      .join('');
+
+    return `
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>${escapeHtml(title)}</title>
+    <style>
+      @page { size: ${paperFormat} ${printOrientation}; margin: 8mm; }
+      body {
+        margin: ${forPrint ? '0' : '12px'};
+        color: ${fontColor};
+        font-family: ${cssFontFamily};
+        background: #ffffff;
+      }
+      table {
+        border-collapse: collapse;
+        table-layout: fixed;
+        border: 2px solid #111827;
+        color: ${fontColor};
+        font-family: ${cssFontFamily};
+      }
+      th,
+      td {
+        border: 1px solid #1F2937;
+        color: ${fontColor};
+        font-family: ${cssFontFamily};
+        height: ${rowHeight}px;
+        line-height: 1.05;
+        padding: 0 3px;
+        text-align: center;
+        vertical-align: middle;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+      th {
+        font-weight: 900;
+      }
+      .main-header {
+        background: ${excelHeaderColor};
+        height: 31px;
+        font-size: 13px;
+      }
+      .country-header {
+        height: 74px;
+      }
+      .sub-header {
+        background: ${excelSubHeaderColor};
+        height: 43px;
+        font-size: 12px;
+      }
+      .row-number,
+      .country-cell,
+      .total-cell {
+        font-weight: 900;
+      }
+      .flag-cell {
+        padding: 0;
+      }
+      .flag-cell img {
+        display: inline-block;
+        object-fit: cover;
+        border: 1px solid #1F2937;
+        vertical-align: middle;
+      }
+      .group-end {
+        border-right: 2px solid #111827;
+      }
+      .total-cell {
+        background: ${highlightColor};
+      }
+      .total-header {
+        background: ${excelSubHeaderColor};
+      }
+      @media print {
+        body { margin: 0; }
+        table { width: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <table>
+      <thead>
+        <tr>
+          ${
+            columnVisibility.country
+              ? `<th class="main-header country-header group-end" colspan="3" rowspan="${showProcedureColumns ? 2 : 1}" style="width:${rowNumberWidth + flagColumnWidth + countryNameWidth}px">Country</th>`
+              : ''
+          }
+          ${procedureHeaderHtml}
+        </tr>
+        ${showProcedureColumns ? `<tr>${feeHeaderHtml}</tr>` : ''}
+      </thead>
+      <tbody>
+        ${bodyHtml || `<tr><td colspan="${visibleColumnCount}">No pricing rules found.</td></tr>`}
+      </tbody>
+    </table>
+  </body>
+</html>`;
+  }
 
   return (
     <Box sx={{ minHeight: '100vh', bgcolor: '#F5F7FA' }}>
@@ -630,7 +1030,7 @@ export default function FeeReportBuilderPage() {
                 type="number"
                 label="Row Height"
                 value={rowHeight}
-                onChange={(event) => setRowHeight(Math.max(30, Number(event.target.value) || 38))}
+                onChange={(event) => setRowHeight(Math.max(18, Number(event.target.value) || DEFAULT_ROW_HEIGHT))}
                 sx={{ width: 120 }}
               />
               <TextField
@@ -638,7 +1038,7 @@ export default function FeeReportBuilderPage() {
                 type="number"
                 label="Column Width"
                 value={columnWidth}
-                onChange={(event) => setColumnWidth(Math.max(96, Number(event.target.value) || 132))}
+                onChange={(event) => setColumnWidth(Math.max(58, Number(event.target.value) || DEFAULT_COLUMN_WIDTH))}
                 sx={{ width: 128 }}
               />
               <TextField
@@ -646,7 +1046,7 @@ export default function FeeReportBuilderPage() {
                 type="number"
                 label="Flag Width"
                 value={flagWidth}
-                onChange={(event) => setFlagWidth(Math.max(16, Number(event.target.value) || 28))}
+                onChange={(event) => setFlagWidth(Math.max(16, Number(event.target.value) || DEFAULT_FLAG_WIDTH))}
                 sx={{ width: 112 }}
               />
               <TextField
@@ -654,7 +1054,7 @@ export default function FeeReportBuilderPage() {
                 type="number"
                 label="Flag Height"
                 value={flagHeight}
-                onChange={(event) => setFlagHeight(Math.max(12, Number(event.target.value) || 18))}
+                onChange={(event) => setFlagHeight(Math.max(10, Number(event.target.value) || DEFAULT_FLAG_HEIGHT))}
                 sx={{ width: 116 }}
               />
             </Stack>
@@ -691,76 +1091,161 @@ export default function FeeReportBuilderPage() {
             </Alert>
           )}
 
-          <TableContainer sx={{ maxHeight: 'calc(100vh - 280px)', bgcolor: '#FFFFFF' }}>
+          <TableContainer sx={{ maxHeight: 'calc(100vh - 280px)', bgcolor: '#FFFFFF', overflow: 'auto' }}>
             <Table
               stickyHeader
               size="small"
               sx={{
-                minWidth: 980,
+                minWidth: Math.max(320, tableMinWidth),
                 borderCollapse: 'collapse',
+                tableLayout: 'fixed',
                 fontFamily,
+                border: '2px solid #111827',
                 '& th': {
-                  bgcolor: headerColor,
-                  color: '#111827',
+                  color: fontColor,
                   fontFamily,
-                  fontWeight: 800,
-                  border: '1px solid #C8D0DC',
-                  borderBottom: '1px solid #C8D0DC',
-                  py: 0.75,
+                  fontWeight: 900,
+                  border: '1px solid #111827',
+                  lineHeight: 1.05,
+                  px: 0.4,
+                  py: 0.45,
                   whiteSpace: 'nowrap',
+                  textAlign: 'center',
                 },
                 '& td': {
-                  bgcolor: rowColor,
                   fontFamily,
-                  border: '1px solid #E1E6EF',
-                  borderBottom: '1px solid #E1E6EF',
+                  color: fontColor,
+                  border: '1px solid #1F2937',
                   py: 0,
                   height: rowHeight,
+                  lineHeight: 1.1,
                 },
-                '& tbody tr': {
-                  borderBottom: 0,
+                '& thead tr:first-of-type th': {
+                  top: 0,
+                  zIndex: 3,
                 },
-                '& tbody tr:hover td': {
-                  bgcolor: '#F8FBFF',
+                '& thead tr:nth-of-type(2) th': {
+                  top: 31,
+                  zIndex: 2,
                 },
+                '& tbody tr': { borderBottom: 0 },
               }}
             >
               <TableHead>
                 <TableRow>
-                  {columnVisibility.country && <TableCell sx={{ minWidth: 230 }}>Country</TableCell>}
-                  {columnVisibility.procedure && <TableCell sx={{ minWidth: columnWidth }}>Procedure</TableCell>}
-                  {columnVisibility.officeFee && <TableCell sx={{ minWidth: columnWidth }}>Office Fee</TableCell>}
-                  {columnVisibility.attorneyFee && <TableCell sx={{ minWidth: columnWidth }}>Attorney Fee</TableCell>}
-                  {columnVisibility.total && <TableCell sx={{ minWidth: columnWidth }}>Total</TableCell>}
-                  {columnVisibility.status && <TableCell sx={{ minWidth: 110 }}>Status</TableCell>}
-                  {columnVisibility.updatedAt && <TableCell sx={{ minWidth: 150 }}>Updated</TableCell>}
-                  <TableCell sx={{ minWidth: 112 }}>Action</TableCell>
+                  {columnVisibility.country && (
+                    <TableCell
+                      rowSpan={showProcedureColumns ? 2 : 1}
+                      colSpan={3}
+                      sx={{
+                        width: rowNumberWidth + flagColumnWidth + countryNameWidth,
+                        height: 74,
+                        bgcolor: excelHeaderColor,
+                        borderRight: '2px solid #111827',
+                        fontSize: 13,
+                        verticalAlign: 'middle',
+                      }}
+                    >
+                      Country
+                    </TableCell>
+                  )}
+                  {showProcedureColumns &&
+                    procedureColumns.map((procedure) => (
+                      <TableCell
+                        key={procedure}
+                        colSpan={visibleFeeColumnCount}
+                        sx={{
+                          width: visibleFeeColumnCount * feeColumnWidth,
+                          bgcolor: excelHeaderColor,
+                          fontSize: 13,
+                          height: 31,
+                          borderRight: '2px solid #111827',
+                        }}
+                      >
+                        {procedure}
+                      </TableCell>
+                    ))}
                 </TableRow>
+                {showProcedureColumns && (
+                  <TableRow>
+                    {procedureColumns.map((procedure) => (
+                      <React.Fragment key={`${procedure}-fees`}>
+                        {columnVisibility.officeFee && (
+                          <TableCell
+                            sx={{
+                              width: feeColumnWidth,
+                              height: 43,
+                              bgcolor: excelSubHeaderColor,
+                              fontSize: 12,
+                              borderRight: lastVisibleFeeColumn === 'officialFee' ? '2px solid #111827' : '1px solid #111827',
+                            }}
+                          >
+                            Official<br />Fees (US$)
+                          </TableCell>
+                        )}
+                        {columnVisibility.attorneyFee && (
+                          <TableCell
+                            sx={{
+                              width: feeColumnWidth,
+                              height: 43,
+                              bgcolor: excelSubHeaderColor,
+                              fontSize: 12,
+                              borderRight: lastVisibleFeeColumn === 'attorneyFee' ? '2px solid #111827' : '1px solid #111827',
+                            }}
+                          >
+                            Attorney<br />Fees (US$)
+                          </TableCell>
+                        )}
+                        {columnVisibility.total && (
+                          <TableCell
+                            sx={{
+                              width: feeColumnWidth,
+                              height: 43,
+                              bgcolor: excelSubHeaderColor,
+                              fontSize: 12,
+                              borderRight: '2px solid #111827',
+                            }}
+                          >
+                            TOTAL<br />(US$)
+                          </TableCell>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </TableRow>
+                )}
               </TableHead>
               <TableBody>
-                {orderedRules.map((rule) => {
-                  const total = getRowTotal(rule);
-                  const errors = rowErrors[rule._id] || {};
-                  const flagSrc = getFlagSrc(rule);
-                  const validationMessage = errors.officialFee || errors.attorneyFee || '';
+                {pagedCountryRows.map((countryRow, rowIndex) => {
+                  const flagSrc = getFlagSrc(countryRow.flagRule);
 
                   return (
                     <TableRow
-                      key={rule._id}
+                      key={countryRow.key}
                       draggable
-                      onDragStart={() => setDraggedRowId(rule._id)}
+                      onDragStart={() => setDraggedRowId(countryRow.key)}
                       onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => handleRowDrop(rule._id)}
-                      sx={{ cursor: 'grab' }}
+                      onDrop={() => handleRowDrop(countryRow.key)}
+                      sx={{
+                        cursor: 'grab',
+                        '& td': {
+                          bgcolor: rowIndex % 2 === 0 ? excelRowColor : excelAltRowColor,
+                        },
+                        '&:hover td': {
+                          bgcolor: excelHoverColor,
+                        },
+                      }}
                     >
                       {columnVisibility.country && (
-                        <TableCell>
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
+                        <>
+                          <TableCell sx={{ width: rowNumberWidth, px: 0.25, textAlign: 'center', fontWeight: 900, fontSize: 12 }}>
+                            {page * rowsPerPage + rowIndex + 1}
+                          </TableCell>
+                          <TableCell sx={{ width: flagColumnWidth, px: 0.25, textAlign: 'center' }}>
                             {flagSrc ? (
                               <Box
                                 component="img"
                                 src={flagSrc}
-                                alt={rule.countryName}
+                                alt={countryRow.countryName}
                                 onError={(event) => {
                                   event.currentTarget.style.display = 'none';
                                 }}
@@ -768,110 +1253,127 @@ export default function FeeReportBuilderPage() {
                                   width: flagWidth,
                                   height: flagHeight,
                                   objectFit: 'cover',
-                                  border: '1px solid #CBD5E1',
+                                  display: 'inline-block',
+                                  border: '1px solid #1F2937',
+                                  verticalAlign: 'middle',
                                 }}
                               />
-                            ) : null}
-                            <Box sx={{ minWidth: 0 }}>
-                              <Typography sx={{ fontSize: 13, fontWeight: 800, lineHeight: 1.2 }}>
-                                {rule.countryName}
-                              </Typography>
-                              <Typography sx={{ fontSize: 11, color: '#64748B', lineHeight: 1.2 }}>
-                                {rule.countryAbbreviation}
-                              </Typography>
-                            </Box>
-                          </Stack>
-                        </TableCell>
-                      )}
-                      {columnVisibility.procedure && (
-                        <TableCell>
-                          <Typography sx={{ fontSize: 13, lineHeight: 1.2 }}>{rule.procedureName}</Typography>
-                        </TableCell>
-                      )}
-                      {columnVisibility.officeFee && (
-                        <TableCell>
-                          <Box
-                            component="input"
-                            value={getFeeValue(rule, 'officialFee')}
-                            onChange={(event) => updateFee(rule, 'officialFee', event.target.value)}
-                            title={errors.officialFee || 'Office Fee'}
-                            inputMode="decimal"
-                            style={{
-                              width: '100%',
-                              height: Math.max(28, rowHeight - 8),
-                              border: errors.officialFee ? '1px solid #DC2626' : '0',
-                              outline: 'none',
-                              background: 'transparent',
-                              fontFamily,
-                              fontSize: 13,
-                              padding: '0 6px',
-                              textAlign: 'right',
-                            }}
-                          />
-                        </TableCell>
-                      )}
-                      {columnVisibility.attorneyFee && (
-                        <TableCell>
-                          <Box
-                            component="input"
-                            value={getFeeValue(rule, 'attorneyFee')}
-                            onChange={(event) => updateFee(rule, 'attorneyFee', event.target.value)}
-                            title={errors.attorneyFee || 'Attorney Fee'}
-                            inputMode="decimal"
-                            style={{
-                              width: '100%',
-                              height: Math.max(28, rowHeight - 8),
-                              border: errors.attorneyFee ? '1px solid #DC2626' : '0',
-                              outline: 'none',
-                              background: 'transparent',
-                              fontFamily,
-                              fontSize: 13,
-                              padding: '0 6px',
-                              textAlign: 'right',
-                            }}
-                          />
-                        </TableCell>
-                      )}
-                      {columnVisibility.total && (
-                        <TableCell sx={{ textAlign: 'right', fontWeight: 900, px: 1 }}>
-                          {total === null ? '-' : formatMoney(total)}
-                        </TableCell>
-                      )}
-                      {columnVisibility.status && (
-                        <TableCell>
-                          <Typography sx={{ fontSize: 12, fontWeight: 800, color: rule.isActive ? '#047857' : '#B91C1C' }}>
-                            {rule.isActive ? 'Active' : 'Inactive'}
-                          </Typography>
-                        </TableCell>
-                      )}
-                      {columnVisibility.updatedAt && (
-                        <TableCell>
-                          <Typography sx={{ fontSize: 12, color: '#475569' }}>
-                            {rule.updatedAt ? new Date(rule.updatedAt).toLocaleDateString() : '-'}
-                          </Typography>
-                        </TableCell>
-                      )}
-                      <TableCell>
-                        <Stack spacing={0.25}>
-                          <Button
-                            size="small"
-                            variant={dirtyRows[rule._id] ? 'contained' : 'outlined'}
-                            onClick={() => saveRow(rule)}
-                          >
-                            Save Row
-                          </Button>
-                          {validationMessage && (
-                            <Typography sx={{ fontSize: 10, color: '#DC2626', lineHeight: 1.1 }}>
-                              {validationMessage}
+                            ) : (
+                              <Typography sx={{ fontSize: 11, fontWeight: 900, color: 'inherit' }}>-</Typography>
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ width: countryNameWidth, px: 0.45, borderRight: '2px solid #111827' }}>
+                            <Typography sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.05, color: 'inherit' }}>
+                              {countryRow.countryName}
                             </Typography>
-                          )}
-                        </Stack>
-                      </TableCell>
+                          </TableCell>
+                        </>
+                      )}
+                      {showProcedureColumns &&
+                        procedureColumns.map((procedure) => {
+                          const rule = countryRow.rulesByProcedure[procedure];
+                          const total = rule ? getRowTotal(rule) : null;
+                          const errors = rule ? rowErrors[rule._id] || {} : {};
+
+                          return (
+                            <React.Fragment key={`${countryRow.key}-${procedure}`}>
+                              {columnVisibility.officeFee && (
+                                <TableCell
+                                  sx={{
+                                    width: feeColumnWidth,
+                                    px: 0.25,
+                                    textAlign: 'center',
+                                    borderRight: lastVisibleFeeColumn === 'officialFee' ? '2px solid #111827' : '1px solid #1F2937',
+                                  }}
+                                >
+                                  {rule ? (
+                                    <Box
+                                      component="input"
+                                      value={getFeeValue(rule, 'officialFee')}
+                                      onChange={(event) => updateFee(rule, 'officialFee', event.target.value)}
+                                      onBlur={(event) => {
+                                        saveRuleFees(rule, event.target.value, getFeeValue(rule, 'attorneyFee'));
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') event.currentTarget.blur();
+                                      }}
+                                      title={errors.officialFee || 'Official Fees'}
+                                      inputMode="decimal"
+                                      style={{
+                                        width: '100%',
+                                        height: Math.max(18, rowHeight - 2),
+                                        border: errors.officialFee ? '1px solid #DC2626' : '0',
+                                        outline: 'none',
+                                        background: 'transparent',
+                                        color: fontColor,
+                                        fontFamily,
+                                        fontSize: 12,
+                                        fontWeight: 800,
+                                        padding: 0,
+                                        textAlign: 'center',
+                                      }}
+                                    />
+                                  ) : (
+                                    <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'inherit' }}>N/A</Typography>
+                                  )}
+                                </TableCell>
+                              )}
+                              {columnVisibility.attorneyFee && (
+                                <TableCell
+                                  sx={{
+                                    width: feeColumnWidth,
+                                    px: 0.25,
+                                    textAlign: 'center',
+                                    borderRight: lastVisibleFeeColumn === 'attorneyFee' ? '2px solid #111827' : '1px solid #1F2937',
+                                  }}
+                                >
+                                  {rule ? (
+                                    <Box
+                                      component="input"
+                                      value={getFeeValue(rule, 'attorneyFee')}
+                                      onChange={(event) => updateFee(rule, 'attorneyFee', event.target.value)}
+                                      onBlur={(event) => {
+                                        saveRuleFees(rule, getFeeValue(rule, 'officialFee'), event.target.value);
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') event.currentTarget.blur();
+                                      }}
+                                      title={errors.attorneyFee || 'Attorney Fees'}
+                                      inputMode="decimal"
+                                      style={{
+                                        width: '100%',
+                                        height: Math.max(18, rowHeight - 2),
+                                        border: errors.attorneyFee ? '1px solid #DC2626' : '0',
+                                        outline: 'none',
+                                        background: 'transparent',
+                                        color: fontColor,
+                                        fontFamily,
+                                        fontSize: 12,
+                                        fontWeight: 800,
+                                        padding: 0,
+                                        textAlign: 'center',
+                                      }}
+                                    />
+                                  ) : (
+                                    <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'inherit' }}>N/A</Typography>
+                                  )}
+                                </TableCell>
+                              )}
+                              {columnVisibility.total && (
+                                <TableCell sx={{ width: feeColumnWidth, px: 0.25, textAlign: 'center', bgcolor: `${highlightColor} !important`, borderRight: '2px solid #111827' }}>
+                                  <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
+                                    {rule ? (total === null ? '-' : formatMoney(total)) : 'N/A'}
+                                  </Typography>
+                                </TableCell>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
                     </TableRow>
                   );
                 })}
 
-                {!loading && orderedRules.length === 0 && (
+                {!loading && countryRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={visibleColumnCount} sx={{ py: 4, textAlign: 'center', color: '#64748B' }}>
                       No pricing rules found.
@@ -892,7 +1394,7 @@ export default function FeeReportBuilderPage() {
 
           <TablePagination
             component="div"
-            count={totalRows}
+            count={countryRows.length}
             page={page}
             rowsPerPage={rowsPerPage}
             rowsPerPageOptions={[10, 25, 50, 100]}
@@ -909,7 +1411,7 @@ export default function FeeReportBuilderPage() {
       <input ref={importInputRef} type="file" accept=".csv,.json" style={{ display: 'none' }} onChange={importFile} />
 
       <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
-        <MenuItem onClick={() => { setExportAnchor(null); exportExcel(); }}>Excel (.xlsx)</MenuItem>
+        <MenuItem onClick={() => { setExportAnchor(null); exportExcel(); }}>Styled Excel (.xls)</MenuItem>
         <MenuItem onClick={() => { setExportAnchor(null); exportCsv(); }}>CSV (.csv)</MenuItem>
         <MenuItem onClick={() => { setExportAnchor(null); exportDraftJson(); }}>Draft JSON</MenuItem>
       </Menu>
@@ -961,6 +1463,59 @@ export default function FeeReportBuilderPage() {
               onChange={(event) => setRowColor(event.target.value)}
             />
           </Stack>
+          <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+            <TextField
+              fullWidth
+              size="small"
+              type="color"
+              label="Font Color"
+              value={fontColor}
+              onChange={(event) => setFontColor(event.target.value)}
+            />
+            <TextField
+              fullWidth
+              size="small"
+              type="color"
+              label="Highlight"
+              value={highlightColor}
+              onChange={(event) => setHighlightColor(event.target.value)}
+            />
+          </Stack>
+
+          <Divider sx={{ my: 1.5 }} />
+
+          <Typography sx={{ fontWeight: 900, mb: 1 }}>Print Tools</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1, mb: 1 }}>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Format</InputLabel>
+              <Select
+                label="Format"
+                value={paperFormat}
+                onChange={(event) => setPaperFormat(event.target.value as PaperFormat)}
+              >
+                {PAPER_FORMATS.map((format) => (
+                  <MenuItem key={format} value={format}>{format}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" fullWidth>
+              <InputLabel>Orientation</InputLabel>
+              <Select
+                label="Orientation"
+                value={printOrientation}
+                onChange={(event) => setPrintOrientation(event.target.value as PrintOrientation)}
+              >
+                {PRINT_ORIENTATIONS.map((orientation) => (
+                  <MenuItem key={orientation} value={orientation}>
+                    {orientation.charAt(0).toUpperCase() + orientation.slice(1)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+          <Button fullWidth variant="outlined" onClick={openPrintView}>
+            View / Print
+          </Button>
 
           <Divider sx={{ my: 1.5 }} />
 

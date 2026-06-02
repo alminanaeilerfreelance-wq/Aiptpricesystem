@@ -41,6 +41,7 @@ export interface PricingRuleListParams {
   category?: string;
   country?: string;
   search?: string;
+  status?: 'all' | 'active' | 'inactive';
   page?: number;
   limit?: number;
 }

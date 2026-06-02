@@ -13,6 +13,7 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Pagination,
@@ -25,11 +26,13 @@ import {
   TableHead,
   TableRow,
   Paper,
+  Tab,
+  Tabs,
   TextField,
   Typography,
+  Chip,
 } from '@mui/material';
-import { EmptyState, MuiDataTable } from '@/components/ui';
-import type { MuiDataTableColumn } from '@/components/ui';
+import { EmptyState } from '@/components/ui';
 import { pricingRulesService } from '@/services/pricing-rules.service';
 import { countriesService } from '@/services/countries.service';
 import { proceduresService } from '@/services/procedures.service';
@@ -50,6 +53,7 @@ interface PricingRule {
   officialFee: number;
   attorneyFee: number;
   classFee: number;
+  isActive: boolean;
   createdAt: string;
 }
 
@@ -81,6 +85,20 @@ export default function PricingRulesPage() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 400);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Inactive'>('All');
+  const [activeTab, setActiveTab] = useState('all');
+  const [flagSize, setFlagSize] = useState(40);
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    flag: 70,
+    country: 180,
+    procedure: 260,
+    officialFee: 120,
+    attorneyFee: 120,
+    total: 120,
+    status: 120,
+    actions: 170,
+  });
+  const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
   const [error, setError] = useState('');
 
   const [openForm, setOpenForm] = useState(false);
@@ -107,10 +125,35 @@ export default function PricingRulesPage() {
   const [viewingItem, setViewingItem] = useState<PricingRule | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const headerRefs = React.useRef<Record<string, HTMLElement | null>>({});
+  const rowRefs = React.useRef<Record<string, HTMLElement | null>>({});
+
+  const handleColumnResize = (columnId: string) => {
+    const ref = headerRefs.current[columnId];
+    if (!ref) return;
+    const width = Math.max(60, ref.getBoundingClientRect().width);
+    setColumnWidths((prev) => ({ ...prev, [columnId]: width }));
+  };
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    const stored = window.sessionStorage.getItem('pricingRules.columnWidths');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setColumnWidths((prev) => ({ ...prev, ...parsed }));
+      } catch {
+        // ignore invalid storage values
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    window.sessionStorage.setItem('pricingRules.columnWidths', JSON.stringify(columnWidths));
+  }, [columnWidths]);
 
   useEffect(() => {
     const loadDependencies = async () => {
@@ -153,10 +196,12 @@ export default function PricingRulesPage() {
       nextPage?: number;
       nextSearch?: string;
       nextCategory?: string;
+      nextStatus?: string;
     }) => {
       const nextPage = params?.nextPage ?? page;
       const nextSearch = params?.nextSearch ?? debouncedSearch;
       const nextCategory = params?.nextCategory ?? categoryFilter;
+      const nextStatus = params?.nextStatus ?? (statusFilter === 'All' ? 'all' : statusFilter.toLowerCase());
 
       try {
         setLoading(true);
@@ -166,6 +211,7 @@ export default function PricingRulesPage() {
           limit,
           search: nextSearch || undefined,
           category: nextCategory || undefined,
+          status: nextStatus || undefined,
         });
         setItems(Array.isArray(response?.pricingRules) ? response.pricingRules : []);
         setTotal(response?.total || 0);
@@ -177,20 +223,22 @@ export default function PricingRulesPage() {
         setLoading(false);
       }
     },
-    [categoryFilter, debouncedSearch, limit, page]
+    [categoryFilter, debouncedSearch, limit, page, statusFilter]
   );
 
   useEffect(() => {
+    const statusParam = statusFilter === 'All' ? 'all' : statusFilter.toLowerCase();
     fetchItems({
       nextPage: page,
       nextSearch: debouncedSearch,
       nextCategory: categoryFilter,
+      nextStatus: statusParam,
     });
-  }, [categoryFilter, debouncedSearch, fetchItems, page]);
+  }, [categoryFilter, debouncedSearch, statusFilter, fetchItems, page]);
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch]);
+  }, [debouncedSearch, statusFilter, activeTab]);
 
   const filteredProcedureOptions = useMemo(
     () => procedures.filter((procedure) => procedure.serviceCategory === formData.serviceCategory),
@@ -419,11 +467,13 @@ export default function PricingRulesPage() {
 
   const getAllFiltered = useCallback(async () => {
     const pageSize = 100;
+    const statusParam = statusFilter === 'All' ? 'all' : statusFilter.toLowerCase();
     const firstResponse = await pricingRulesService.list({
       page: 1,
       limit: pageSize,
       search: debouncedSearch || undefined,
       category: categoryFilter || undefined,
+      status: statusParam,
     });
 
     const firstData = Array.isArray(firstResponse?.pricingRules)
@@ -540,86 +590,6 @@ export default function PricingRulesPage() {
 
   if (!mounted) return null;
 
-  const pricingRuleColumns: MuiDataTableColumn<PricingRule>[] = [
-    {
-      id: 'serviceCategory',
-      label: 'Category',
-      sortable: true,
-      searchValue: (row) => row.serviceCategory,
-      render: (row) => row.serviceCategory,
-    },
-    {
-      id: 'countryName',
-      label: 'Country',
-      sortable: true,
-      searchValue: (row) => `${row.countryName} ${row.countryAbbreviation}`,
-      render: (row) => `${row.countryName} (${row.countryAbbreviation})`,
-    },
-    {
-      id: 'procedureName',
-      label: 'Procedure',
-      sortable: true,
-      searchValue: (row) => row.procedureName,
-      render: (row) => row.procedureName,
-    },
-    {
-      id: 'officialFee',
-      label: 'Official',
-      align: 'right',
-      sortable: true,
-      sortValue: (row) => row.officialFee,
-      render: (row) => row.officialFee,
-    },
-    {
-      id: 'attorneyFee',
-      label: 'Atty',
-      align: 'right',
-      sortable: true,
-      sortValue: (row) => row.attorneyFee,
-      render: (row) => row.attorneyFee,
-    },
-    {
-      id: 'classFee',
-      label: 'Class',
-      align: 'right',
-      sortable: true,
-      sortValue: (row) => row.classFee,
-      render: (row) => row.classFee,
-    },
-    {
-      id: 'total',
-      label: 'Total',
-      align: 'right',
-      sortable: true,
-      sortValue: (row) => row.officialFee + row.attorneyFee + row.classFee,
-      render: (row) => row.officialFee + row.attorneyFee + row.classFee,
-    },
-    {
-      id: 'actions',
-      label: 'Actions',
-      align: 'right',
-      sortable: false,
-      render: (row) => (
-        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-          <Button size="small" variant="outlined" onClick={() => handleView(row)}>
-            View
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
-            Edit
-          </Button>
-          <Button
-            size="small"
-            color="error"
-            variant="outlined"
-            onClick={() => handleDeleteClick(row._id)}
-          >
-            Delete
-          </Button>
-        </Stack>
-      ),
-    },
-  ];
-
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Topbar title="Pricing Rules" />
@@ -646,14 +616,23 @@ export default function PricingRulesPage() {
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ alignItems: 'center' }}>
+            <TextField
+              label="Search country, service, procedure"
+              size="small"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              sx={{ minWidth: 280 }}
+            />
             <FormControl sx={{ minWidth: 180 }}>
               <InputLabel>Category</InputLabel>
               <Select
                 value={categoryFilter}
                 label="Category"
                 onChange={(e) => {
-                  setCategoryFilter(e.target.value);
+                  const value = e.target.value as string;
+                  setCategoryFilter(value);
+                  setActiveTab(value || 'all');
                   setPage(1);
                 }}
                 size="small"
@@ -666,9 +645,34 @@ export default function PricingRulesPage() {
                 ))}
               </Select>
             </FormControl>
+            <FormControl sx={{ minWidth: 180 }}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                value={statusFilter}
+                label="Status"
+                onChange={(e) => {
+                  setStatusFilter(e.target.value as 'All' | 'Active' | 'Inactive');
+                  setPage(1);
+                }}
+                size="small"
+              >
+                <MenuItem value="All">All Status</MenuItem>
+                <MenuItem value="Active">Active</MenuItem>
+                <MenuItem value="Inactive">Inactive</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Flag width"
+              type="number"
+              size="small"
+              sx={{ width: 140 }}
+              value={flagSize}
+              slotProps={{ input: { min: 24, max: 120 } }}
+              onChange={(e) => setFlagSize(Math.max(24, Math.min(120, Number(e.target.value))))}
+            />
           </Stack>
 
-          <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
             <input
               type="file"
               accept=".csv,.xlsx,.xls"
@@ -700,28 +704,400 @@ export default function PricingRulesPage() {
         />
       ) : (
         !loading && (
-          <>
-            <MuiDataTable
-              rows={items}
-              columns={pricingRuleColumns}
-              rowKey={(row) => row._id}
-              page={page}
-              rowsPerPage={limit}
-              total={total}
-              onPageChange={setPage}
-              onRowsPerPageChange={(nextRowsPerPage) => {
-                setLimit(nextRowsPerPage);
-                setPage(1);
-              }}
-              showToolbar
-            searchTerm={search}
-            onSearchTermChange={(nextSearch) => {
-              setSearch(nextSearch);
-              setPage(1);
-            }}
-              loading={false}
-            />
-          </>
+          <Card>
+            <CardContent sx={{ p: 0, overflowX: 'auto' }}>
+              <Tabs
+                value={activeTab}
+                onChange={(_, value) => {
+                  setActiveTab(value);
+                  const normalizedCategory = value === 'all' ? '' : value;
+                  setCategoryFilter(normalizedCategory);
+                  setPage(1);
+                }}
+                indicatorColor="primary"
+                textColor="primary"
+                variant="scrollable"
+                scrollButtons="auto"
+                sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+              >
+                <Tab label="All Services" value="all" />
+                {CATEGORIES.map((category) => (
+                  <Tab key={category} label={category} value={category} />
+                ))}
+              </Tabs>
+
+              <TableContainer component={Paper} sx={{ maxHeight: '65vh', overflow: 'auto' }}>
+                <Table sx={{ minWidth: 1000, borderCollapse: 'collapse' }} stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell
+                        ref={(el) => {
+                          if (el) headerRefs.current.flag = el;
+                        }}
+                        onPointerUp={() => handleColumnResize('flag')}
+                        sx={{
+                          position: 'sticky',
+                          top: 0,
+                          left: 0,
+                          zIndex: 3,
+                          backgroundColor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          px: 1,
+                          resize: 'horizontal',
+                          overflow: 'auto',
+                        }}
+                      >
+                        Flag
+                      </TableCell>
+                      <TableCell
+                        ref={(el) => {
+                          if (el) headerRefs.current.country = el;
+                        }}
+                        onPointerUp={() => handleColumnResize('country')}
+                        sx={{
+                          position: 'sticky',
+                          top: 0,
+                          left: columnWidths.flag,
+                          zIndex: 3,
+                          backgroundColor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          px: 1,
+                          resize: 'horizontal',
+                          overflow: 'auto',
+                        }}
+                      >
+                        Country
+                      </TableCell>
+                      <TableCell
+                        ref={(el) => {
+                          if (el) headerRefs.current.procedure = el;
+                        }}
+                        onPointerUp={() => handleColumnResize('procedure')}
+                        sx={{
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 2,
+                          backgroundColor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          px: 1,
+                          minWidth: columnWidths.procedure,
+                          resize: 'horizontal',
+                          overflow: 'auto',
+                        }}
+                      >
+                        Procedure
+                      </TableCell>
+                      <TableCell
+                        ref={(el) => {
+                          if (el) headerRefs.current.officialFee = el;
+                        }}
+                        onPointerUp={() => handleColumnResize('officialFee')}
+                        sx={{
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 2,
+                          backgroundColor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          px: 1,
+                          textAlign: 'right',
+                          minWidth: columnWidths.officialFee,
+                          resize: 'horizontal',
+                          overflow: 'auto',
+                        }}
+                      >
+                        Official Fee
+                      </TableCell>
+                      <TableCell
+                        ref={(el) => {
+                          if (el) headerRefs.current.attorneyFee = el;
+                        }}
+                        onPointerUp={() => handleColumnResize('attorneyFee')}
+                        sx={{
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 2,
+                          backgroundColor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          px: 1,
+                          textAlign: 'right',
+                          minWidth: columnWidths.attorneyFee,
+                          resize: 'horizontal',
+                          overflow: 'auto',
+                        }}
+                      >
+                        Attorney Fee
+                      </TableCell>
+                      <TableCell
+                        ref={(el) => {
+                          if (el) headerRefs.current.total = el;
+                        }}
+                        onPointerUp={() => handleColumnResize('total')}
+                        sx={{
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 2,
+                          backgroundColor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          px: 1,
+                          textAlign: 'right',
+                          minWidth: columnWidths.total,
+                          resize: 'horizontal',
+                          overflow: 'auto',
+                        }}
+                      >
+                        Total
+                      </TableCell>
+                      <TableCell
+                        ref={(el) => {
+                          if (el) headerRefs.current.status = el;
+                        }}
+                        onPointerUp={() => handleColumnResize('status')}
+                        sx={{
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 2,
+                          backgroundColor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          px: 1,
+                          minWidth: columnWidths.status,
+                          resize: 'horizontal',
+                          overflow: 'auto',
+                        }}
+                      >
+                        Status
+                      </TableCell>
+                      <TableCell
+                        ref={(el) => {
+                          if (el) headerRefs.current.actions = el;
+                        }}
+                        onPointerUp={() => handleColumnResize('actions')}
+                        sx={{
+                          position: 'sticky',
+                          top: 0,
+                          zIndex: 2,
+                          backgroundColor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          px: 1,
+                          textAlign: 'center',
+                          minWidth: columnWidths.actions,
+                          resize: 'horizontal',
+                          overflow: 'auto',
+                        }}
+                      >
+                        Actions
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {items.map((item, index) => {
+                      const countryCode = String(item.countryAbbreviation || item.countryName)
+                        .slice(0, 2)
+                        .toLowerCase();
+                      const totalAmount = (item.officialFee || 0) + (item.attorneyFee || 0) + (item.classFee || 0);
+                      const rowHeight = rowHeights[item._id] || 'auto';
+
+                      return (
+                        <TableRow
+                          key={item._id}
+                          sx={{
+                            backgroundColor: index % 2 === 0 ? 'background.paper' : 'action.hover',
+                            '&:hover': { backgroundColor: 'action.selected' },
+                          }}
+                        >
+                          <TableCell
+                            sx={{
+                              position: 'sticky',
+                              left: 0,
+                              zIndex: 1,
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              px: 1,
+                              backgroundColor: 'background.paper',
+                              minWidth: columnWidths.flag,
+                              width: columnWidths.flag,
+                            }}
+                          >
+                            <Box
+                              component="img"
+                              src={`https://flagcdn.com/24x18/${countryCode}.png`}
+                              alt={`${item.countryName} flag`}
+                              sx={{
+                                width: flagSize,
+                                height: Math.round(flagSize * 0.7),
+                                objectFit: 'cover',
+                                borderRadius: 1,
+                                border: '1px solid rgba(0,0,0,0.08)',
+                              }}
+                            />
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              position: 'sticky',
+                              left: columnWidths.flag,
+                              zIndex: 1,
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              px: 1,
+                              backgroundColor: 'background.paper',
+                              minWidth: columnWidths.country,
+                              width: columnWidths.country,
+                            }}
+                          >
+                            <Box
+                              ref={(el) => {
+                                if (el) rowRefs.current[item._id] = el;
+                              }}
+                              sx={{
+                                minHeight: rowHeight,
+                                resize: 'vertical',
+                                overflow: 'auto',
+                              }}
+                              onPointerUp={(event) => {
+                                const target = event.currentTarget as HTMLDivElement;
+                                const height = target.getBoundingClientRect().height;
+                                setRowHeights((prev) => ({ ...prev, [item._id]: height }));
+                              }}
+                            >
+                              <Typography sx={{ fontWeight: 600 }}>{item.countryName}</Typography>
+                              <Typography variant="body2" color="text.secondary">
+                                {item.countryAbbreviation}
+                              </Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              px: 1,
+                              minWidth: columnWidths.procedure,
+                              width: columnWidths.procedure,
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                minHeight: rowHeight,
+                                resize: 'vertical',
+                                overflow: 'auto',
+                              }}
+                            >
+                              {item.procedureName}
+                            </Box>
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              px: 1,
+                              textAlign: 'right',
+                            }}
+                          >
+                            <Box sx={{ minHeight: rowHeight, resize: 'vertical', overflow: 'auto' }}>
+                              {item.officialFee.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </Box>
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              px: 1,
+                              textAlign: 'right',
+                            }}
+                          >
+                            <Box sx={{ minHeight: rowHeight, resize: 'vertical', overflow: 'auto' }}>
+                              {item.attorneyFee.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </Box>
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              border: '1px solid',
+                              borderColor: 'divider',
+                              px: 1,
+                              textAlign: 'right',
+                            }}
+                          >
+                            <Box sx={{ minHeight: rowHeight, resize: 'vertical', overflow: 'auto' }}>
+                              {totalAmount.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </Box>
+                          </TableCell>
+                          <TableCell sx={{ border: '1px solid', borderColor: 'divider', px: 1 }}>
+                            <Box sx={{ minHeight: rowHeight, resize: 'vertical', overflow: 'auto' }}>
+                              <Chip
+                                label={item.isActive ? 'Active' : 'Inactive'}
+                                color={item.isActive ? 'success' : 'default'}
+                                size="small"
+                              />
+                            </Box>
+                          </TableCell>
+                          <TableCell sx={{ border: '1px solid', borderColor: 'divider', px: 1, textAlign: 'center' }}>
+                            <Stack direction="row" spacing={0.5} sx={{ justifyContent: 'center' }}>
+                              <Button size="small" variant="text" onClick={() => handleView(item)}>
+                                👁
+                              </Button>
+                              <Button size="small" variant="text" onClick={() => handleEdit(item)}>
+                                ✎
+                              </Button>
+                              <Button size="small" variant="text" color="error" onClick={() => handleDeleteClick(item._id)}>
+                                ✕
+                              </Button>
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  {`Showing ${items.length} of ${total} rules`}
+                </Typography>
+                <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel>Rows</InputLabel>
+                    <Select
+                      value={limit}
+                      label="Rows"
+                      onChange={(e) => {
+                        setLimit(Number(e.target.value));
+                        setPage(1);
+                      }}
+                    >
+                      {[10, 20, 50, 100].map((value) => (
+                        <MenuItem key={value} value={value}>
+                          {value}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Pagination
+                    count={totalPages}
+                    page={page}
+                    onChange={(_, nextPage) => setPage(nextPage)}
+                    color="primary"
+                    siblingCount={1}
+                    boundaryCount={1}
+                  />
+                </Stack>
+              </Box>
+            </CardContent>
+          </Card>
         )
       )}
 

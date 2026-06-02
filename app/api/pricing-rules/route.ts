@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import PricingRule from '@/models/PricingRule';
+import Country from '@/models/Country';
+import Service from '@/models/Service';
 import { getUserFromRequest } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -16,6 +18,7 @@ export async function GET(req: NextRequest) {
     const category = searchParams.get('category');
     const country = searchParams.get('country');
     const search = searchParams.get('search');
+    const status = searchParams.get('status');
     const pageParam = Number(searchParams.get('page') ?? '1');
     const limitParam = Number(searchParams.get('limit') ?? '10');
 
@@ -28,7 +31,10 @@ export async function GET(req: NextRequest) {
     const andFilters: Record<string, any>[] = [];
 
     if (category) {
-      andFilters.push({ serviceCategory: category });
+      const normalizedCategory = String(category).trim();
+      if (normalizedCategory) {
+        andFilters.push({ serviceCategory: normalizedCategory });
+      }
     }
 
     if (country) {
@@ -53,9 +59,17 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    let isActiveFilter: boolean | undefined = true;
+    if (status) {
+      const normalizedStatus = status.toLowerCase().trim();
+      if (normalizedStatus === 'active') isActiveFilter = true;
+      else if (normalizedStatus === 'inactive') isActiveFilter = false;
+      else if (normalizedStatus === 'all') isActiveFilter = undefined;
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = {
-      isActive: true,
+      ...(isActiveFilter !== undefined ? { isActive: isActiveFilter } : {}),
       ...(andFilters.length > 0 ? { $and: andFilters } : {}),
     };
 
@@ -71,9 +85,59 @@ export async function GET(req: NextRequest) {
       PricingRule.countDocuments(filter),
     ]);
 
+    const countryAbbreviations = Array.from(
+      new Set(pricingRules.map((rule) => String(rule.countryAbbreviation || '').toUpperCase()))
+    ).filter(Boolean);
+    const serviceCategories = Array.from(
+      new Set(pricingRules.map((rule) => rule.serviceCategory))
+    ).filter(Boolean);
+
+    const [countriesData, servicesData] = await Promise.all([
+      Country.find({ abbreviation: { $in: countryAbbreviations } }).lean(),
+      Service.find({ category: { $in: serviceCategories } }).lean(),
+    ]);
+
+    const countryMap = countriesData.reduce<Record<string, any>>((acc, countryData) => {
+      acc[countryData.abbreviation.toUpperCase()] = countryData;
+      return acc;
+    }, {});
+
+    const serviceMap = servicesData.reduce<Record<string, any>>((acc, serviceData) => {
+      acc[serviceData.category] = serviceData;
+      return acc;
+    }, {});
+
+    const pricingRulesWithDetails = pricingRules.map((rule) => {
+      const ruleObject = rule.toObject();
+      const countryDetail = countryMap[String(ruleObject.countryAbbreviation || '').toUpperCase()] || null;
+      const serviceDetail = serviceMap[ruleObject.serviceCategory] || null;
+      return {
+        ...ruleObject,
+        status: ruleObject.isActive ? 'Active' : 'Inactive',
+        country: countryDetail
+          ? {
+              _id: countryDetail._id,
+              name: countryDetail.name,
+              abbreviation: countryDetail.abbreviation,
+              flagCode: countryDetail.flagCode,
+              isActive: countryDetail.isActive,
+            }
+          : null,
+        service: serviceDetail
+          ? {
+              _id: serviceDetail._id,
+              name: serviceDetail.name,
+              category: serviceDetail.category,
+              basePrice: serviceDetail.basePrice,
+              isActive: serviceDetail.isActive,
+            }
+          : null,
+      };
+    });
+
     const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
 
-    return NextResponse.json({ pricingRules, total, page, limit, totalPages });
+    return NextResponse.json({ pricingRules: pricingRulesWithDetails, total, page, limit, totalPages });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });

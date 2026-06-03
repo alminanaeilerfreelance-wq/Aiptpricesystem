@@ -41,6 +41,7 @@ export function usePermission() {
     canView: (resource: Resource) => permissionsCan.view(subject, resource),
     canApprove: (resource: Resource) => permissionsCan.approve(subject, resource),
     canReject: (resource: Resource) => permissionsCan.reject(subject, resource),
+    canExport: (resource: Resource) => permissionsCan.export(subject, resource),
 
     /**
      * Get all permissions for a resource

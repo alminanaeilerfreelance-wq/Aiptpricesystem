@@ -42,7 +42,7 @@ import inquiresService, { Inquire } from '@/services/inquires.service';
 import requirementsService from '@/services/requirements.service';
 import { pricingRulesService, PricingRule } from '@/services/pricing-rules.service';
 import companyDetailsService, { CompanyDetail } from '@/services/company-details.service';
-import { useAuth } from '@/hooks/useAuth';
+import { usePermission } from '@/hooks/usePermission';
 import Topbar from '@/components/layout/Topbar';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@/components/feedback/heroToast';
 import { useSettingsContext } from '@/context/SettingsContext';
@@ -484,7 +484,7 @@ const toServiceDraftFromRow = (
 };
 
 export default function ClientQuotationsPage() {
-  const { user } = useAuth();
+  const { canApprove, canReject } = usePermission();
   const { settings } = useSettingsContext();
   const [items, setItems] = useState<ClientQuotation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -535,7 +535,9 @@ export default function ClientQuotationsPage() {
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
 
-  const canManageClientQuotationApproval = user?.role === 'admin';
+  const canApproveClientQuotation = canApprove('client-quotations');
+  const canRejectClientQuotation = canReject('client-quotations');
+  const canManageClientQuotationApproval = canApproveClientQuotation || canRejectClientQuotation;
 
   const notifySuccess = useCallback((description: string) => {
     showSuccessToast(description);
@@ -1352,8 +1354,14 @@ export default function ClientQuotationsPage() {
   };
 
   const handleUpdateStatus = async (row: ClientQuotation, status: ClientQuotationStatus) => {
-    if (!canManageClientQuotationApproval) {
-      notifyValidationError('Only admin users can approve or reject client quotations.');
+    const canApplyStatus =
+      status === 'Approved'
+        ? canApproveClientQuotation
+        : status === 'Rejected'
+          ? canRejectClientQuotation
+          : canManageClientQuotationApproval;
+    if (!canApplyStatus) {
+      notifyValidationError(`You do not have permission to ${status.toLowerCase()} client quotations.`);
       return;
     }
     setStatusUpdatingId(row._id);
@@ -1451,8 +1459,7 @@ export default function ClientQuotationsPage() {
               <NoteIcon />
             </IconButton>
           </Tooltip>
-          {canManageClientQuotationApproval && (
-            <>
+          {canApproveClientQuotation && (
               <Tooltip title="Approve">
                 <span>
                   <IconButton
@@ -1465,6 +1472,8 @@ export default function ClientQuotationsPage() {
                   </IconButton>
                 </span>
               </Tooltip>
+          )}
+          {canRejectClientQuotation && (
               <Tooltip title="Reject">
                 <span>
                   <IconButton
@@ -1477,7 +1486,6 @@ export default function ClientQuotationsPage() {
                   </IconButton>
                 </span>
               </Tooltip>
-            </>
           )}
           <Tooltip title="Delete">
             <IconButton size="small" onClick={() => { setDeletingId(row._id); setDeleteDialogOpen(true); }} sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}>

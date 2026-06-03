@@ -34,9 +34,10 @@ import { showErrorToast, showSuccessToast } from '@/components/feedback/heroToas
 import { useDebounce } from '@/hooks/useDebounce';
 import { rolesService, Role } from '@/services/roles.service';
 import {
-  CRUD_ACTIONS,
+  ALL_ACTIONS,
   MODULES,
   flattenModulePermissions,
+  getModuleActions,
   normalizeModulePermissions,
   type ModulePermission,
   type Resource,
@@ -96,7 +97,8 @@ function setModuleActions(
   module: Resource,
   actions: ResourceAction[]
 ): ModulePermission[] {
-  const cleanActions = Array.from(new Set(actions));
+  const allowedActions = new Set(getModuleActions(module));
+  const cleanActions = Array.from(new Set(actions)).filter((action) => allowedActions.has(action));
   const withoutModule = modulePermissions.filter((item) => item.module !== module);
   if (cleanActions.length === 0) return withoutModule;
   return [...withoutModule, { module, actions: cleanActions }];
@@ -138,7 +140,7 @@ export default function RolesPage() {
   const allPermissionsSelected = useMemo(
     () =>
       MODULES.every(({ key }) =>
-        CRUD_ACTIONS.every((action) => getActions(form.modulePermissions, key).includes(action))
+        getModuleActions(key).every((action) => getActions(form.modulePermissions, key).includes(action))
       ),
     [form.modulePermissions]
   );
@@ -219,7 +221,7 @@ export default function RolesPage() {
       modulePermissions: setModuleActions(
         prev.modulePermissions,
         module,
-        checked ? CRUD_ACTIONS : []
+        checked ? getModuleActions(module) : []
       ),
     }));
   };
@@ -228,7 +230,7 @@ export default function RolesPage() {
     setForm((prev) => ({
       ...prev,
       modulePermissions: checked
-        ? MODULES.map(({ key }) => ({ module: key, actions: CRUD_ACTIONS }))
+        ? MODULES.map(({ key }) => ({ module: key, actions: getModuleActions(key) }))
         : [],
     }));
   };
@@ -458,13 +460,13 @@ export default function RolesPage() {
               <Chip size="small" color="primary" label={`${selectedPermissionCount} selected`} />
             </Stack>
 
-            <TableContainer sx={{ border: '1px solid #E5E7EB', borderRadius: 1 }}>
-              <Table size="small" stickyHeader>
+            <TableContainer sx={{ border: '1px solid #E5E7EB', borderRadius: 1, overflowX: 'auto' }}>
+              <Table size="small" stickyHeader sx={{ minWidth: 980 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ minWidth: 220 }}>Page / Module</TableCell>
                     <TableCell align="center">Select All</TableCell>
-                    {CRUD_ACTIONS.map((action) => (
+                    {ALL_ACTIONS.map((action) => (
                       <TableCell key={action} align="center">
                         {ACTION_LABELS[action]}
                       </TableCell>
@@ -473,10 +475,11 @@ export default function RolesPage() {
                 </TableHead>
                 <TableBody>
                   {MODULES.map((module) => {
+                    const moduleActions = getModuleActions(module.key);
                     const actions = getActions(form.modulePermissions, module.key);
-                    const moduleChecked = CRUD_ACTIONS.every((action) => actions.includes(action));
+                    const moduleChecked = moduleActions.every((action) => actions.includes(action));
                     const moduleIndeterminate =
-                      !moduleChecked && CRUD_ACTIONS.some((action) => actions.includes(action));
+                      !moduleChecked && moduleActions.some((action) => actions.includes(action));
 
                     return (
                       <TableRow key={module.key} hover>
@@ -490,12 +493,18 @@ export default function RolesPage() {
                             onChange={(event) => toggleModule(module.key, event.target.checked)}
                           />
                         </TableCell>
-                        {CRUD_ACTIONS.map((action) => (
+                        {ALL_ACTIONS.map((action) => (
                           <TableCell key={action} align="center">
-                            <Checkbox
-                              checked={actions.includes(action)}
-                              onChange={() => toggleAction(module.key, action)}
-                            />
+                            {moduleActions.includes(action) ? (
+                              <Checkbox
+                                checked={actions.includes(action)}
+                                onChange={() => toggleAction(module.key, action)}
+                              />
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">
+                                -
+                              </Typography>
+                            )}
                           </TableCell>
                         ))}
                       </TableRow>

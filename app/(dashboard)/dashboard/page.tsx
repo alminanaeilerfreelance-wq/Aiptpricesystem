@@ -7,16 +7,14 @@ import {
   StatsCards,
   QuotationsLineChart,
   TopCountriesPieChart,
-  RecentQuotationsTable,
   TeamPerformanceChart,
   ServiceDemandChart,
   ConversionFunnelCard,
   RevenueByClientChart,
   QuotationAgeAnalysisCard,
-  UserActivityTable,
   QuotationAmountDistributionChart,
 } from '@/components/dashboard';
-import { reportsService, QuotationsReport, UserActivity } from '@/services/reports.service';
+import { reportsService, QuotationsReport } from '@/services/reports.service';
 import { quotationsService, Quotation } from '@/services/quotations.service';
 import { usersService, User } from '@/services/users.service';
 import { useAuth } from '@/hooks/useAuth';
@@ -97,7 +95,6 @@ export default function DashboardPage() {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [pendingUsers, setPendingUsers] = useState<User[]>([]);
-  const [activities, setActivities] = useState<UserActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,7 +106,6 @@ export default function DashboardPage() {
         setLoading(false);
         setReport(null);
         setQuotations([]);
-        setActivities([]);
         setAllUsers([]);
         setPendingUsers([]);
         return;
@@ -149,27 +145,23 @@ export default function DashboardPage() {
         setQuotations(nextQuotations);
 
         if (user.role === 'admin') {
-          const [activitiesResult, usersResult] = await Promise.allSettled([
-            reportsService.getUserActivities(15),
-            usersService.list(),
-          ]);
+          const usersResult = await Promise.allSettled([usersService.list()]);
+          const usersResponse = usersResult[0];
+          const users = usersResponse.status === 'fulfilled' ? usersResponse.value.users : [];
 
-          setActivities(
-            activitiesResult.status === 'fulfilled' ? activitiesResult.value : []
-          );
+          if (usersResponse.status === 'rejected') {
+            console.warn('Dashboard users list failed.', usersResponse.reason);
+          }
 
-          const users = usersResult.status === 'fulfilled' ? usersResult.value.users : [];
           setAllUsers(users);
           setPendingUsers(users.filter((item) => item.approvalStatus === 'pending'));
         } else {
-          setActivities([]);
           setAllUsers([]);
           setPendingUsers([]);
         }
       } catch (err) {
         setReport(null);
         setQuotations([]);
-        setActivities([]);
         setError(getApiErrorMessage(err, 'Failed to load dashboard data'));
       } finally {
         setLoading(false);
@@ -203,19 +195,6 @@ export default function DashboardPage() {
     if (!report?.byService) return [];
     return report.byService;
   })();
-
-  // Recent 5 quotations for the table
-  const recentQuotations = quotations.slice(0, 5).map((q) => ({
-    _id: q._id,
-    quotationNo: q.quotationNo,
-    clientName: q.clientName,
-    serviceName: q.service,
-    countryName: q.country,
-    totalAmount: q.total,
-    currency: q.currency,
-    status: q.status,
-    createdAt: q.createdAt,
-  }));
 
   // Total value from approved quotations
   const approvedTotal = quotations
@@ -295,6 +274,83 @@ export default function DashboardPage() {
           <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
+        )}
+
+        {/* Admin Management Section */}
+        {user?.role === 'admin' && (
+          <section className="space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">Administration</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Users Management Card */}
+              <Link href="/users">
+                <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-blue-900">Users Management</h3>
+                      <p className="text-sm text-blue-700 mt-2">
+                        Manage user accounts, roles, and approvals
+                      </p>
+                    </div>
+                    <div className="text-3xl">👥</div>
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-blue-200">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-xs text-blue-600">Total Users</p>
+                        <p className="text-lg font-semibold text-blue-900">{allUsers.length}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-blue-600">Pending</p>
+                        <p className="text-lg font-semibold text-orange-600">{pendingUsers.length}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+
+              {/* IP Services Fee Builder Card */}
+              <Link href="/reports/fee-builder">
+                <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-emerald-50 to-cyan-100 border border-emerald-200">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-emerald-950">IP Services Fee Builder</h3>
+                      <p className="text-sm text-emerald-800 mt-2">
+                        Create IP fee comparison reports with grouped service columns
+                      </p>
+                    </div>
+                    <div className="h-10 w-10 rounded-lg bg-white/80 flex items-center justify-center text-sm font-bold text-emerald-900 border border-emerald-200">
+                      IP
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-emerald-200">
+                    <p className="text-xs text-emerald-700">
+                      Export Excel, PDF, CSV, JSON, and print-ready reports
+                    </p>
+                  </div>
+                </div>
+              </Link>
+
+              {/* Roles & Permissions Card */}
+              <Link href="/roles">
+                <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-purple-900">Roles & Permissions</h3>
+                      <p className="text-sm text-purple-700 mt-2">
+                        Define roles and assign permissions
+                      </p>
+                    </div>
+                    <div className="text-3xl">🔐</div>
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-purple-200">
+                    <p className="text-xs text-purple-600">
+                      Manage access control and user roles
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            </div>
+          </section>
         )}
 
         {user?.role === 'admin' && pendingUsers.length > 0 && (
@@ -400,96 +456,6 @@ export default function DashboardPage() {
           <TeamPerformanceChart data={teamPerformanceData} />
         )}
 
-        {/* Recent Quotations */}
-        {loading ? (
-          <div className="card p-6 h-64 animate-pulse bg-gray-100" />
-        ) : (
-          <RecentQuotationsTable quotations={recentQuotations} />
-        )}
-
-        {/* Recent Activities - Admin Only */}
-        {user?.role === 'admin' && (
-          <UserActivityTable activities={activities} loading={loading} />
-        )}
-
-        {/* Admin Management Section */}
-        {user?.role === 'admin' && (
-          <>
-            <div className="border-t border-gray-200 pt-6 mt-8">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">Administration</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Users Management Card */}
-                <Link href="/users">
-                  <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-blue-900">Users Management</h3>
-                        <p className="text-sm text-blue-700 mt-2">
-                          Manage user accounts, roles, and approvals
-                        </p>
-                      </div>
-                      <div className="text-3xl">👥</div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-blue-200">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <p className="text-xs text-blue-600">Total Users</p>
-                          <p className="text-lg font-semibold text-blue-900">{allUsers.length}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-blue-600">Pending</p>
-                          <p className="text-lg font-semibold text-orange-600">{pendingUsers.length}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-
-                {/* Fee Report Builder Card */}
-                <Link href="/reports/fee-builder">
-                  <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-emerald-50 to-cyan-100 border border-emerald-200">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-emerald-950">Fee Report Builder</h3>
-                        <p className="text-sm text-emerald-800 mt-2">
-                          Create IP fee comparison reports with grouped service columns
-                        </p>
-                      </div>
-                      <div className="h-10 w-10 rounded-lg bg-white/80 flex items-center justify-center text-sm font-bold text-emerald-900 border border-emerald-200">
-                        IP
-                      </div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-emerald-200">
-                      <p className="text-xs text-emerald-700">
-                        Export Excel, PDF, CSV, JSON, and print-ready reports
-                      </p>
-                    </div>
-                  </div>
-                </Link>
-
-                {/* Roles & Permissions Card */}
-                <Link href="/roles">
-                  <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-purple-900">Roles & Permissions</h3>
-                        <p className="text-sm text-purple-700 mt-2">
-                          Define roles and assign permissions
-                        </p>
-                      </div>
-                      <div className="text-3xl">🔐</div>
-                    </div>
-                    <div className="mt-4 pt-4 border-t border-purple-200">
-                      <p className="text-xs text-purple-600">
-                        Manage access control and user roles
-                      </p>
-                    </div>
-                  </div>
-                </Link>
-              </div>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );

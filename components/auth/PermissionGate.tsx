@@ -24,6 +24,7 @@ const PAGE_PERMISSIONS: Array<[RegExp, RequiredPermission]> = [
   [/^\/procedures(\/.*)?$/, { module: 'procedures', action: 'view' }],
   [/^\/requirements(\/.*)?$/, { module: 'requirements', action: 'view' }],
   [/^\/pricing-rules(\/.*)?$/, { module: 'pricing-rules', action: 'view' }],
+  [/^\/reports\/fee-builder(\/.*)?$/, { module: 'ip-services-fee-builder', action: 'view' }],
   [/^\/reports(\/.*)?$/, { module: 'reports', action: 'view' }],
   [/^\/profit-loss-analysis$/, { module: 'profit-loss-analysis', action: 'view' }],
   [/^\/clients(\/.*)?$/, { module: 'clients', action: 'view' }],

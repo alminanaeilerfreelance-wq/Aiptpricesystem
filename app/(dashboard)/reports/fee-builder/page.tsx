@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Alert,
   Box,
@@ -34,15 +36,28 @@ import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 import { PricingRule, pricingRulesService } from '@/services/pricing-rules.service';
 import { Country, countriesService } from '@/services/countries.service';
+import { Continent, continentsService } from '@/services/continents.service';
+import {
+  FeeBuilderColumnKey,
+  FeeBuilderDraft,
+  FeeBuilderDraftValues,
+  FeeBuilderPaperFormat,
+  FeeBuilderPrintOrientation,
+  FeeBuilderServiceKey,
+  readFeeBuilderAutosave,
+  readFeeBuilderDrafts,
+  writeFeeBuilderAutosave,
+  writeFeeBuilderDrafts,
+} from '@/lib/fee-builder-drafts';
 
 export const dynamic = 'force-dynamic';
 
-type ServiceKey = 'Trademark' | 'Patent' | 'Design' | 'Copyright' | 'Litigation';
+type ServiceKey = FeeBuilderServiceKey;
 type StatusFilter = 'all' | 'active' | 'inactive';
 type FeeField = 'officialFee' | 'attorneyFee';
-type ColumnKey = 'country' | 'procedure' | 'officeFee' | 'attorneyFee' | 'total' | 'status' | 'updatedAt';
-type PrintOrientation = 'portrait' | 'landscape';
-type PaperFormat = 'A4' | 'A3' | 'Letter';
+type ColumnKey = FeeBuilderColumnKey;
+type PrintOrientation = FeeBuilderPrintOrientation;
+type PaperFormat = FeeBuilderPaperFormat;
 
 interface PricingRuleRow extends PricingRule {
   status?: string;
@@ -53,10 +68,7 @@ interface PricingRuleRow extends PricingRule {
   } | null;
 }
 
-interface FeeDraftValues {
-  officialFee: string;
-  attorneyFee: string;
-}
+type FeeDraftValues = FeeBuilderDraftValues;
 
 interface RowValidation {
   officialFee?: string;
@@ -74,32 +86,6 @@ interface CountryFeeRow {
   updatedAt: string;
 }
 
-interface FeeBuilderDraft {
-  id: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-  selectedService: ServiceKey;
-  editedFees: Record<string, FeeDraftValues>;
-  rowOrder: string[];
-  columnVisibility: Record<ColumnKey, boolean>;
-  fontFamily: string;
-  rowHeight: number;
-  columnWidth: number;
-  flagWidth: number;
-  flagHeight: number;
-  headerColor: string;
-  rowColor: string;
-  fontColor?: string;
-  highlightColor?: string;
-  printOrientation?: PrintOrientation;
-  paperFormat?: PaperFormat;
-  selectedCountry?: string;
-  columnOrder?: string[];
-  columnWidths?: Record<string, number>;
-  rowHeights?: Record<string, number>;
-}
-
 interface AuditEntry {
   id: string;
   at: string;
@@ -108,8 +94,6 @@ interface AuditEntry {
 
 const SERVICES: ServiceKey[] = ['Trademark', 'Patent', 'Design', 'Copyright', 'Litigation'];
 const FONT_OPTIONS = ['Arial', 'Times New Roman', 'Calibri', 'Verdana', 'Tahoma', 'Georgia', 'Courier New'];
-const DRAFT_STORAGE_KEY = 'fee-builder-pricing-rule-drafts';
-const AUTOSAVE_STORAGE_KEY = 'fee-builder-pricing-rule-autosave';
 const PRICING_RULE_PAGE_SIZE = 100;
 const OPTION_PAGE_SIZE = 100;
 const DEFAULT_ROW_HEIGHT = 22;
@@ -149,26 +133,6 @@ const formatMoney = (value: number) =>
     maximumFractionDigits: 2,
   });
 
-const readStoredArray = <T,>(key: string): T[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-};
-
-const readStoredDraft = (key: string): FeeBuilderDraft | null => {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-};
-
 const normalizeNumberInput = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -188,9 +152,14 @@ const escapeHtml = (value: unknown) =>
     .replace(/'/g, '&#39;');
 
 export default function FeeReportBuilderPage() {
+  const searchParams = useSearchParams();
+  const requestedDraftId = searchParams.get('draftId') || '';
   const [selectedService, setSelectedService] = useState<ServiceKey>('Trademark');
   const [selectedCountry, setSelectedCountry] = useState('');
+  const [selectedContinent, setSelectedContinent] = useState('');
+  const [selectedProcedure, setSelectedProcedure] = useState('');
   const [countries, setCountries] = useState<Country[]>([]);
+  const [continents, setContinents] = useState<Continent[]>([]);
   const [pricingRules, setPricingRules] = useState<PricingRuleRow[]>([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -245,6 +214,8 @@ export default function FeeReportBuilderPage() {
     updatedAt: new Date().toISOString(),
     selectedService,
     selectedCountry,
+    selectedContinent,
+    selectedProcedure,
     editedFees,
     rowOrder,
     columnOrder,
@@ -269,6 +240,8 @@ export default function FeeReportBuilderPage() {
     setDraftName(draft.name);
     setSelectedService(draft.selectedService);
     setSelectedCountry(draft.selectedCountry || '');
+    setSelectedContinent(draft.selectedContinent || '');
+    setSelectedProcedure(draft.selectedProcedure || '');
     setEditedFees(draft.editedFees || {});
     setRowOrder(draft.rowOrder || []);
     setColumnOrder(draft.columnOrder || []);
@@ -293,27 +266,31 @@ export default function FeeReportBuilderPage() {
   };
 
   useEffect(() => {
-    const storedDrafts = readStoredArray<FeeBuilderDraft>(DRAFT_STORAGE_KEY);
-    const autosave = readStoredDraft(AUTOSAVE_STORAGE_KEY);
+    const storedDrafts = readFeeBuilderDrafts();
+    const autosave = readFeeBuilderAutosave();
+    const requestedDraft = requestedDraftId
+      ? storedDrafts.find((draft) => draft.id === requestedDraftId)
+      : null;
     setDrafts(storedDrafts);
-    if (autosave) {
+    if (requestedDraft) {
+      applyDraft(requestedDraft);
+    } else if (autosave) {
       applyDraft(autosave);
     }
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [requestedDraftId]);
 
   useEffect(() => {
     if (!hydrated) return;
-    window.localStorage.setItem(
-      AUTOSAVE_STORAGE_KEY,
-      JSON.stringify(buildDraftSnapshot(draftName || 'Autosaved Draft', activeDraftId || 'autosave'))
-    );
+    writeFeeBuilderAutosave(buildDraftSnapshot(draftName || 'Autosaved Draft', activeDraftId || 'autosave'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     hydrated,
     selectedService,
     selectedCountry,
+    selectedContinent,
+    selectedProcedure,
     editedFees,
     rowOrder,
     columnOrder,
@@ -365,7 +342,20 @@ export default function FeeReportBuilderPage() {
       }
     };
 
+    const loadContinents = async () => {
+      try {
+        const response = await continentsService.list();
+        if (!active) return;
+        setContinents(Array.isArray(response.continents) ? response.continents : []);
+      } catch (err) {
+        if (!active) return;
+        setContinents([]);
+        setError(err instanceof Error ? err.message : 'Failed to load continents');
+      }
+    };
+
     loadCountries();
+    loadContinents();
 
     return () => {
       active = false;
@@ -567,6 +557,13 @@ export default function FeeReportBuilderPage() {
     return officeFee + attorneyFee;
   };
 
+  const getCountryGrandTotal = (countryRow: CountryFeeRow) =>
+    procedureColumns.reduce((sum, procedure) => {
+      const rule = countryRow.rulesByProcedure[procedure];
+      const total = rule ? getRowTotal(rule) : null;
+      return total === null ? sum : sum + total;
+    }, 0);
+
   const validateFeeValues = (ruleId: string, officialValue: string, attorneyValue: string) => {
     const nextErrors: RowValidation = {};
     const officialFee = normalizeNumberInput(officialValue);
@@ -656,7 +653,7 @@ export default function FeeReportBuilderPage() {
     setDrafts(nextDrafts);
     setActiveDraftId(snapshot.id);
     setDraftName(snapshot.name);
-    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(nextDrafts));
+    writeFeeBuilderDrafts(nextDrafts);
     addAudit(`Draft Saved: ${snapshot.name}`);
     showSuccessToast('Draft saved');
   };
@@ -674,6 +671,8 @@ export default function FeeReportBuilderPage() {
     setActiveDraftId('');
     setDraftName(`Draft ${new Date().toLocaleString()}`);
     setSelectedCountry('');
+    setSelectedContinent('');
+    setSelectedProcedure('');
     setEditedFees(nextEditedFees);
     setDirtyRows({});
     setRowErrors({});
@@ -699,7 +698,7 @@ export default function FeeReportBuilderPage() {
   const deleteDraft = (draftId: string) => {
     const nextDrafts = drafts.filter((draft) => draft.id !== draftId);
     setDrafts(nextDrafts);
-    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(nextDrafts));
+    writeFeeBuilderDrafts(nextDrafts);
     if (activeDraftId === draftId) setActiveDraftId('');
     addAudit('Draft Deleted');
   };
@@ -771,6 +770,7 @@ export default function FeeReportBuilderPage() {
           'Office Fee': getFeeValue(rule, 'officialFee'),
           'Attorney Fee': getFeeValue(rule, 'attorneyFee'),
           Total: getRowTotal(rule) === null ? '' : getRowTotal(rule),
+          'Grand Total': getCountryGrandTotal(countryRow),
           Status: rule.isActive ? 'Active' : 'Inactive',
           Updated: rule.updatedAt,
         }))
@@ -787,6 +787,7 @@ export default function FeeReportBuilderPage() {
       'Office Fee': '',
       'Attorney Fee': '',
       Total: '',
+      'Grand Total': '',
       Status: '',
       Updated: '',
     });
@@ -898,10 +899,12 @@ export default function FeeReportBuilderPage() {
 
   const visibleFeeColumnCount = [columnVisibility.officeFee, columnVisibility.attorneyFee, columnVisibility.total].filter(Boolean).length;
   const showProcedureColumns = columnVisibility.procedure && visibleFeeColumnCount > 0;
+  const rowGrandTotalWidth = Math.max(96, columnWidth * 1.35);
   const visibleColumnCount = Math.max(
     1,
     (columnVisibility.country ? 3 : 0) +
-      (showProcedureColumns ? procedureColumns.length * visibleFeeColumnCount : 0)
+      (showProcedureColumns ? procedureColumns.length * visibleFeeColumnCount : 0) +
+      1
   );
   const countryNameWidth = Math.max(178, Math.min(240, columnWidth * 2.5));
   const rowNumberWidth = 34;
@@ -910,7 +913,8 @@ export default function FeeReportBuilderPage() {
     (columnVisibility.country ? rowNumberWidth + flagColumnWidth + countryNameWidth : 0) +
     (showProcedureColumns
       ? procedureColumns.reduce((total, procedure) => total + visibleFeeColumnCount * getProcedureColumnWidth(procedure), 0)
-      : 0);
+      : 0) +
+    rowGrandTotalWidth;
   const usesDefaultHeaderColor = headerColor === '#EAF2FF';
   const usesDefaultRowColor = rowColor === '#FFFFFF';
   const excelHeaderColor = usesDefaultHeaderColor
@@ -968,6 +972,10 @@ export default function FeeReportBuilderPage() {
           )
           .join('')
       : '';
+    const rowGrandTotalHeaderHtml = `
+      <th class="main-header row-grand-total-header group-end" rowspan="${showProcedureColumns ? 2 : 1}" style="width:${rowGrandTotalWidth}px">
+        Grand Total<br>(US$)
+      </th>`;
 
     const feeHeaderHtml = showProcedureColumns
       ? procedureColumns
@@ -997,6 +1005,7 @@ export default function FeeReportBuilderPage() {
         const flagSrc = getFlagSrc(countryRow.flagRule);
         const rowBackground = rowIndex % 2 === 0 ? excelRowColor : excelAltRowColor;
         const currentRowHeight = getCountryRowHeight(countryRow.key);
+        const rowGrandTotal = getCountryGrandTotal(countryRow);
         const feeCells = showProcedureColumns
           ? procedureColumns
               .map((procedure) => {
@@ -1042,6 +1051,7 @@ export default function FeeReportBuilderPage() {
                 : ''
             }
             ${feeCells}
+            <td class="fee-cell total-cell row-grand-total-cell group-end" style="width:${rowGrandTotalWidth}px">${formatMoney(rowGrandTotal)}</td>
           </tr>
         `;
       })
@@ -1060,7 +1070,6 @@ export default function FeeReportBuilderPage() {
                 ? procedureColumns
                     .map((procedure) => {
                       const procedureWidth = getProcedureColumnWidth(procedure);
-                      const isLastProcedure = procedure === procedureColumns[procedureColumns.length - 1];
                       return `
                         ${
                           columnVisibility.officeFee
@@ -1074,7 +1083,7 @@ export default function FeeReportBuilderPage() {
                         }
                         ${
                           columnVisibility.total
-                            ? `<td class="grand-total-cell group-end" style="width:${procedureWidth}px">${formatMoney(isLastProcedure ? grandTotalAmount : procedureGrandTotals[procedure] || 0)}</td>`
+                            ? `<td class="grand-total-cell group-end" style="width:${procedureWidth}px">${formatMoney(procedureGrandTotals[procedure] || 0)}</td>`
                             : ''
                         }
                       `;
@@ -1082,6 +1091,7 @@ export default function FeeReportBuilderPage() {
                     .join('')
                 : ''
             }
+            <td class="grand-total-cell row-grand-total-cell group-end" style="width:${rowGrandTotalWidth}px">${formatMoney(grandTotalAmount)}</td>
           </tr>
         `
         : '';
@@ -1156,6 +1166,13 @@ export default function FeeReportBuilderPage() {
       .total-cell {
         background: ${highlightColor};
       }
+      .row-grand-total-header {
+        background: ${excelHeaderColor};
+      }
+      .row-grand-total-cell {
+        background: ${highlightColor};
+        font-weight: 900;
+      }
       .grand-total-row td {
         background: ${highlightColor};
         font-weight: 900;
@@ -1186,6 +1203,7 @@ export default function FeeReportBuilderPage() {
               : ''
           }
           ${procedureHeaderHtml}
+          ${rowGrandTotalHeaderHtml}
         </tr>
         ${showProcedureColumns ? `<tr>${feeHeaderHtml}</tr>` : ''}
       </thead>
@@ -1283,6 +1301,9 @@ export default function FeeReportBuilderPage() {
               <Button variant="outlined" onClick={(event) => setAdvancedAnchor(event.currentTarget)}>Tools</Button>
               <Button variant="contained" onClick={saveDraft}>Save Draft</Button>
               <Button variant="outlined" onClick={createNewDraft}>New Draft</Button>
+              <Button variant="outlined" component={Link} href="/reports/fee-builder/drafts">
+                Saved Drafts
+              </Button>
               <FormControl size="small" sx={{ minWidth: 160 }}>
                 <InputLabel>Font</InputLabel>
                 <Select label="Font" value={fontFamily} onChange={(event) => setFontFamily(event.target.value)}>
@@ -1451,6 +1472,19 @@ export default function FeeReportBuilderPage() {
                         />
                       </TableCell>
                     ))}
+                  <TableCell
+                    rowSpan={showProcedureColumns ? 2 : 1}
+                    sx={{
+                      width: rowGrandTotalWidth,
+                      height: 74,
+                      bgcolor: excelHeaderColor,
+                      borderRight: '2px solid #111827',
+                      fontSize: 13,
+                      verticalAlign: 'middle',
+                    }}
+                  >
+                    Grand Total<br />(US$)
+                  </TableCell>
                 </TableRow>
                 {showProcedureColumns && (
                   <TableRow>
@@ -1504,6 +1538,7 @@ export default function FeeReportBuilderPage() {
                 {pagedCountryRows.map((countryRow, rowIndex) => {
                   const flagSrc = getFlagSrc(countryRow.flagRule);
                   const currentRowHeight = getCountryRowHeight(countryRow.key);
+                  const rowGrandTotal = getCountryGrandTotal(countryRow);
 
                   return (
                     <TableRow
@@ -1679,6 +1714,19 @@ export default function FeeReportBuilderPage() {
                             </React.Fragment>
                           );
                         })}
+                      <TableCell
+                        sx={{
+                          width: rowGrandTotalWidth,
+                          px: 0.25,
+                          textAlign: 'center',
+                          bgcolor: `${highlightColor} !important`,
+                          borderRight: '2px solid #111827',
+                        }}
+                      >
+                        <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
+                          {formatMoney(rowGrandTotal)}
+                        </Typography>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -1710,7 +1758,6 @@ export default function FeeReportBuilderPage() {
                     {showProcedureColumns &&
                       procedureColumns.map((procedure) => {
                         const procedureWidth = getProcedureColumnWidth(procedure);
-                        const isLastProcedure = procedure === procedureColumns[procedureColumns.length - 1];
 
                         return (
                           <React.Fragment key={`grand-total-${procedure}`}>
@@ -1733,13 +1780,18 @@ export default function FeeReportBuilderPage() {
                             {columnVisibility.total && (
                               <TableCell sx={{ width: procedureWidth, px: 0.25, textAlign: 'center', borderRight: '2px solid #111827' }}>
                                 <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
-                                  {formatMoney(isLastProcedure ? grandTotalAmount : procedureGrandTotals[procedure] || 0)}
+                                  {formatMoney(procedureGrandTotals[procedure] || 0)}
                                 </Typography>
                               </TableCell>
                             )}
                           </React.Fragment>
                         );
                       })}
+                    <TableCell sx={{ width: rowGrandTotalWidth, px: 0.25, textAlign: 'center', borderRight: '2px solid #111827' }}>
+                      <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
+                        {formatMoney(grandTotalAmount)}
+                      </Typography>
+                    </TableCell>
                   </TableRow>
                 )}
 
@@ -1890,6 +1942,21 @@ export default function FeeReportBuilderPage() {
           <Divider sx={{ my: 1.5 }} />
 
           <Typography sx={{ fontWeight: 900, mb: 1 }}>Drafts</Typography>
+          <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+            <InputLabel>Draft Continent</InputLabel>
+            <Select
+              label="Draft Continent"
+              value={selectedContinent}
+              onChange={(event) => setSelectedContinent(event.target.value)}
+            >
+              <MenuItem value="">All Continents</MenuItem>
+              {continents.map((continent) => (
+                <MenuItem key={continent._id} value={continent.continent}>
+                  {continent.continent}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <TextField
             fullWidth
             size="small"

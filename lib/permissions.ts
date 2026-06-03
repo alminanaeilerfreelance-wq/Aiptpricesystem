@@ -28,6 +28,7 @@ export type Resource =
   | 'departments'
   | 'client-types'
   | 'pricing-rules'
+  | 'ip-services-fee-builder'
   | 'company-details'
   | 'own-offices'
   | 'continents'
@@ -55,6 +56,13 @@ export interface PermissionSubject {
 }
 
 export const CRUD_ACTIONS: ResourceAction[] = ['view', 'add', 'edit', 'update', 'delete'];
+export const ALL_ACTIONS: ResourceAction[] = [
+  ...CRUD_ACTIONS,
+  'assign',
+  'approve',
+  'reject',
+  'export',
+];
 
 export const MODULES: Array<{ key: Resource; label: string }> = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -65,6 +73,7 @@ export const MODULES: Array<{ key: Resource; label: string }> = [
   { key: 'procedures', label: 'Procedures' },
   { key: 'requirements', label: 'Requirements' },
   { key: 'pricing-rules', label: 'Pricing Rules' },
+  { key: 'ip-services-fee-builder', label: 'IP Services Fee Builder' },
   { key: 'reports', label: 'Reports' },
   { key: 'profit-loss-analysis', label: 'Profit/Loss Analysis' },
   { key: 'clients', label: 'Clients' },
@@ -83,13 +92,38 @@ export const MODULES: Array<{ key: Resource; label: string }> = [
 ];
 
 const MODULE_KEYS = new Set<Resource>(MODULES.map((module) => module.key));
-const ACTION_KEYS = new Set<ResourceAction>([
-  ...CRUD_ACTIONS,
-  'assign',
-  'approve',
-  'reject',
-  'export',
-]);
+const ACTION_KEYS = new Set<ResourceAction>(ALL_ACTIONS);
+
+export const MODULE_ACTIONS: Record<Resource, ResourceAction[]> = {
+  dashboard: ['view'],
+  quotations: ['view', 'add', 'edit', 'update', 'delete', 'approve', 'reject', 'export'],
+  'client-quotations': ['view', 'add', 'edit', 'update', 'delete', 'approve', 'reject', 'export'],
+  'associate-quotations': ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  inquiries: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  procedures: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  requirements: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  'pricing-rules': ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  'ip-services-fee-builder': ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  reports: ['view', 'export'],
+  'profit-loss-analysis': ['view', 'export'],
+  clients: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  associates: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  'own-offices': ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  'company-details': ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  departments: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  services: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  countries: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  continents: ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  'classification-of-fees': ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  'client-types': ['view', 'add', 'edit', 'update', 'delete', 'export'],
+  settings: ['view', 'edit', 'update'],
+  users: ['view', 'add', 'edit', 'update', 'delete', 'assign', 'approve', 'reject'],
+  roles: ['view', 'add', 'edit', 'update', 'delete', 'assign'],
+};
+
+export function getModuleActions(module: Resource): ResourceAction[] {
+  return MODULE_ACTIONS[module] || CRUD_ACTIONS;
+}
 
 const OPERATIONAL_MODULES: Resource[] = [
   'dashboard',
@@ -100,6 +134,7 @@ const OPERATIONAL_MODULES: Resource[] = [
   'procedures',
   'requirements',
   'pricing-rules',
+  'ip-services-fee-builder',
   'reports',
   'profit-loss-analysis',
   'clients',
@@ -116,20 +151,22 @@ const OPERATIONAL_MODULES: Resource[] = [
 ];
 
 function modulePermission(module: Resource, actions: ResourceAction[]): ModulePermission {
-  return { module, actions: Array.from(new Set(actions)) };
+  const allowedActions = new Set(getModuleActions(module));
+  return { module, actions: Array.from(new Set(actions)).filter((action) => allowedActions.has(action)) };
 }
 
 const ADMIN_MODULE_PERMISSIONS: ModulePermission[] = MODULES.map(({ key }) =>
-  modulePermission(key, key === 'reports' || key === 'profit-loss-analysis'
-    ? ['view']
-    : CRUD_ACTIONS)
+  modulePermission(key, getModuleActions(key))
 );
 
 const MANAGER_MODULE_PERMISSIONS: ModulePermission[] = [
   ...OPERATIONAL_MODULES.map((key) =>
-    modulePermission(key, key === 'reports' || key === 'profit-loss-analysis'
-      ? ['view']
-      : ['view', 'add', 'edit', 'update'])
+    modulePermission(
+      key,
+      getModuleActions(key).filter((action) =>
+        ['view', 'add', 'edit', 'update', 'export'].includes(action)
+      )
+    )
   ),
   modulePermission('users', ['view']),
   modulePermission('roles', ['view']),
@@ -146,6 +183,7 @@ const USER_MODULE_PERMISSIONS: ModulePermission[] = [
   modulePermission('procedures', ['view']),
   modulePermission('requirements', ['view']),
   modulePermission('pricing-rules', ['view']),
+  modulePermission('ip-services-fee-builder', ['view']),
   modulePermission('services', ['view']),
   modulePermission('countries', ['view']),
   modulePermission('continents', ['view']),
@@ -171,14 +209,22 @@ const LEGACY_PERMISSION_MAP: Record<string, ModulePermission[]> = {
   edit_quotation: [modulePermission('quotations', ['edit', 'update'])],
   approve_quotation: [modulePermission('quotations', ['approve', 'reject', 'update'])],
   delete_quotation: [modulePermission('quotations', ['delete'])],
-  view_reports: [modulePermission('reports', ['view', 'export']), modulePermission('profit-loss-analysis', ['view', 'export'])],
+  view_reports: [
+    modulePermission('reports', ['view', 'export']),
+    modulePermission('ip-services-fee-builder', ['view', 'export']),
+    modulePermission('profit-loss-analysis', ['view', 'export']),
+  ],
   manage_clients: [modulePermission('clients', ['view', 'add', 'edit', 'update', 'delete'])],
   manage_services: [modulePermission('services', ['view', 'add', 'edit', 'update', 'delete'])],
   manage_settings: [modulePermission('settings', ['view', 'edit', 'update'])],
   manage_departments: [modulePermission('departments', ['view', 'add', 'edit', 'update', 'delete'])],
   manage_countries: [modulePermission('countries', ['view', 'add', 'edit', 'update', 'delete']), modulePermission('continents', ['view', 'add', 'edit', 'update', 'delete'])],
   manage_pricing: [modulePermission('pricing-rules', ['view', 'add', 'edit', 'update', 'delete'])],
-  export_data: [modulePermission('reports', ['export']), modulePermission('profit-loss-analysis', ['export'])],
+  export_data: [
+    modulePermission('reports', ['export']),
+    modulePermission('ip-services-fee-builder', ['export']),
+    modulePermission('profit-loss-analysis', ['export']),
+  ],
 };
 
 function isResource(value: string): value is Resource {
@@ -209,9 +255,10 @@ export function normalizeModulePermissions(
 
   const add = (module: string, actions: string[]) => {
     if (!isResource(module)) return;
+    const allowedActions = new Set(getModuleActions(module));
     const current = merged.get(module) || new Set<ResourceAction>();
     actions.forEach((action) => {
-      if (isAction(action)) current.add(action);
+      if (isAction(action) && allowedActions.has(action)) current.add(action);
     });
     merged.set(module, current);
   };

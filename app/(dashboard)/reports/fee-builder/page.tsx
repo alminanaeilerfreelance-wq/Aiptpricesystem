@@ -932,6 +932,29 @@ export default function FeeReportBuilderPage() {
       ? 'attorneyFee'
       : 'officialFee';
 
+  const procedureGrandTotals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    procedureColumns.forEach((procedure) => {
+      totals[procedure] = 0;
+    });
+
+    countryRows.forEach((countryRow) => {
+      procedureColumns.forEach((procedure) => {
+        const rule = countryRow.rulesByProcedure[procedure];
+        const total = rule ? getRowTotal(rule) : null;
+        if (total !== null) totals[procedure] += total;
+      });
+    });
+
+    return totals;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countryRows, editedFees, procedureColumns]);
+
+  const grandTotalAmount = useMemo(
+    () => Object.values(procedureGrandTotals).reduce((total, amount) => total + amount, 0),
+    [procedureGrandTotals]
+  );
+
   function buildStyledTableHtml(forPrint = false) {
     const title = `${selectedService} Pricing Rules`;
     const cssFontFamily = `"${fontFamily.replace(/"/g, '')}", Arial, sans-serif`;
@@ -1023,6 +1046,45 @@ export default function FeeReportBuilderPage() {
         `;
       })
       .join('');
+    const grandTotalHtml =
+      countryRows.length > 0
+        ? `
+          <tr class="grand-total-row">
+            ${
+              columnVisibility.country
+                ? `<td class="grand-total-label group-end" colspan="3">Grand Total: ${formatMoney(grandTotalAmount)}</td>`
+                : ''
+            }
+            ${
+              showProcedureColumns
+                ? procedureColumns
+                    .map((procedure) => {
+                      const procedureWidth = getProcedureColumnWidth(procedure);
+                      const isLastProcedure = procedure === procedureColumns[procedureColumns.length - 1];
+                      return `
+                        ${
+                          columnVisibility.officeFee
+                            ? `<td class="grand-total-empty ${lastVisibleFeeColumn === 'officialFee' ? 'group-end' : ''}" style="width:${procedureWidth}px"></td>`
+                            : ''
+                        }
+                        ${
+                          columnVisibility.attorneyFee
+                            ? `<td class="grand-total-empty ${lastVisibleFeeColumn === 'attorneyFee' ? 'group-end' : ''}" style="width:${procedureWidth}px"></td>`
+                            : ''
+                        }
+                        ${
+                          columnVisibility.total
+                            ? `<td class="grand-total-cell group-end" style="width:${procedureWidth}px">${formatMoney(isLastProcedure ? grandTotalAmount : procedureGrandTotals[procedure] || 0)}</td>`
+                            : ''
+                        }
+                      `;
+                    })
+                    .join('')
+                : ''
+            }
+          </tr>
+        `
+        : '';
 
     return `
 <!doctype html>
@@ -1094,6 +1156,17 @@ export default function FeeReportBuilderPage() {
       .total-cell {
         background: ${highlightColor};
       }
+      .grand-total-row td {
+        background: ${highlightColor};
+        font-weight: 900;
+        border-top: 2px solid #111827;
+      }
+      .grand-total-label {
+        text-align: left;
+      }
+      .grand-total-cell {
+        text-align: center;
+      }
       .total-header {
         background: ${excelSubHeaderColor};
       }
@@ -1118,6 +1191,7 @@ export default function FeeReportBuilderPage() {
       </thead>
       <tbody>
         ${bodyHtml || `<tr><td colspan="${visibleColumnCount}">No pricing rules found.</td></tr>`}
+        ${grandTotalHtml}
       </tbody>
     </table>
   </body>
@@ -1608,6 +1682,66 @@ export default function FeeReportBuilderPage() {
                     </TableRow>
                   );
                 })}
+
+                {!loading && countryRows.length > 0 && (
+                  <TableRow
+                    sx={{
+                      '& td': {
+                        bgcolor: `${highlightColor} !important`,
+                        borderTop: '2px solid #111827',
+                        fontWeight: 900,
+                        height: Math.max(22, rowHeight),
+                      },
+                    }}
+                  >
+                    {columnVisibility.country && (
+                      <TableCell
+                        colSpan={3}
+                        sx={{
+                          px: 0.75,
+                          textAlign: 'left',
+                          borderRight: '2px solid #111827',
+                          fontSize: 13,
+                        }}
+                      >
+                        Grand Total: {formatMoney(grandTotalAmount)}
+                      </TableCell>
+                    )}
+                    {showProcedureColumns &&
+                      procedureColumns.map((procedure) => {
+                        const procedureWidth = getProcedureColumnWidth(procedure);
+                        const isLastProcedure = procedure === procedureColumns[procedureColumns.length - 1];
+
+                        return (
+                          <React.Fragment key={`grand-total-${procedure}`}>
+                            {columnVisibility.officeFee && (
+                              <TableCell
+                                sx={{
+                                  width: procedureWidth,
+                                  borderRight: lastVisibleFeeColumn === 'officialFee' ? '2px solid #111827' : '1px solid #1F2937',
+                                }}
+                              />
+                            )}
+                            {columnVisibility.attorneyFee && (
+                              <TableCell
+                                sx={{
+                                  width: procedureWidth,
+                                  borderRight: lastVisibleFeeColumn === 'attorneyFee' ? '2px solid #111827' : '1px solid #1F2937',
+                                }}
+                              />
+                            )}
+                            {columnVisibility.total && (
+                              <TableCell sx={{ width: procedureWidth, px: 0.25, textAlign: 'center', borderRight: '2px solid #111827' }}>
+                                <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
+                                  {formatMoney(isLastProcedure ? grandTotalAmount : procedureGrandTotals[procedure] || 0)}
+                                </Typography>
+                              </TableCell>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                  </TableRow>
+                )}
 
                 {!loading && countryRows.length === 0 && (
                   <TableRow>

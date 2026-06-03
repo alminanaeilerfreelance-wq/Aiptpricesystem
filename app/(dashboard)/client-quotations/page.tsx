@@ -67,6 +67,7 @@ interface RequirementsState {
 
 interface ServiceDraft {
   procedureName: string;
+  countryName: string;
   classType: ClassType;
   numberOfClasses: number;
   additionalFeePerClass: number;
@@ -86,16 +87,20 @@ interface InvoiceServiceTableColors {
   rowBg: string;
   altRowBg: string;
   rowText: string;
+  countryColText: string;
   totalRowBg: string;
   totalRowText: string;
   procedureColText: string;
   officialColText: string;
   attorneyColText: string;
+  discountColText: string;
+  vatColText: string;
   totalColText: string;
 }
 
 const defaultServiceDraft: ServiceDraft = {
   procedureName: '',
+  countryName: '',
   classType: 'single',
   numberOfClasses: 1,
   additionalFeePerClass: 0,
@@ -115,11 +120,14 @@ const defaultInvoiceServiceTableColors: InvoiceServiceTableColors = {
   rowBg: '#FFFFFF',
   altRowBg: '#F8FAFC',
   rowText: '#111827',
+  countryColText: '#111827',
   totalRowBg: '#E5E7EB',
   totalRowText: '#111827',
   procedureColText: '#111827',
   officialColText: '#0F172A',
   attorneyColText: '#0F172A',
+  discountColText: '#0F172A',
+  vatColText: '#0F172A',
   totalColText: '#0F172A',
 };
 
@@ -348,6 +356,33 @@ const computeAttorneyFeeAfterDiscount = (attorneyFee: number, discountAmount: nu
 const computeVatAmount = (attorneyFeeAfterDiscount: number, vatPercent: number): number =>
   attorneyFeeAfterDiscount * (vatPercent / 100);
 
+const getQuotationCountryNames = (quotation: ClientQuotation | null | undefined): string =>
+  quotation?.inquirySnapshot?.countryNames?.join(', ') || '';
+
+const getServiceCountryName = (
+  service: ClientQuotationServiceItem,
+  quotation: ClientQuotation | null | undefined
+): string =>
+  String(
+    service.countryName ||
+      quotation?.requirementSnapshot?.countryName ||
+      getQuotationCountryNames(quotation) ||
+      ''
+  ).trim();
+
+const getServiceDiscountAmount = (service: ClientQuotationServiceItem): number =>
+  Math.max(0, Number(service.discount || 0));
+
+const getServiceVatAmount = (service: ClientQuotationServiceItem): number => {
+  const attorneyFee = Math.max(0, Number(service.attorneyFee || 0));
+  const discountAmount = getServiceDiscountAmount(service);
+  const vatPercent = Math.max(0, Number(service.vatFee || 0));
+  return computeVatAmount(computeAttorneyFeeAfterDiscount(attorneyFee, discountAmount), vatPercent);
+};
+
+const getRequirementCountryName = (quotation: ClientQuotation | null | undefined): string =>
+  String(quotation?.requirementSnapshot?.countryName || getQuotationCountryNames(quotation) || '').trim();
+
 const validateServiceFees = (
   service: Pick<
     ServiceDraft,
@@ -414,6 +449,7 @@ const computeClientRow = (service: ServiceDraft, _category: ServiceCategory): Cl
 
   return {
     procedureName: service.procedureName.trim(),
+    countryName: service.countryName.trim(),
     classType,
     numberOfClasses,
     additionalFeePerClass,
@@ -435,6 +471,7 @@ const toServiceDraftFromRow = (
 ): ServiceDraft => {
   return {
     procedureName: String(service.procedureName || '').trim(),
+    countryName: String(service.countryName || '').trim(),
     classType: service.classType === 'multi' ? 'multi' : 'single',
     numberOfClasses: Math.max(1, Number(service.numberOfClasses || 1)),
     additionalFeePerClass: Math.max(0, Number(service.additionalFeePerClass || 0)),
@@ -768,6 +805,19 @@ export default function ClientQuotationsPage() {
   const inquiryProjectRef = (selectedInquiry?.referenceNo || '') as string;
   const inquiryProcedure = getInquireProcedureLabel(selectedInquiry);
   const inquiryCountry = inquiryCountries.join(', ');
+  const primaryInquiryCountry = inquiryCountries[0] || '';
+  const resolveServiceCountryName = useCallback(
+    (countryName?: string) => {
+      const normalizedCountry = String(countryName || '').trim();
+      if (normalizedCountry) return normalizedCountry;
+      return priceRuleCountryFilter || primaryInquiryCountry || inquiryCountry || '';
+    },
+    [priceRuleCountryFilter, primaryInquiryCountry, inquiryCountry]
+  );
+  useEffect(() => {
+    if (!primaryInquiryCountry) return;
+    setServiceDraft((prev) => (prev.countryName ? prev : { ...prev, countryName: primaryInquiryCountry }));
+  }, [primaryInquiryCountry]);
   const serviceDraftComputedRow = useMemo(
     () => computeClientRow(serviceDraft, serviceCategory),
     [serviceDraft, serviceCategory]
@@ -898,6 +948,11 @@ export default function ClientQuotationsPage() {
         180
       );
 
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text('Service Details', margin, 252);
+
       const isTrademarkInvoice = serviceCategory === 'Trademark';
       const serviceRows = (quotation.services || []).map((service) => {
         const classLabel =
@@ -905,14 +960,17 @@ export default function ClientQuotationsPage() {
             ? `Multi | ${Math.max(1, Number(service.numberOfClasses || 1))} classes`
             : 'Single';
         return [
+          getServiceCountryName(service, quotation) || countryNames,
           `${service.procedureName || '-'}${isTrademarkInvoice ? `\n${classLabel}` : ''}`,
           toCurrency(service.totalOfficialFees || service.officialFee || 0),
           toCurrency(service.attorneyFee || 0),
+          toCurrency(getServiceDiscountAmount(service)),
+          toCurrency(getServiceVatAmount(service)),
           toCurrency(service.grandTotal || 0),
         ];
       });
-      const serviceBodyRows = serviceRows.length > 0 ? serviceRows : [['No service details available.', '-', '-', '-']];
-      const tableColumns = ['procedure', 'official', 'attorney', 'total'];
+      const serviceBodyRows = serviceRows.length > 0 ? serviceRows : [['No service details available.', '-', '-', '-', '-', '-', '-']];
+      const tableColumns = ['country', 'procedure', 'official', 'attorney', 'discount', 'vat', 'total'];
       const borderRgb = hexToRgbTuple(invoiceServiceTableColors.borderColor);
       const applyPdfCellColors = (data: any) => {
         const columnKey = tableColumns[data.column.index] || 'procedure';
@@ -942,13 +1000,19 @@ export default function ClientQuotationsPage() {
               ? invoiceServiceTableColors.rowBg
               : invoiceServiceTableColors.altRowBg;
             defaultText =
-              columnKey === 'procedure'
-                ? invoiceServiceTableColors.procedureColText
-                : columnKey === 'official'
-                  ? invoiceServiceTableColors.officialColText
-                  : columnKey === 'attorney'
-                    ? invoiceServiceTableColors.attorneyColText
-                    : invoiceServiceTableColors.totalColText;
+              columnKey === 'country'
+                ? invoiceServiceTableColors.countryColText
+                : columnKey === 'procedure'
+                  ? invoiceServiceTableColors.procedureColText
+                  : columnKey === 'official'
+                    ? invoiceServiceTableColors.officialColText
+                    : columnKey === 'attorney'
+                      ? invoiceServiceTableColors.attorneyColText
+                      : columnKey === 'discount'
+                        ? invoiceServiceTableColors.discountColText
+                        : columnKey === 'vat'
+                          ? invoiceServiceTableColors.vatColText
+                          : invoiceServiceTableColors.totalColText;
           }
         }
 
@@ -963,19 +1027,22 @@ export default function ClientQuotationsPage() {
       };
 
       autoTable.default(doc, {
-        startY: 258,
+        startY: 264,
         head: [
-          ['Procedure Name', 'Official Fees', 'Attorney Fees', 'Total'],
+          ['Country', 'Procedure Name', 'Official Fees', 'Attorney Fees', 'Discount', 'VAT', 'Total'],
           ...(isTrademarkInvoice
-            ? [['Class Type / No. Classes', 'per mark per class', 'per mark per class', 'per mark per class']]
+            ? [['Country', 'Class Type / No. Classes', 'per mark per class', 'per mark per class', '', '', 'per mark per class']]
             : []),
         ],
         body: [
           ...serviceBodyRows,
           [
             'Grand Total',
+            '',
             toCurrency(quotation.totalOfficialFees || 0),
             toCurrency(quotation.totalAttorneyFees || 0),
+            toCurrency(quotation.totalDiscount || 0),
+            toCurrency(quotation.totalVatFees || 0),
             toCurrency(quotation.grandTotal || 0),
           ],
         ],
@@ -993,10 +1060,13 @@ export default function ClientQuotationsPage() {
           fontStyle: 'bold',
         },
         columnStyles: {
-          0: { cellWidth: 220 },
-          1: { halign: 'right' },
-          2: { halign: 'right' },
-          3: { halign: 'right' },
+          0: { cellWidth: 74 },
+          1: { cellWidth: 148 },
+          2: { halign: 'right', cellWidth: 58 },
+          3: { halign: 'right', cellWidth: 58 },
+          4: { halign: 'right', cellWidth: 56 },
+          5: { halign: 'right', cellWidth: 50 },
+          6: { halign: 'right', cellWidth: 67 },
         },
         didParseCell: (data: any) => {
           applyPdfCellColors(data);
@@ -1010,32 +1080,43 @@ export default function ClientQuotationsPage() {
         margin: { left: margin, right: margin },
       });
 
-      const afterServicesY = ((doc as any).lastAutoTable?.finalY || 330) + 24;
-      const totalsX = pageWidth - margin - 185;
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(totalsX, afterServicesY, 185, 128, 8, 8, 'F');
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(totalsX, afterServicesY, 185, 128, 8, 8, 'S');
-
-      const totals = [
-        ['Official Fees', quotation.totalOfficialFees || 0],
-        ['Attorney Fees', quotation.totalAttorneyFees || 0],
-        ['Other Fees', quotation.totalOtherFees || 0],
-        ['VAT', quotation.totalVatFees || 0],
-        ['Discount', -(quotation.totalDiscount || 0)],
-        ['Grand Total', quotation.grandTotal || 0],
-      ];
-      totals.forEach(([label, rawValue], index) => {
-        const y = afterServicesY + 20 + index * 18;
-        const isGrandTotal = label === 'Grand Total';
-        doc.setFont('helvetica', isGrandTotal ? 'bold' : 'normal');
-        doc.setFontSize(isGrandTotal ? 10 : 9);
-        doc.setTextColor(isGrandTotal ? 11 : 51, isGrandTotal ? 23 : 65, isGrandTotal ? 57 : 85);
-        doc.text(String(label), totalsX + 14, y);
-        doc.text(toCurrency(Number(rawValue || 0)), totalsX + 170, y, { align: 'right' });
+      const afterServicesY = ((doc as any).lastAutoTable?.finalY || 330) + 18;
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text('Requirement Details', margin, afterServicesY);
+      const requirementCountry = getRequirementCountryName(quotation) || countryNames;
+      const requirementDescription =
+        stripHtml(sanitizeHtml(quotation.requirementSnapshot?.requirements || '')) ||
+        'No requirement details available.';
+      autoTable.default(doc, {
+        startY: afterServicesY + 12,
+        head: [['Country', 'Description']],
+        body: [[requirementCountry || '-', requirementDescription]],
+        theme: 'grid',
+        styles: {
+          font: 'helvetica',
+          fontSize: 8.5,
+          cellPadding: 6,
+          lineColor: borderRgb,
+          lineWidth: 0.4,
+          overflow: 'linebreak',
+          valign: 'top',
+        },
+        headStyles: {
+          fillColor: hexToRgbTuple(invoiceServiceTableColors.headerBg),
+          textColor: hexToRgbTuple(invoiceServiceTableColors.headerText),
+          fontStyle: 'bold',
+        },
+        columnStyles: {
+          0: { cellWidth: 120 },
+          1: { cellWidth: pageWidth - margin * 2 - 120 },
+        },
+        margin: { left: margin, right: margin },
       });
 
-      const termsY = Math.max(afterServicesY, pageHeight - 130);
+      const afterRequirementY = ((doc as any).lastAutoTable?.finalY || afterServicesY) + 24;
+      const termsY = Math.max(afterRequirementY, pageHeight - 130);
       doc.setTextColor(71, 85, 105);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
@@ -1084,6 +1165,8 @@ export default function ClientQuotationsPage() {
       const serviceCategory = quotation.serviceCategory || quotation.inquirySnapshot?.serviceCategory || '-';
       const countryNames = quotation.inquirySnapshot?.countryNames?.join(', ') || '-';
       const isTrademarkInvoice = serviceCategory === 'Trademark';
+      const requirementCountry = getRequirementCountryName(quotation) || countryNames;
+      const requirementDescriptionHtml = sanitizeHtml(quotation.requirementSnapshot?.requirements || '');
       const wordCellStyle = (cellKey: string, defaultBg: string, defaultText: string, align: 'left' | 'right' = 'left') => {
         const { backgroundColor, textColor } = getInvoiceExportCellColors(
           cellKey,
@@ -1095,16 +1178,22 @@ export default function ClientQuotationsPage() {
       };
       const serviceHeaderHtml = `
         <tr>
+          <th style="${wordCellStyle('header-country', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Country</th>
           <th style="${wordCellStyle('header-procedure', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Procedure Name</th>
           <th style="${wordCellStyle('header-official', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Official Fees</th>
           <th style="${wordCellStyle('header-attorney', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Attorney Fees</th>
+          <th style="${wordCellStyle('header-discount', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Discount</th>
+          <th style="${wordCellStyle('header-vat', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">VAT</th>
           <th style="${wordCellStyle('header-total', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Total</th>
         </tr>
         ${isTrademarkInvoice ? `
           <tr>
+            <td style="${wordCellStyle('subheader-country', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText)}"><em>Country</em></td>
             <td style="${wordCellStyle('subheader-procedure', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText)}"><em>Class Type / No. Classes</em></td>
             <td style="${wordCellStyle('subheader-official', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText, 'right')}"><em>per mark per class</em></td>
             <td style="${wordCellStyle('subheader-attorney', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText, 'right')}"><em>per mark per class</em></td>
+            <td style="${wordCellStyle('subheader-discount', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText, 'right')}"></td>
+            <td style="${wordCellStyle('subheader-vat', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText, 'right')}"></td>
             <td style="${wordCellStyle('subheader-total', invoiceServiceTableColors.subHeaderBg, invoiceServiceTableColors.subHeaderText, 'right')}"><em>per mark per class</em></td>
           </tr>
         ` : ''}
@@ -1120,9 +1209,12 @@ export default function ClientQuotationsPage() {
               : invoiceServiceTableColors.altRowBg;
           return `
             <tr>
+              <td style="${wordCellStyle(`row-${index}-country`, baseRowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(getServiceCountryName(service, quotation) || countryNames)}</td>
               <td style="${wordCellStyle(`row-${index}-procedure`, baseRowBg, invoiceServiceTableColors.procedureColText)}"><strong>${escapeHtml(service.procedureName || '-')}</strong>${classInfo ? `<br/><span>${escapeHtml(classInfo)}</span>` : ''}</td>
               <td style="${wordCellStyle(`row-${index}-official`, baseRowBg, invoiceServiceTableColors.officialColText, 'right')}">${toCurrency(service.totalOfficialFees || service.officialFee || 0)}</td>
               <td style="${wordCellStyle(`row-${index}-attorney`, baseRowBg, invoiceServiceTableColors.attorneyColText, 'right')}">${toCurrency(service.attorneyFee || 0)}</td>
+              <td style="${wordCellStyle(`row-${index}-discount`, baseRowBg, invoiceServiceTableColors.discountColText, 'right')}">${toCurrency(getServiceDiscountAmount(service))}</td>
+              <td style="${wordCellStyle(`row-${index}-vat`, baseRowBg, invoiceServiceTableColors.vatColText, 'right')}">${toCurrency(getServiceVatAmount(service))}</td>
               <td style="${wordCellStyle(`row-${index}-total`, baseRowBg, invoiceServiceTableColors.totalColText, 'right')}"><strong>${toCurrency(service.grandTotal || 0)}</strong></td>
             </tr>
           `;
@@ -1148,8 +1240,9 @@ export default function ClientQuotationsPage() {
               .gap-cell { width: 14px; }
               .panel { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; background: #f8fafc; }
               .panel h2 { font-size: 12px; margin: 0 0 10px; letter-spacing: .08em; text-transform: uppercase; color: #475569; }
+              .section-title { font-size: 15px; margin: 18px 0 8px; color: #0f172a; font-weight: 800; }
               p { margin: 4px 0; font-size: 12px; }
-              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18px; font-size: 12px; page-break-inside: avoid; }
+              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 0; font-size: 12px; page-break-inside: avoid; }
               .service-table th { font-weight: 800; }
               .service-table td, .service-table th { word-break: normal; overflow-wrap: break-word; }
               .footer { margin-top: 22px; color: #64748b; font-size: 11px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
@@ -1194,21 +1287,47 @@ export default function ClientQuotationsPage() {
                   </td>
                 </tr>
               </table>
+              <h2 class="section-title">Service Details</h2>
               <table class="service-table">
                 <colgroup>
-                  <col style="width:44%;" />
-                  <col style="width:19%;" />
-                  <col style="width:19%;" />
-                  <col style="width:18%;" />
+                  <col style="width:13%;" />
+                  <col style="width:27%;" />
+                  <col style="width:12%;" />
+                  <col style="width:12%;" />
+                  <col style="width:11%;" />
+                  <col style="width:10%;" />
+                  <col style="width:15%;" />
                 </colgroup>
                 <thead>${serviceHeaderHtml}</thead>
                 <tbody>
-                  ${servicesHtml || `<tr><td colspan="4" style="${wordCellStyle('row-0-procedure', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">No service details available.</td></tr>`}
+                  ${servicesHtml || `<tr><td colspan="7" style="${wordCellStyle('row-0-procedure', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">No service details available.</td></tr>`}
                   <tr>
-                    <td style="${wordCellStyle('grand-procedure', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText)}"><strong>Grand Total</strong></td>
+                    <td style="${wordCellStyle('grand-country', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText)}"><strong>Grand Total</strong></td>
+                    <td style="${wordCellStyle('grand-procedure', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText)}"></td>
                     <td style="${wordCellStyle('grand-official', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalOfficialFees || 0)}</strong></td>
                     <td style="${wordCellStyle('grand-attorney', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalAttorneyFees || 0)}</strong></td>
+                    <td style="${wordCellStyle('grand-discount', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalDiscount || 0)}</strong></td>
+                    <td style="${wordCellStyle('grand-vat', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalVatFees || 0)}</strong></td>
                     <td style="${wordCellStyle('grand-total', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.grandTotal || 0)}</strong></td>
+                  </tr>
+                </tbody>
+              </table>
+              <h2 class="section-title">Requirement Details</h2>
+              <table class="service-table">
+                <colgroup>
+                  <col style="width:24%;" />
+                  <col style="width:76%;" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style="${wordCellStyle('requirement-header-country', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Country</th>
+                    <th style="${wordCellStyle('requirement-header-description', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="${wordCellStyle('requirement-row-country', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(requirementCountry || '-')}</td>
+                    <td style="${wordCellStyle('requirement-row-description', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${requirementDescriptionHtml || 'No requirement details available.'}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1400,6 +1519,7 @@ export default function ClientQuotationsPage() {
   };
 
   const handleOpenEdit = (row: ClientQuotation) => {
+    const quotationCountry = row.inquirySnapshot?.countryNames?.[0] || row.inquirySnapshot?.countryNames?.join(', ') || '';
     setEditingId(row._id);
     setSelectedClientId(typeof row.clientId === 'object' ? row.clientId?._id || '' : (row.clientId || ''));
     setSelectedInquiryId(
@@ -1408,8 +1528,15 @@ export default function ClientQuotationsPage() {
     setSelectedRequirementId(
       typeof row.requirementId === 'object' ? row.requirementId?._id || '' : (row.requirementId || '')
     );
-    setServices(Array.isArray(row.services) ? row.services : []);
-    setServiceDraft(defaultServiceDraft);
+    setServices(
+      Array.isArray(row.services)
+        ? row.services.map((service) => ({
+            ...service,
+            countryName: service.countryName || quotationCountry,
+          }))
+        : []
+    );
+    setServiceDraft({ ...defaultServiceDraft, countryName: quotationCountry });
     setEditingServiceIndex(null);
     setEditingServiceDraft(null);
     setActiveTab((row.serviceCategory || row.inquirySnapshot?.serviceCategory || 'Trademark') as ServiceCategory);
@@ -1430,8 +1557,16 @@ export default function ClientQuotationsPage() {
       notifyValidationError('Save or cancel current row editing before adding a new row.');
       return;
     }
-    setServices((prev) => [...prev, computeClientRow(serviceDraft, serviceCategory)]);
-    setServiceDraft((prev) => ({ ...defaultServiceDraft, procedureName: prev.procedureName }));
+    const nextDraft = {
+      ...serviceDraft,
+      countryName: resolveServiceCountryName(serviceDraft.countryName),
+    };
+    setServices((prev) => [...prev, computeClientRow(nextDraft, serviceCategory)]);
+    setServiceDraft((prev) => ({
+      ...defaultServiceDraft,
+      procedureName: prev.procedureName,
+      countryName: resolveServiceCountryName(prev.countryName),
+    }));
   };
 
   const handleSelectServiceProcedure = (procedureName: string) => {
@@ -1443,9 +1578,17 @@ export default function ClientQuotationsPage() {
       return;
     }
 
-    const nextDraft: ServiceDraft = { ...serviceDraft, procedureName: normalizedProcedure };
+    const nextDraft: ServiceDraft = {
+      ...serviceDraft,
+      procedureName: normalizedProcedure,
+      countryName: resolveServiceCountryName(serviceDraft.countryName),
+    };
     setServices((prev) => [...prev, computeClientRow(nextDraft, serviceCategory)]);
-    setServiceDraft((prev) => ({ ...defaultServiceDraft, procedureName: normalizedProcedure }));
+    setServiceDraft((prev) => ({
+      ...defaultServiceDraft,
+      procedureName: normalizedProcedure,
+      countryName: resolveServiceCountryName(prev.countryName),
+    }));
   };
 
   const handleStartEditService = (index: number) => {
@@ -1474,6 +1617,7 @@ export default function ClientQuotationsPage() {
 
     const normalizedDraft: ServiceDraft = {
       procedureName: editingServiceDraft.procedureName.trim(),
+      countryName: resolveServiceCountryName(editingServiceDraft.countryName),
       classType: editingServiceDraft.classType === 'multi' ? 'multi' : 'single',
       numberOfClasses:
         editingServiceDraft.classType === 'multi'
@@ -1548,6 +1692,7 @@ export default function ClientQuotationsPage() {
         requirementId: selectedRequirementId || undefined,
         services: services.map((s) => ({
           procedureName: s.procedureName,
+          countryName: resolveServiceCountryName(s.countryName),
           classType: s.classType,
           numberOfClasses: s.numberOfClasses,
           additionalFeePerClass: s.additionalFeePerClass,
@@ -1728,6 +1873,7 @@ export default function ClientQuotationsPage() {
     setServiceDraft((prev) => ({
       ...prev,
       procedureName: selectedPriceRule.procedureName || prev.procedureName,
+      countryName: resolveServiceCountryName(selectedPriceRule.countryName),
       officialFee: Math.max(0, Number(selectedPriceRule.officialFee || 0)),
       attorneyFee: Math.max(0, Number(selectedPriceRule.attorneyFee || 0)),
       additionalFeePerClass:
@@ -1764,6 +1910,8 @@ export default function ClientQuotationsPage() {
             '.client-quotation-invoice-print, .client-quotation-invoice-print *': {
               visibility: 'visible',
               boxSizing: 'border-box',
+              WebkitPrintColorAdjust: 'exact',
+              printColorAdjust: 'exact',
             },
             '.client-quotation-invoice-print': {
               position: 'absolute',
@@ -1868,7 +2016,15 @@ export default function ClientQuotationsPage() {
               <Typography variant="h6" sx={{ mb: 1 }}>Client Quotations</Typography>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
-                  <Autocomplete options={clients} getOptionLabel={(o) => o.name || ''} value={selectedClient || null} onChange={(_, v) => setSelectedClientId(v?._id || '')} renderInput={(p) => <TextField {...p} label="Client *" />} />
+                  <Autocomplete
+                    options={clients}
+                    getOptionKey={(option) => option._id}
+                    getOptionLabel={(option) => option.name || ''}
+                    isOptionEqualToValue={(option, value) => option._id === value._id}
+                    value={selectedClient || null}
+                    onChange={(_, value) => setSelectedClientId(value?._id || '')}
+                    renderInput={(params) => <TextField {...params} label="Client *" />}
+                  />
                 </Grid>
                 <Grid size={{ xs: 12, md: 6 }}>
                   <Autocomplete
@@ -1876,6 +2032,11 @@ export default function ClientQuotationsPage() {
                     getOptionLabel={(o) => o.referenceNo || ''}
                     value={selectedInquiry || null}
                     onChange={(_, value) => {
+                      const nextInquiryCountries = Array.isArray(value?.countryIds)
+                        ? value.countryIds
+                            .map((country: any) => country?.name || '')
+                            .filter(Boolean)
+                        : [];
                       setSelectedInquiryId(value?._id || '');
                       setSelectedRequirementId('');
                       setEditingServiceIndex(null);
@@ -1887,6 +2048,7 @@ export default function ClientQuotationsPage() {
                       setServiceDraft((p) => ({
                         ...p,
                         procedureName: inquiryProcedureNames[0] || '',
+                        countryName: nextInquiryCountries[0] || '',
                       }));
                     }}
                     noOptionsText="No unused inquiry projects"
@@ -2055,6 +2217,7 @@ export default function ClientQuotationsPage() {
                       <TableHead>
                         <TableRow>
                           <TableCell>Procedure</TableCell>
+                          <TableCell>Country</TableCell>
                           <TableCell>Class Type</TableCell>
                           {showClassFeeColumns && <TableCell align="right">No. Classes</TableCell>}
                           {showClassFeeColumns && <TableCell align="right">Additional Fee/Class</TableCell>}
@@ -2106,6 +2269,9 @@ export default function ClientQuotationsPage() {
                                 ) : (
                                   service.procedureName
                                 )}
+                              </TableCell>
+                              <TableCell sx={{ minWidth: 160 }}>
+                                {resolveServiceCountryName(rowDraft.countryName) || '-'}
                               </TableCell>
                               <TableCell sx={{ minWidth: 140 }}>
                                 {isEditingRow ? (
@@ -2510,7 +2676,7 @@ export default function ClientQuotationsPage() {
                             Professional Invoice
                           </Typography>
                           <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.05 }}>
-                            CLIENT QUOTATION
+                            CLIENT QUOTATION INVOICE
                           </Typography>
                           <Typography variant="body2" sx={{ color: '#CBD5E1', mt: 0.75 }}>
                             {selectedInvoiceCompanyDetail?.companyName || settings?.companyName || 'AIP&T LAW FIRM'}
@@ -2629,41 +2795,11 @@ export default function ClientQuotationsPage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid size={{ xs: 12 }}>
-                  <Card variant="outlined" sx={{ borderRadius: 2, borderColor: '#DDE7F3' }}>
-                    <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
-                        Requirement Details
-                      </Typography>
-                      {viewingItem.requirementSnapshot?.requirements ? (
-                        <Box
-                          sx={{
-                            p: 1.5,
-                            borderRadius: 2,
-                            bgcolor: '#FFFFFF',
-                            border: '1px solid',
-                            borderColor: 'divider',
-                            '& p': { m: 0, mb: 1 },
-                            '& p:last-of-type': { mb: 0 },
-                          }}
-                          dangerouslySetInnerHTML={{
-                            __html: sanitizeHtml(viewingItem.requirementSnapshot.requirements),
-                          }}
-                        />
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">
-                          No requirement details available.
-                        </Typography>
-                      )}
-                    </CardContent>
-                  </Card>
-                </Grid>
               </Grid>
 
               <Card variant="outlined" sx={{ borderRadius: 3 }}>
                 <CardContent>
                   <Stack
-                    className="invoice-print-hidden"
                     direction={{ xs: 'column', sm: 'row' }}
                     spacing={1.25}
                     sx={{ justifyContent: 'space-between', alignItems: { sm: 'center' }, mb: 1.25 }}
@@ -2672,11 +2808,12 @@ export default function ClientQuotationsPage() {
                       <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>
                         Service Details
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography className="invoice-print-hidden" variant="caption" color="text.secondary">
                         Click any header/row/column cell to set a color.
                       </Typography>
                     </Box>
                     <Button
+                      className="invoice-print-hidden"
                       size="small"
                       variant="contained"
                       startIcon={<SettingsIcon />}
@@ -2702,6 +2839,26 @@ export default function ClientQuotationsPage() {
                     >
                       <TableHead sx={{ bgcolor: invoiceServiceTableColors.headerBg }}>
                         <TableRow>
+                          <TableCell
+                            onClick={(event) =>
+                              openInvoiceCellPicker(
+                                event,
+                                'header-country',
+                                'Header: Country',
+                                invoiceServiceTableColors.headerBg
+                              )
+                            }
+                            sx={{
+                              fontWeight: 800,
+                              ...getInvoiceCellSx(
+                                'header-country',
+                                invoiceServiceTableColors.headerBg,
+                                invoiceServiceTableColors.headerText
+                              ),
+                            }}
+                          >
+                            Country
+                          </TableCell>
                           <TableCell
                             onClick={(event) =>
                               openInvoiceCellPicker(
@@ -2769,6 +2926,48 @@ export default function ClientQuotationsPage() {
                             onClick={(event) =>
                               openInvoiceCellPicker(
                                 event,
+                                'header-discount',
+                                'Header: Discount',
+                                invoiceServiceTableColors.headerBg
+                              )
+                            }
+                            sx={{
+                              fontWeight: 800,
+                              ...getInvoiceCellSx(
+                                'header-discount',
+                                invoiceServiceTableColors.headerBg,
+                                invoiceServiceTableColors.headerText
+                              ),
+                            }}
+                          >
+                            Discount
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            onClick={(event) =>
+                              openInvoiceCellPicker(
+                                event,
+                                'header-vat',
+                                'Header: VAT',
+                                invoiceServiceTableColors.headerBg
+                              )
+                            }
+                            sx={{
+                              fontWeight: 800,
+                              ...getInvoiceCellSx(
+                                'header-vat',
+                                invoiceServiceTableColors.headerBg,
+                                invoiceServiceTableColors.headerText
+                              ),
+                            }}
+                          >
+                            VAT
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            onClick={(event) =>
+                              openInvoiceCellPicker(
+                                event,
                                 'header-total',
                                 'Header: Total',
                                 invoiceServiceTableColors.headerBg
@@ -2788,6 +2987,26 @@ export default function ClientQuotationsPage() {
                         </TableRow>
                         {((viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory) as ServiceCategory) === 'Trademark' && (
                           <TableRow sx={{ bgcolor: invoiceServiceTableColors.subHeaderBg }}>
+                            <TableCell
+                              onClick={(event) =>
+                                openInvoiceCellPicker(
+                                  event,
+                                  'subheader-country',
+                                  'Subheader: Country',
+                                  invoiceServiceTableColors.subHeaderBg
+                                )
+                              }
+                              sx={{
+                                fontStyle: 'italic',
+                                ...getInvoiceCellSx(
+                                  'subheader-country',
+                                  invoiceServiceTableColors.subHeaderBg,
+                                  invoiceServiceTableColors.subHeaderText
+                                ),
+                              }}
+                            >
+                              Country
+                            </TableCell>
                             <TableCell
                               onClick={(event) =>
                                 openInvoiceCellPicker(
@@ -2855,6 +3074,44 @@ export default function ClientQuotationsPage() {
                               onClick={(event) =>
                                 openInvoiceCellPicker(
                                   event,
+                                  'subheader-discount',
+                                  'Subheader: Discount',
+                                  invoiceServiceTableColors.subHeaderBg
+                                )
+                              }
+                              sx={{
+                                fontStyle: 'italic',
+                                ...getInvoiceCellSx(
+                                  'subheader-discount',
+                                  invoiceServiceTableColors.subHeaderBg,
+                                  invoiceServiceTableColors.subHeaderText
+                                ),
+                              }}
+                            />
+                            <TableCell
+                              align="right"
+                              onClick={(event) =>
+                                openInvoiceCellPicker(
+                                  event,
+                                  'subheader-vat',
+                                  'Subheader: VAT',
+                                  invoiceServiceTableColors.subHeaderBg
+                                )
+                              }
+                              sx={{
+                                fontStyle: 'italic',
+                                ...getInvoiceCellSx(
+                                  'subheader-vat',
+                                  invoiceServiceTableColors.subHeaderBg,
+                                  invoiceServiceTableColors.subHeaderText
+                                ),
+                              }}
+                            />
+                            <TableCell
+                              align="right"
+                              onClick={(event) =>
+                                openInvoiceCellPicker(
+                                  event,
                                   'subheader-total',
                                   'Subheader: Total',
                                   invoiceServiceTableColors.subHeaderBg
@@ -2890,6 +3147,25 @@ export default function ClientQuotationsPage() {
 
                           return (
                             <TableRow key={`${service.procedureName}-${index}`}>
+                              <TableCell
+                                onClick={(event) =>
+                                  openInvoiceCellPicker(
+                                    event,
+                                    `row-${index}-country`,
+                                    `Row ${index + 1}: Country`,
+                                    baseRowBg
+                                  )
+                                }
+                                sx={{
+                                  ...getInvoiceCellSx(
+                                    `row-${index}-country`,
+                                    baseRowBg,
+                                    invoiceServiceTableColors.countryColText
+                                  ),
+                                }}
+                              >
+                                {getServiceCountryName(service, viewingItem) || '-'}
+                              </TableCell>
                               <TableCell
                                 onClick={(event) =>
                                   openInvoiceCellPicker(
@@ -2967,6 +3243,46 @@ export default function ClientQuotationsPage() {
                                 onClick={(event) =>
                                   openInvoiceCellPicker(
                                     event,
+                                    `row-${index}-discount`,
+                                    `Row ${index + 1}: Discount`,
+                                    baseRowBg
+                                  )
+                                }
+                                sx={{
+                                  ...getInvoiceCellSx(
+                                    `row-${index}-discount`,
+                                    baseRowBg,
+                                    invoiceServiceTableColors.discountColText
+                                  ),
+                                }}
+                              >
+                                {toCurrency(getServiceDiscountAmount(service))}
+                              </TableCell>
+                              <TableCell
+                                align="right"
+                                onClick={(event) =>
+                                  openInvoiceCellPicker(
+                                    event,
+                                    `row-${index}-vat`,
+                                    `Row ${index + 1}: VAT`,
+                                    baseRowBg
+                                  )
+                                }
+                                sx={{
+                                  ...getInvoiceCellSx(
+                                    `row-${index}-vat`,
+                                    baseRowBg,
+                                    invoiceServiceTableColors.vatColText
+                                  ),
+                                }}
+                              >
+                                {toCurrency(getServiceVatAmount(service))}
+                              </TableCell>
+                              <TableCell
+                                align="right"
+                                onClick={(event) =>
+                                  openInvoiceCellPicker(
+                                    event,
                                     `row-${index}-total`,
                                     `Row ${index + 1}: Total`,
                                     baseRowBg
@@ -2990,8 +3306,28 @@ export default function ClientQuotationsPage() {
                             onClick={(event) =>
                               openInvoiceCellPicker(
                                 event,
+                                'grand-country',
+                                'Grand Total: Country',
+                                invoiceServiceTableColors.totalRowBg
+                              )
+                            }
+                            sx={{
+                              fontWeight: 800,
+                              ...getInvoiceCellSx(
+                                'grand-country',
+                                invoiceServiceTableColors.totalRowBg,
+                                invoiceServiceTableColors.totalRowText
+                              ),
+                            }}
+                          >
+                            Grand Total
+                          </TableCell>
+                          <TableCell
+                            onClick={(event) =>
+                              openInvoiceCellPicker(
+                                event,
                                 'grand-procedure',
-                                'Grand Total: Label',
+                                'Grand Total: Procedure',
                                 invoiceServiceTableColors.totalRowBg
                               )
                             }
@@ -3003,9 +3339,7 @@ export default function ClientQuotationsPage() {
                                 invoiceServiceTableColors.totalRowText
                               ),
                             }}
-                          >
-                            Grand Total
-                          </TableCell>
+                          />
                           <TableCell
                             align="right"
                             onClick={(event) =>
@@ -3047,6 +3381,48 @@ export default function ClientQuotationsPage() {
                             }}
                           >
                             {toCurrency(viewingItem.totalAttorneyFees || 0)}
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            onClick={(event) =>
+                              openInvoiceCellPicker(
+                                event,
+                                'grand-discount',
+                                'Grand Total: Discount',
+                                invoiceServiceTableColors.totalRowBg
+                              )
+                            }
+                            sx={{
+                              fontWeight: 800,
+                              ...getInvoiceCellSx(
+                                'grand-discount',
+                                invoiceServiceTableColors.totalRowBg,
+                                invoiceServiceTableColors.totalRowText
+                              ),
+                            }}
+                          >
+                            {toCurrency(viewingItem.totalDiscount || 0)}
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            onClick={(event) =>
+                              openInvoiceCellPicker(
+                                event,
+                                'grand-vat',
+                                'Grand Total: VAT',
+                                invoiceServiceTableColors.totalRowBg
+                              )
+                            }
+                            sx={{
+                              fontWeight: 800,
+                              ...getInvoiceCellSx(
+                                'grand-vat',
+                                invoiceServiceTableColors.totalRowBg,
+                                invoiceServiceTableColors.totalRowText
+                              ),
+                            }}
+                          >
+                            {toCurrency(viewingItem.totalVatFees || 0)}
                           </TableCell>
                           <TableCell
                             align="right"
@@ -3110,6 +3486,59 @@ export default function ClientQuotationsPage() {
                       </Box>
                     </Popover>
                   </Stack>
+                </CardContent>
+              </Card>
+
+              <Card variant="outlined" sx={{ mt: 2, borderRadius: 3, borderColor: '#DDE7F3' }}>
+                <CardContent>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
+                    Requirement Details
+                  </Typography>
+                  <TableContainer
+                    sx={{
+                      border: '1px solid',
+                      borderColor: invoiceServiceTableColors.borderColor,
+                      borderRadius: 2,
+                      bgcolor: '#FFFFFF',
+                    }}
+                  >
+                    <Table size="small">
+                      <TableHead sx={{ bgcolor: invoiceServiceTableColors.headerBg }}>
+                        <TableRow>
+                          <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
+                            Country
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
+                            Description
+                          </TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        <TableRow>
+                          <TableCell sx={{ width: { xs: 140, md: 220 }, color: invoiceServiceTableColors.countryColText }}>
+                            {getRequirementCountryName(viewingItem) || '-'}
+                          </TableCell>
+                          <TableCell sx={{ color: invoiceServiceTableColors.procedureColText }}>
+                            {viewingItem.requirementSnapshot?.requirements ? (
+                              <Box
+                                sx={{
+                                  '& p': { m: 0, mb: 1 },
+                                  '& p:last-of-type': { mb: 0 },
+                                }}
+                                dangerouslySetInnerHTML={{
+                                  __html: sanitizeHtml(viewingItem.requirementSnapshot.requirements),
+                                }}
+                              />
+                            ) : (
+                              <Typography variant="body2" color="text.secondary">
+                                No requirement details available.
+                              </Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
                 </CardContent>
               </Card>
             </Box>

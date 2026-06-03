@@ -16,6 +16,7 @@ interface RouteContext {
 interface RawServiceItem {
   procedureId?: string;
   procedureName?: string;
+  countryName?: string;
   classType?: 'single' | 'multi';
   numberOfClasses?: number;
   additionalFeePerClass?: number;
@@ -128,6 +129,7 @@ const calculateServices = (services: RawServiceItem[]) => {
           ? new mongoose.Types.ObjectId(service.procedureId)
           : undefined,
       procedureName: String(service.procedureName || '').trim(),
+      countryName: String(service.countryName || '').trim(),
       classType,
       numberOfClasses,
       additionalFeePerClass,

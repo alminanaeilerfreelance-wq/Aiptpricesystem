@@ -3,6 +3,7 @@ import apiClient from './apiClient';
 export interface ClientQuotationServiceItem {
   procedureId?: string;
   procedureName: string;
+  countryName?: string;
   classType: 'single' | 'multi';
   numberOfClasses: number;
   additionalFeePerClass: number;

@@ -3,6 +3,7 @@ import mongoose, { Document, Model } from 'mongoose';
 export interface IClientQuotationServiceItem {
   procedureId?: mongoose.Types.ObjectId;
   procedureName: string;
+  countryName?: string;
   classType: 'single' | 'multi';
   numberOfClasses: number;
   additionalFeePerClass: number;
@@ -60,6 +61,7 @@ const serviceItemSchema = new mongoose.Schema<IClientQuotationServiceItem>(
   {
     procedureId: { type: mongoose.Schema.Types.ObjectId, ref: 'Procedure' },
     procedureName: { type: String, required: true, trim: true },
+    countryName: { type: String, trim: true },
     classType: { type: String, enum: ['single', 'multi'], default: 'single' },
     numberOfClasses: { type: Number, default: 1 },
     additionalFeePerClass: { type: Number, default: 0 },

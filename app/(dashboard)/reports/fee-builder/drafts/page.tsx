@@ -31,13 +31,12 @@ import Topbar from '@/components/layout/Topbar';
 import {
   FeeBuilderDraft,
   FeeBuilderServiceKey,
-  readFeeBuilderDrafts,
-  writeFeeBuilderDrafts,
 } from '@/lib/fee-builder-drafts';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 import { Country, countriesService } from '@/services/countries.service';
 import { Continent, continentsService } from '@/services/continents.service';
 import { PricingRule, pricingRulesService } from '@/services/pricing-rules.service';
+import { feeBuilderDraftsService } from '@/services/fee-builder-drafts.service';
 
 export const dynamic = 'force-dynamic';
 
@@ -131,8 +130,26 @@ export default function FeeBuilderDraftsPage() {
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
-    setDrafts(readFeeBuilderDrafts());
-    setLoaded(true);
+    let active = true;
+
+    const loadDrafts = async () => {
+      try {
+        const savedDrafts = await feeBuilderDraftsService.list();
+        if (!active) return;
+        setDrafts(savedDrafts);
+      } catch (err) {
+        if (!active) return;
+        setFormError(err instanceof Error ? err.message : 'Failed to load saved drafts');
+      } finally {
+        if (active) setLoaded(true);
+      }
+    };
+
+    loadDrafts();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -233,21 +250,25 @@ export default function FeeBuilderDraftsPage() {
     resetNewDraftForm();
   };
 
-  const deleteDraft = (draft: FeeBuilderDraft) => {
+  const deleteDraft = async (draft: FeeBuilderDraft) => {
     const confirmed = window.confirm(`Delete "${draft.name}"?`);
     if (!confirmed) return;
 
-    const nextDrafts = drafts.filter((item) => item.id !== draft.id);
-    setDrafts(nextDrafts);
-    writeFeeBuilderDrafts(nextDrafts);
-    showSuccessToast('Draft deleted');
+    try {
+      await feeBuilderDraftsService.delete(draft.id);
+      const nextDrafts = drafts.filter((item) => item.id !== draft.id);
+      setDrafts(nextDrafts);
+      showSuccessToast('Draft deleted');
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to delete draft');
+    }
   };
 
   const openDraft = (draft: FeeBuilderDraft) => {
     router.push(`/reports/fee-builder?draftId=${encodeURIComponent(draft.id)}`);
   };
 
-  const createDraftFromPricingRules = () => {
+  const createDraftFromPricingRules = async () => {
     if (!newDraftCountry) {
       setFormError('Select a country before creating the draft.');
       return;
@@ -266,15 +287,18 @@ export default function FeeBuilderDraftsPage() {
     const now = new Date().toISOString();
     const name = newDraftName.trim() || `${newDraftCountry} ${newDraftProcedure} fees`;
     const selectedService = previewRows[0]?.serviceCategory || 'Trademark';
-    const nextDraft: FeeBuilderDraft = {
+    const nextDraftPayload = {
       id: makeId('fee-draft'),
       name,
+      draftDate: now.slice(0, 10),
       createdAt: now,
       updatedAt: now,
       selectedService,
+      tableMode: 'quotation' as const,
       selectedCountry: newDraftCountry,
       selectedContinent: newDraftContinent,
       selectedProcedure: newDraftProcedure,
+      selectedRuleIds: previewRows.map((rule) => rule._id),
       editedFees: Object.fromEntries(
         previewRows.map((rule) => [
           rule._id,
@@ -296,18 +320,23 @@ export default function FeeBuilderDraftsPage() {
       rowColor: '#FFFFFF',
       fontColor: '#111827',
       highlightColor: '#FFF2CC',
-      printOrientation: 'landscape',
-      paperFormat: 'A4',
+      printOrientation: 'landscape' as const,
+      paperFormat: 'A4' as const,
       columnWidths: {},
       rowHeights: {},
     };
-    const nextDrafts = [nextDraft, ...drafts.filter((draft) => draft.id !== nextDraft.id)];
 
-    setDrafts(nextDrafts);
-    writeFeeBuilderDrafts(nextDrafts);
-    setNewDraftOpen(false);
-    resetNewDraftForm();
-    showSuccessToast('Draft created');
+    try {
+      const savedDraft = await feeBuilderDraftsService.create(nextDraftPayload);
+      const nextDrafts = [savedDraft, ...drafts.filter((draft) => draft.id !== savedDraft.id)];
+
+      setDrafts(nextDrafts);
+      setNewDraftOpen(false);
+      resetNewDraftForm();
+      showSuccessToast('Draft created');
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to create draft');
+    }
   };
 
   return (
@@ -344,8 +373,11 @@ export default function FeeBuilderDraftsPage() {
               </Typography>
             </Box>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              <Button variant="contained" onClick={openNewDraftModal}>
+              <Button variant="contained" component={Link} href="/reports/fee-builder?newDraft=1">
                 New Draft
+              </Button>
+              <Button variant="outlined" component={Link} href="/reports/fee-builder?allFees=1">
+                All Fees
               </Button>
               <Button variant="outlined" component={Link} href="/reports/fee-builder">
                 Open Fee Builder
@@ -403,13 +435,14 @@ export default function FeeBuilderDraftsPage() {
                       </Typography>
                       <Typography sx={{ fontSize: 12, color: '#64748B' }}>
                         {draft.selectedService || 'IP Services'}
+                        {draft.tableMode === 'all' ? ' - All Fees' : ` - ${draft.selectedRuleIds?.length || 0} selected`}
                         {draft.selectedCountry ? ` - ${draft.selectedCountry}` : ''}
                         {draft.selectedProcedure ? ` - ${draft.selectedProcedure}` : ''}
                       </Typography>
                     </TableCell>
                     <TableCell>
                       <Typography sx={{ fontWeight: 700, color: '#334155' }}>
-                        {formatDraftDate(draft.updatedAt || draft.createdAt)}
+                        {formatDraftDate(draft.draftDate || draft.updatedAt || draft.createdAt)}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">

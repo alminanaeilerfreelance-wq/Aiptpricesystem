@@ -11,6 +11,7 @@ export type FeeBuilderColumnKey =
 
 export type FeeBuilderPrintOrientation = 'portrait' | 'landscape';
 export type FeeBuilderPaperFormat = 'A4' | 'A3' | 'Letter';
+export type FeeBuilderTableMode = 'quotation' | 'all';
 
 export interface FeeBuilderDraftValues {
   officialFee: string;
@@ -20,9 +21,11 @@ export interface FeeBuilderDraftValues {
 export interface FeeBuilderDraft {
   id: string;
   name: string;
+  draftDate?: string;
   createdAt: string;
   updatedAt: string;
   selectedService: FeeBuilderServiceKey;
+  tableMode?: FeeBuilderTableMode;
   editedFees: Record<string, FeeBuilderDraftValues>;
   rowOrder: string[];
   columnVisibility: Record<FeeBuilderColumnKey, boolean>;
@@ -40,28 +43,13 @@ export interface FeeBuilderDraft {
   selectedCountry?: string;
   selectedContinent?: string;
   selectedProcedure?: string;
+  selectedRuleIds?: string[];
   columnOrder?: string[];
   columnWidths?: Record<string, number>;
   rowHeights?: Record<string, number>;
 }
 
-export const FEE_BUILDER_DRAFT_STORAGE_KEY = 'fee-builder-pricing-rule-drafts';
 export const FEE_BUILDER_AUTOSAVE_STORAGE_KEY = 'fee-builder-pricing-rule-autosave';
-
-export const readFeeBuilderDrafts = (): FeeBuilderDraft[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = window.localStorage.getItem(FEE_BUILDER_DRAFT_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-};
-
-export const writeFeeBuilderDrafts = (drafts: FeeBuilderDraft[]) => {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(FEE_BUILDER_DRAFT_STORAGE_KEY, JSON.stringify(drafts));
-};
 
 export const readFeeBuilderAutosave = (): FeeBuilderDraft | null => {
   if (typeof window === 'undefined') return null;

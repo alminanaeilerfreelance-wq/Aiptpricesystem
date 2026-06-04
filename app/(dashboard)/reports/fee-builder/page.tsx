@@ -8,6 +8,10 @@ import {
   Box,
   Button,
   Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   FormControl,
   FormControlLabel,
@@ -37,6 +41,7 @@ import { showSuccessToast } from '@/components/feedback/heroToast';
 import { PricingRule, pricingRulesService } from '@/services/pricing-rules.service';
 import { Country, countriesService } from '@/services/countries.service';
 import { Continent, continentsService } from '@/services/continents.service';
+import { feeBuilderDraftsService } from '@/services/fee-builder-drafts.service';
 import {
   FeeBuilderColumnKey,
   FeeBuilderDraft,
@@ -44,10 +49,9 @@ import {
   FeeBuilderPaperFormat,
   FeeBuilderPrintOrientation,
   FeeBuilderServiceKey,
+  FeeBuilderTableMode,
   readFeeBuilderAutosave,
-  readFeeBuilderDrafts,
   writeFeeBuilderAutosave,
-  writeFeeBuilderDrafts,
 } from '@/lib/fee-builder-drafts';
 
 export const dynamic = 'force-dynamic';
@@ -127,6 +131,11 @@ const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = {
 
 const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const getDateInputValue = (date = new Date()) => {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 10);
+};
+
 const formatMoney = (value: number) =>
   value.toLocaleString(undefined, {
     minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
@@ -154,10 +163,14 @@ const escapeHtml = (value: unknown) =>
 export default function FeeReportBuilderPage() {
   const searchParams = useSearchParams();
   const requestedDraftId = searchParams.get('draftId') || '';
+  const startNewDraft = searchParams.get('newDraft') === '1';
+  const startAllFees = searchParams.get('allFees') === '1';
   const [selectedService, setSelectedService] = useState<ServiceKey>('Trademark');
+  const [tableMode, setTableMode] = useState<FeeBuilderTableMode>('all');
   const [selectedCountry, setSelectedCountry] = useState('');
   const [selectedContinent, setSelectedContinent] = useState('');
   const [selectedProcedure, setSelectedProcedure] = useState('');
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
   const [continents, setContinents] = useState<Continent[]>([]);
   const [pricingRules, setPricingRules] = useState<PricingRuleRow[]>([]);
@@ -189,7 +202,15 @@ export default function FeeReportBuilderPage() {
   const [drafts, setDrafts] = useState<FeeBuilderDraft[]>([]);
   const [activeDraftId, setActiveDraftId] = useState('');
   const [draftName, setDraftName] = useState('');
+  const [draftDate, setDraftDate] = useState(getDateInputValue);
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
+  const [selectionDialogOpen, setSelectionDialogOpen] = useState(false);
+  const [selectionCountry, setSelectionCountry] = useState('');
+  const [selectionProcedure, setSelectionProcedure] = useState('');
+  const [selectionDraftIds, setSelectionDraftIds] = useState<string[]>([]);
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveDraftName, setSaveDraftName] = useState('');
+  const [saveDraftDate, setSaveDraftDate] = useState(getDateInputValue);
   const [advancedAnchor, setAdvancedAnchor] = useState<HTMLElement | null>(null);
   const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(false);
@@ -207,15 +228,22 @@ export default function FeeReportBuilderPage() {
     ].slice(0, 40));
   };
 
-  const buildDraftSnapshot = (name: string, id = activeDraftId || makeId('draft')): FeeBuilderDraft => ({
+  const buildDraftSnapshot = (
+    name: string,
+    id = activeDraftId || makeId('draft'),
+    snapshotDraftDate = draftDate || getDateInputValue()
+  ): FeeBuilderDraft => ({
     id,
     name,
+    draftDate: snapshotDraftDate,
     createdAt: drafts.find((draft) => draft.id === id)?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     selectedService,
+    tableMode,
     selectedCountry,
     selectedContinent,
     selectedProcedure,
+    selectedRuleIds,
     editedFees,
     rowOrder,
     columnOrder,
@@ -238,10 +266,13 @@ export default function FeeReportBuilderPage() {
   const applyDraft = (draft: FeeBuilderDraft) => {
     setActiveDraftId(draft.id);
     setDraftName(draft.name);
+    setDraftDate(draft.draftDate || (draft.createdAt ? draft.createdAt.slice(0, 10) : getDateInputValue()));
     setSelectedService(draft.selectedService);
+    setTableMode(draft.tableMode || ((draft.selectedRuleIds || []).length > 0 ? 'quotation' : 'all'));
     setSelectedCountry(draft.selectedCountry || '');
     setSelectedContinent(draft.selectedContinent || '');
     setSelectedProcedure(draft.selectedProcedure || '');
+    setSelectedRuleIds(draft.selectedRuleIds || []);
     setEditedFees(draft.editedFees || {});
     setRowOrder(draft.rowOrder || []);
     setColumnOrder(draft.columnOrder || []);
@@ -265,21 +296,103 @@ export default function FeeReportBuilderPage() {
     addAudit(`Draft Loaded: ${draft.name}`);
   };
 
-  useEffect(() => {
-    const storedDrafts = readFeeBuilderDrafts();
-    const autosave = readFeeBuilderAutosave();
-    const requestedDraft = requestedDraftId
-      ? storedDrafts.find((draft) => draft.id === requestedDraftId)
-      : null;
-    setDrafts(storedDrafts);
-    if (requestedDraft) {
-      applyDraft(requestedDraft);
-    } else if (autosave) {
-      applyDraft(autosave);
+  function startEmptyDraft(withAudit = true) {
+    setActiveDraftId('');
+    setDraftName('');
+    setDraftDate(getDateInputValue());
+    setTableMode('quotation');
+    setSelectedCountry('');
+    setSelectedContinent('');
+    setSelectedProcedure('');
+    setSelectedRuleIds([]);
+    setEditedFees({});
+    setDirtyRows({});
+    setRowErrors({});
+    setRowOrder([]);
+    setColumnOrder([]);
+    setColumnWidths({});
+    setRowHeights({});
+    setColumnVisibility({ ...DEFAULT_COLUMNS });
+    setFontFamily('Calibri');
+    setRowHeight(DEFAULT_ROW_HEIGHT);
+    setColumnWidth(DEFAULT_COLUMN_WIDTH);
+    setFlagWidth(DEFAULT_FLAG_WIDTH);
+    setFlagHeight(DEFAULT_FLAG_HEIGHT);
+    setHeaderColor('#EAF2FF');
+    setRowColor('#FFFFFF');
+    setFontColor(DEFAULT_FONT_COLOR);
+    setHighlightColor(DEFAULT_HIGHLIGHT_COLOR);
+    setPrintOrientation('landscape');
+    setPaperFormat('A4');
+    setPage(0);
+    if (withAudit) {
+      addAudit('Empty Draft Created');
+      showSuccessToast('New empty draft ready');
     }
-    setHydrated(true);
+  }
+
+  function showAllFeeTable(withAudit = true) {
+    setTableMode('all');
+    setSelectedRuleIds([]);
+    setSelectedProcedure('');
+    setRowOrder([]);
+    setColumnOrder([]);
+    setPage(0);
+    if (withAudit) {
+      addAudit('All Fees Displayed');
+      showSuccessToast('Showing all fees');
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    const loadDrafts = async () => {
+      try {
+        const savedDrafts = await feeBuilderDraftsService.list();
+        if (!active) return;
+
+        setDrafts(savedDrafts);
+
+        if (startNewDraft) {
+          startEmptyDraft(false);
+        } else if (startAllFees) {
+          showAllFeeTable(false);
+        } else if (requestedDraftId) {
+          const requestedDraft =
+            savedDrafts.find((draft) => draft.id === requestedDraftId) ||
+            (await feeBuilderDraftsService.getById(requestedDraftId));
+          if (!active) return;
+          applyDraft(requestedDraft);
+        } else {
+          const autosave = readFeeBuilderAutosave();
+          if (autosave) applyDraft(autosave);
+        }
+      } catch (err) {
+        if (!active) return;
+        setDrafts([]);
+        if (startNewDraft) {
+          startEmptyDraft(false);
+        } else if (startAllFees) {
+          showAllFeeTable(false);
+        } else if (requestedDraftId) {
+          setError(err instanceof Error ? err.message : 'Failed to load saved draft');
+        } else {
+          const autosave = readFeeBuilderAutosave();
+          if (autosave) applyDraft(autosave);
+        }
+      } finally {
+        if (active) setHydrated(true);
+      }
+    };
+
+    loadDrafts();
+
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestedDraftId]);
+  }, [requestedDraftId, startAllFees, startNewDraft]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -288,9 +401,11 @@ export default function FeeReportBuilderPage() {
   }, [
     hydrated,
     selectedService,
+    tableMode,
     selectedCountry,
     selectedContinent,
     selectedProcedure,
+    selectedRuleIds,
     editedFees,
     rowOrder,
     columnOrder,
@@ -309,6 +424,7 @@ export default function FeeReportBuilderPage() {
     printOrientation,
     paperFormat,
     draftName,
+    draftDate,
     activeDraftId,
   ]);
 
@@ -466,9 +582,57 @@ export default function FeeReportBuilderPage() {
     };
   }, []);
 
+  const tablePricingRules = useMemo(
+    () =>
+      tableMode === 'quotation'
+        ? pricingRules.filter((rule) => selectedRuleIds.includes(rule._id))
+        : pricingRules,
+    [pricingRules, selectedRuleIds, tableMode]
+  );
+
+  const selectionCountryOptions = useMemo(
+    () =>
+      Array.from(new Set(pricingRules.map((rule) => rule.countryName).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+      ),
+    [pricingRules]
+  );
+
+  const selectionProcedureOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          pricingRules
+            .filter((rule) => !selectionCountry || rule.countryName === selectionCountry)
+            .map((rule) => rule.procedureName)
+            .filter(Boolean)
+        )
+      ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })),
+    [pricingRules, selectionCountry]
+  );
+
+  const selectionRows = useMemo(
+    () =>
+      [...pricingRules]
+        .filter((rule) => !selectionCountry || rule.countryName === selectionCountry)
+        .filter((rule) => !selectionProcedure || rule.procedureName === selectionProcedure)
+        .sort((a, b) => {
+          const countrySort = a.countryName.localeCompare(b.countryName, undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+          if (countrySort !== 0) return countrySort;
+          return a.procedureName.localeCompare(b.procedureName, undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+        }),
+    [pricingRules, selectionCountry, selectionProcedure]
+  );
+
   const sortedPricingRules = useMemo(
     () =>
-      [...pricingRules].sort((a, b) => {
+      [...tablePricingRules].sort((a, b) => {
         const countrySort = a.countryName.localeCompare(b.countryName, undefined, {
           numeric: true,
           sensitivity: 'base',
@@ -479,7 +643,7 @@ export default function FeeReportBuilderPage() {
           sensitivity: 'base',
         });
       }),
-    [pricingRules]
+    [tablePricingRules]
   );
 
   const procedureColumns = useMemo(
@@ -646,61 +810,121 @@ export default function FeeReportBuilderPage() {
   const saveRow = (rule: PricingRuleRow) =>
     saveRuleFees(rule, getFeeValue(rule, 'officialFee'), getFeeValue(rule, 'attorneyFee'));
 
-  const saveDraft = () => {
-    const name = draftName.trim() || `Draft ${new Date().toLocaleString()}`;
-    const snapshot = buildDraftSnapshot(name);
-    const nextDrafts = [snapshot, ...drafts.filter((draft) => draft.id !== snapshot.id)];
-    setDrafts(nextDrafts);
-    setActiveDraftId(snapshot.id);
-    setDraftName(snapshot.name);
-    writeFeeBuilderDrafts(nextDrafts);
-    addAudit(`Draft Saved: ${snapshot.name}`);
-    showSuccessToast('Draft saved');
+  const openSelectionDialog = () => {
+    setSelectionDraftIds(selectedRuleIds);
+    setSelectionCountry(selectedCountry);
+    setSelectionProcedure(selectedProcedure);
+    setSelectionDialogOpen(true);
+  };
+
+  const toggleSelectionRule = (ruleId: string, checked: boolean) => {
+    setSelectionDraftIds((current) => {
+      if (checked) return Array.from(new Set([...current, ruleId]));
+      return current.filter((id) => id !== ruleId);
+    });
+  };
+
+  const selectVisibleSelectionRows = () => {
+    setSelectionDraftIds((current) =>
+      Array.from(new Set([...current, ...selectionRows.map((rule) => rule._id)]))
+    );
+  };
+
+  const clearSelectionDraft = () => {
+    setSelectionDraftIds([]);
+  };
+
+  const addSelectionToTable = () => {
+    if (selectionDraftIds.length === 0) {
+      setError('Select at least one pricing rule to add to the quotation table.');
+      return;
+    }
+
+    const selectedIds = Array.from(new Set(selectionDraftIds));
+    const selectedRules = pricingRules.filter((rule) => selectedIds.includes(rule._id));
+    setTableMode('quotation');
+    setSelectedRuleIds(selectedIds);
+    setSelectedCountry(selectionCountry);
+    setSelectedProcedure(selectionProcedure);
+    setRowOrder(Array.from(new Set(selectedRules.map((rule) => makeCountryKey(rule)))));
+    setColumnOrder(Array.from(new Set(selectedRules.map((rule) => rule.procedureName).filter(Boolean))));
+    setPage(0);
+    setSelectionDialogOpen(false);
+    addAudit(`Quotation Table Selection: ${selectedIds.length} pricing rule${selectedIds.length === 1 ? '' : 's'}`);
+    showSuccessToast('Selected fees added to table');
+  };
+
+  const clearQuotationSelection = () => {
+    setTableMode('quotation');
+    setSelectedRuleIds([]);
+    setSelectedProcedure('');
+    setRowOrder([]);
+    setColumnOrder([]);
+    setPage(0);
+    addAudit('Quotation Table Selection Cleared');
+    showSuccessToast('Quotation table cleared');
+  };
+
+  const openSaveDraftDialog = () => {
+    setSaveDraftName(draftName.trim());
+    setSaveDraftDate(draftDate || getDateInputValue());
+    setError('');
+    setSaveDialogOpen(true);
+  };
+
+  const saveDraft = async () => {
+    const name = saveDraftName.trim();
+    if (!name) {
+      setError('Enter a draft name before saving.');
+      return;
+    }
+
+    if (!saveDraftDate) {
+      setError('Select a draft date before saving.');
+      return;
+    }
+
+    const snapshot = buildDraftSnapshot(name, activeDraftId || makeId('draft'), saveDraftDate);
+    try {
+      let savedDraft: FeeBuilderDraft;
+      if (activeDraftId && activeDraftId !== 'autosave') {
+        try {
+          savedDraft = await feeBuilderDraftsService.update(activeDraftId, snapshot);
+        } catch {
+          savedDraft = await feeBuilderDraftsService.create(snapshot);
+        }
+      } else {
+        savedDraft = await feeBuilderDraftsService.create(snapshot);
+      }
+
+      const nextDrafts = [savedDraft, ...drafts.filter((draft) => draft.id !== savedDraft.id)];
+      setDrafts(nextDrafts);
+      setActiveDraftId(savedDraft.id);
+      setDraftName(savedDraft.name);
+      setDraftDate(savedDraft.draftDate || saveDraftDate);
+      setSaveDialogOpen(false);
+      addAudit(`Draft Saved: ${savedDraft.name}`);
+      showSuccessToast('Draft saved');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save draft');
+    }
   };
 
   const createNewDraft = () => {
-    const nextEditedFees = Object.fromEntries(
-      pricingRules.map((rule) => [
-        rule._id,
-        {
-          officialFee: String(rule.officialFee ?? 0),
-          attorneyFee: String(rule.attorneyFee ?? 0),
-        },
-      ])
-    );
-    setActiveDraftId('');
-    setDraftName(`Draft ${new Date().toLocaleString()}`);
-    setSelectedCountry('');
-    setSelectedContinent('');
-    setSelectedProcedure('');
-    setEditedFees(nextEditedFees);
-    setDirtyRows({});
-    setRowErrors({});
-    setRowOrder(Array.from(new Set(pricingRules.map((rule) => makeCountryKey(rule)))));
-    setColumnOrder([]);
-    setColumnWidths({});
-    setRowHeights({});
-    setColumnVisibility(DEFAULT_COLUMNS);
-    setFontFamily('Calibri');
-    setRowHeight(DEFAULT_ROW_HEIGHT);
-    setColumnWidth(DEFAULT_COLUMN_WIDTH);
-    setFlagWidth(DEFAULT_FLAG_WIDTH);
-    setFlagHeight(DEFAULT_FLAG_HEIGHT);
-    setHeaderColor('#EAF2FF');
-    setRowColor('#FFFFFF');
-    setFontColor(DEFAULT_FONT_COLOR);
-    setHighlightColor(DEFAULT_HIGHLIGHT_COLOR);
-    setPrintOrientation('landscape');
-    setPaperFormat('A4');
-    addAudit('New Draft Created');
+    startEmptyDraft();
   };
 
-  const deleteDraft = (draftId: string) => {
-    const nextDrafts = drafts.filter((draft) => draft.id !== draftId);
-    setDrafts(nextDrafts);
-    writeFeeBuilderDrafts(nextDrafts);
-    if (activeDraftId === draftId) setActiveDraftId('');
-    addAudit('Draft Deleted');
+  const deleteDraft = async (draftId: string) => {
+    try {
+      await feeBuilderDraftsService.delete(draftId);
+      const nextDrafts = drafts.filter((draft) => draft.id !== draftId);
+      setDrafts(nextDrafts);
+      if (activeDraftId === draftId) setActiveDraftId('');
+      addAudit('Draft Deleted');
+      showSuccessToast('Draft deleted');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete draft');
+    }
   };
 
   const handleRowDrop = (targetRowId: string) => {
@@ -1263,6 +1487,8 @@ export default function FeeReportBuilderPage() {
                   value={selectedCountry}
                   onChange={(event) => {
                     setSelectedCountry(event.target.value);
+                    setSelectedRuleIds([]);
+                    setSelectedProcedure('');
                     setPage(0);
                     setRowOrder([]);
                     setColumnOrder([]);
@@ -1286,6 +1512,8 @@ export default function FeeReportBuilderPage() {
                   value={selectedService}
                   onChange={(event) => {
                     setSelectedService(event.target.value as ServiceKey);
+                    setSelectedRuleIds([]);
+                    setSelectedProcedure('');
                     setPage(0);
                     setRowOrder([]);
                     setColumnOrder([]);
@@ -1298,8 +1526,17 @@ export default function FeeReportBuilderPage() {
               </FormControl>
               <Button variant="outlined" onClick={() => importInputRef.current?.click()}>Import</Button>
               <Button variant="outlined" onClick={(event) => setExportAnchor(event.currentTarget)}>Export</Button>
+              <Button variant="contained" onClick={openSelectionDialog}>Add to Quotation</Button>
+              <Button variant={tableMode === 'all' ? 'contained' : 'outlined'} onClick={() => showAllFeeTable()}>
+                All Fees
+              </Button>
+              {tableMode === 'quotation' && selectedRuleIds.length > 0 && (
+                <Button variant="outlined" color="error" onClick={clearQuotationSelection}>
+                  Clear Table
+                </Button>
+              )}
               <Button variant="outlined" onClick={(event) => setAdvancedAnchor(event.currentTarget)}>Tools</Button>
-              <Button variant="contained" onClick={saveDraft}>Save Draft</Button>
+              <Button variant="contained" onClick={openSaveDraftDialog}>Save Draft</Button>
               <Button variant="outlined" onClick={createNewDraft}>New Draft</Button>
               <Button variant="outlined" component={Link} href="/reports/fee-builder/drafts">
                 Saved Drafts
@@ -1351,6 +1588,8 @@ export default function FeeReportBuilderPage() {
             value={selectedService}
             onChange={(_event: React.SyntheticEvent, value: ServiceKey) => {
               setSelectedService(value);
+              setSelectedRuleIds([]);
+              setSelectedProcedure('');
               setPage(0);
               setRowOrder([]);
               setColumnOrder([]);
@@ -1376,6 +1615,34 @@ export default function FeeReportBuilderPage() {
           {error && (
             <Alert severity="warning" onClose={() => setError('')} sx={{ borderRadius: 0 }}>
               {error}
+            </Alert>
+          )}
+
+          {tableMode === 'quotation' && selectedRuleIds.length > 0 && (
+            <Alert
+              severity="info"
+              action={
+                <Button color="inherit" size="small" onClick={() => showAllFeeTable()}>
+                  All Fees
+                </Button>
+              }
+              sx={{ borderRadius: 0 }}
+            >
+              Showing {selectedRuleIds.length} selected pricing rule{selectedRuleIds.length === 1 ? '' : 's'} for this quotation table.
+            </Alert>
+          )}
+
+          {tableMode === 'quotation' && selectedRuleIds.length === 0 && (
+            <Alert
+              severity="info"
+              action={
+                <Button color="inherit" size="small" onClick={openSelectionDialog}>
+                  Add to Quotation
+                </Button>
+              }
+              sx={{ borderRadius: 0 }}
+            >
+              This draft table is empty. Add only the fees needed for the quotation.
             </Alert>
           )}
 
@@ -1798,7 +2065,9 @@ export default function FeeReportBuilderPage() {
                 {!loading && countryRows.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={visibleColumnCount} sx={{ py: 4, textAlign: 'center', color: '#64748B' }}>
-                      No pricing rules found.
+                      {tableMode === 'quotation'
+                        ? 'Empty quotation table. Use Add to Quotation to choose fees for this draft.'
+                        : 'No pricing rules found.'}
                     </TableCell>
                   </TableRow>
                 )}
@@ -1831,6 +2100,201 @@ export default function FeeReportBuilderPage() {
       </Box>
 
       <input ref={importInputRef} type="file" accept=".csv,.json" style={{ display: 'none' }} onChange={importFile} />
+
+      <Dialog open={saveDialogOpen} onClose={() => setSaveDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Save IP Services Fee Draft</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            {error && (
+              <Alert severity="warning" onClose={() => setError('')}>
+                {error}
+              </Alert>
+            )}
+            <TextField
+              autoFocus
+              label="Draft Name"
+              value={saveDraftName}
+              onChange={(event) => setSaveDraftName(event.target.value)}
+              placeholder="Asia fees"
+              fullWidth
+            />
+            <TextField
+              label="Draft Date"
+              type="date"
+              value={saveDraftDate}
+              onChange={(event) => setSaveDraftDate(event.target.value)}
+              fullWidth
+              slotProps={{ inputLabel: { shrink: true } }}
+            />
+            <Box sx={{ border: '1px solid #D7DDE7', bgcolor: '#F8FAFC', p: 1.5 }}>
+              <Typography sx={{ fontSize: 13, color: '#475569' }}>
+                Table: {tableMode === 'all' ? 'All Fees' : `${selectedRuleIds.length} selected quotation fee${selectedRuleIds.length === 1 ? '' : 's'}`}
+              </Typography>
+              <Typography sx={{ fontSize: 13, color: '#475569' }}>
+                Service: {selectedService}
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setSaveDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={saveDraft}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={selectionDialogOpen} onClose={() => setSelectionDialogOpen(false)} fullWidth maxWidth="lg">
+        <DialogTitle sx={{ fontWeight: 900 }}>Add Fees to Quotation</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: '1fr 1fr auto auto' },
+                gap: 1,
+                alignItems: 'center',
+              }}
+            >
+              <FormControl size="small">
+                <InputLabel>Country</InputLabel>
+                <Select
+                  label="Country"
+                  value={selectionCountry}
+                  onChange={(event) => {
+                    setSelectionCountry(event.target.value);
+                    setSelectionProcedure('');
+                  }}
+                >
+                  <MenuItem value="">All Countries</MenuItem>
+                  {selectionCountryOptions.map((country) => (
+                    <MenuItem key={country} value={country}>
+                      {country}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl size="small">
+                <InputLabel>Procedure</InputLabel>
+                <Select
+                  label="Procedure"
+                  value={selectionProcedure}
+                  onChange={(event) => setSelectionProcedure(event.target.value)}
+                >
+                  <MenuItem value="">All Procedures</MenuItem>
+                  {selectionProcedureOptions.map((procedure) => (
+                    <MenuItem key={procedure} value={procedure}>
+                      {procedure}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <Button variant="outlined" onClick={selectVisibleSelectionRows} disabled={selectionRows.length === 0}>
+                Select Visible
+              </Button>
+              <Button variant="outlined" color="error" onClick={clearSelectionDraft}>
+                Clear
+              </Button>
+            </Box>
+
+            <Box
+              sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', sm: 'row' },
+                gap: 1,
+                justifyContent: 'space-between',
+                color: '#475569',
+              }}
+            >
+              <Typography sx={{ fontSize: 13 }}>
+                {selectedService} pricing rules for the quotation table.
+              </Typography>
+              <Typography sx={{ fontSize: 13, fontWeight: 800 }}>
+                {selectionDraftIds.length} selected
+              </Typography>
+            </Box>
+
+            <TableContainer sx={{ border: '1px solid #D7DDE7', maxHeight: 430 }}>
+              <Table stickyHeader size="small" sx={{ minWidth: 860 }}>
+                <TableHead>
+                  <TableRow
+                    sx={{
+                      '& th': {
+                        bgcolor: '#EAF2FF',
+                        color: '#111827',
+                        fontWeight: 900,
+                        whiteSpace: 'nowrap',
+                      },
+                    }}
+                  >
+                    <TableCell sx={{ width: 54 }}>Add</TableCell>
+                    <TableCell>Country</TableCell>
+                    <TableCell>Procedure</TableCell>
+                    <TableCell align="right">Official Fees</TableCell>
+                    <TableCell align="right">Attorney Fees</TableCell>
+                    <TableCell align="right">Total</TableCell>
+                    <TableCell>Status</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {selectionRows.map((rule) => {
+                    const checked = selectionDraftIds.includes(rule._id);
+                    const total = getRowTotal(rule);
+
+                    return (
+                      <TableRow
+                        key={rule._id}
+                        hover
+                        selected={checked}
+                        sx={{ '& td': { borderBottom: '1px solid #E2E8F0' } }}
+                      >
+                        <TableCell>
+                          <Checkbox
+                            size="small"
+                            checked={checked}
+                            onChange={(event) => toggleSelectionRule(rule._id, event.target.checked)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography sx={{ fontWeight: 800, color: '#111827' }}>
+                            {rule.countryName}
+                          </Typography>
+                          <Typography sx={{ fontSize: 12, color: '#64748B' }}>
+                            {rule.countryAbbreviation}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>{rule.procedureName}</TableCell>
+                        <TableCell align="right">{getFeeValue(rule, 'officialFee')}</TableCell>
+                        <TableCell align="right">{getFeeValue(rule, 'attorneyFee')}</TableCell>
+                        <TableCell align="right">
+                          <Typography component="span" sx={{ fontWeight: 900 }}>
+                            {total === null ? '-' : formatMoney(total)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>{rule.isActive ? 'Active' : 'Inactive'}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+
+                  {selectionRows.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} sx={{ py: 4, textAlign: 'center', color: '#64748B' }}>
+                        No pricing rules match the selected country/procedure.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setSelectionDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={addSelectionToTable}>
+            Add Selected to Table
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
         <MenuItem onClick={() => { setExportAnchor(null); exportExcel(); }}>Styled Excel (.xls)</MenuItem>

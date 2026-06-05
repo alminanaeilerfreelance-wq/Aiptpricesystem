@@ -380,6 +380,28 @@ const getServiceVatAmount = (service: ClientQuotationServiceItem): number => {
   return computeVatAmount(computeAttorneyFeeAfterDiscount(attorneyFee, discountAmount), vatPercent);
 };
 
+const formatVatPercentLabel = (vatPercent: number): string => {
+  const normalizedVat = Math.round(Math.max(0, vatPercent) * 100) / 100;
+  return Number.isInteger(normalizedVat)
+    ? String(normalizedVat)
+    : normalizedVat.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+};
+
+const getInvoiceVatHeaderLabel = (quotation: ClientQuotation | null | undefined): string => {
+  const vatPercents = (quotation?.services || [])
+    .map((service) => Number(service.vatFee || 0))
+    .filter((vatPercent) => Number.isFinite(vatPercent) && vatPercent > 0);
+
+  if (vatPercents.length === 0) return 'VAT';
+
+  const declaredVat = vatPercents[0];
+  const hasSingleDeclaredVat = vatPercents.every(
+    (vatPercent) => Math.abs(vatPercent - declaredVat) < 0.001
+  );
+
+  return hasSingleDeclaredVat ? `VAT (${formatVatPercentLabel(declaredVat)}%)` : 'VAT (Mixed)';
+};
+
 const getRequirementCountryName = (quotation: ClientQuotation | null | undefined): string =>
   String(quotation?.requirementSnapshot?.countryName || getQuotationCountryNames(quotation) || '').trim();
 
@@ -902,6 +924,7 @@ export default function ClientQuotationsPage() {
       const countryNames = quotation.inquirySnapshot?.countryNames?.join(', ') || '-';
       const status = quotation.status || 'Submitted';
       const serviceStats = getServiceDetailsStats(quotation);
+      const vatHeaderLabel = getInvoiceVatHeaderLabel(quotation);
 
       doc.setFillColor(11, 23, 57);
       doc.rect(0, 0, pageWidth, 118, 'F');
@@ -1064,7 +1087,7 @@ export default function ClientQuotationsPage() {
       autoTable.default(doc, {
         startY: serviceSectionY + 56,
         head: [
-          ['Country', 'Procedure Name', 'Official Fees', 'Attorney Fees', 'Discount', 'VAT', 'Total'],
+          ['Country', 'Procedure Name', 'Official Fees', 'Attorney Fees', 'Discount', vatHeaderLabel, 'Total'],
           ...(isTrademarkInvoice
             ? [['Country', 'Class Type / No. Classes', 'per mark per class', 'per mark per class', '', '', 'per mark per class']]
             : []),
@@ -1211,6 +1234,7 @@ export default function ClientQuotationsPage() {
       const countryNames = quotation.inquirySnapshot?.countryNames?.join(', ') || '-';
       const isTrademarkInvoice = serviceCategory === 'Trademark';
       const serviceStats = getServiceDetailsStats(quotation);
+      const vatHeaderLabel = getInvoiceVatHeaderLabel(quotation);
       const requirementCountry = getRequirementCountryName(quotation) || countryNames;
       const requirementDescriptionHtml = sanitizeHtml(quotation.requirementSnapshot?.requirements || '');
       const wordCellStyle = (cellKey: string, defaultBg: string, defaultText: string, align: 'left' | 'right' = 'left') => {
@@ -1229,7 +1253,7 @@ export default function ClientQuotationsPage() {
           <th style="${wordCellStyle('header-official', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Official Fees</th>
           <th style="${wordCellStyle('header-attorney', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Attorney Fees</th>
           <th style="${wordCellStyle('header-discount', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Discount</th>
-          <th style="${wordCellStyle('header-vat', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">VAT</th>
+          <th style="${wordCellStyle('header-vat', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">${escapeHtml(vatHeaderLabel)}</th>
           <th style="${wordCellStyle('header-total', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Total</th>
         </tr>
         ${isTrademarkInvoice ? `
@@ -3143,7 +3167,7 @@ export default function ClientQuotationsPage() {
                               ),
                             }}
                           >
-                            VAT
+                            {getInvoiceVatHeaderLabel(viewingItem)}
                           </TableCell>
                           <TableCell
                             align="right"

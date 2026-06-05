@@ -280,7 +280,7 @@ export default function DashboardPage() {
         {user?.role === 'admin' && (
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-900">Administration</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               {/* Users Management Card */}
               <Link href="/users">
                 <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200">
@@ -325,6 +325,28 @@ export default function DashboardPage() {
                   <div className="mt-4 pt-4 border-t border-emerald-200">
                     <p className="text-xs text-emerald-700">
                       Export Excel, PDF, CSV, JSON, and print-ready reports
+                    </p>
+                  </div>
+                </div>
+              </Link>
+
+              {/* Database Backup Card */}
+              <Link href="/database-backup">
+                <div className="card p-6 hover:shadow-md transition-shadow cursor-pointer bg-gradient-to-br from-sky-50 to-slate-100 border border-sky-200">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-sky-950">Database Backup</h3>
+                      <p className="text-sm text-sky-800 mt-2">
+                        Export and import full MongoDB backups
+                      </p>
+                    </div>
+                    <div className="h-10 w-10 rounded-lg bg-white/80 flex items-center justify-center text-sm font-bold text-sky-900 border border-sky-200">
+                      DB
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-4 border-t border-sky-200">
+                    <p className="text-xs text-sky-700">
+                      Admin-only backup and restore controls
                     </p>
                   </div>
                 </div>

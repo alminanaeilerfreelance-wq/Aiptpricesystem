@@ -42,15 +42,18 @@ const PAGE_PERMISSIONS: Array<[RegExp, RequiredPermission]> = [
   [/^\/roles(\/.*)?$/, { module: 'roles', action: 'view' }],
 ];
 
+const ADMIN_ONLY_PATHS = [/^\/database-backup$/];
+
 function getRequiredPermission(pathname: string): RequiredPermission | null {
   return PAGE_PERMISSIONS.find(([pattern]) => pattern.test(pathname))?.[1] || null;
 }
 
 export function PermissionGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { loading } = useAuth();
+  const { loading, user } = useAuth();
   const { can } = usePermission();
   const required = getRequiredPermission(pathname);
+  const adminOnly = ADMIN_ONLY_PATHS.some((pattern) => pattern.test(pathname));
 
   if (loading) {
     return (
@@ -60,7 +63,7 @@ export function PermissionGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (required && !can(required.action, required.module)) {
+  if ((adminOnly && user?.role !== 'admin') || (required && !can(required.action, required.module))) {
     return (
       <Box
         sx={{

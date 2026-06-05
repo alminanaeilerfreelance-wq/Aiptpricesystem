@@ -28,6 +28,7 @@ interface NavItem {
   icon: React.ReactNode;
   module?: Resource;
   action?: ResourceAction;
+  adminOnly?: boolean;
   isActive?: (pathname: string) => boolean;
 }
 
@@ -91,6 +92,14 @@ const TagIcon = () => (
 const ChartBarIcon = () => (
   <IconBase>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+  </IconBase>
+);
+
+const DatabaseIcon = () => (
+  <IconBase>
+    <ellipse cx="12" cy="5" rx="7" ry="3" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 5v6c0 1.66 3.13 3 7 3s7-1.34 7-3V5" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M5 11v6c0 1.66 3.13 3 7 3s7-1.34 7-3v-6" />
   </IconBase>
 );
 
@@ -158,6 +167,7 @@ const secondaryNavItems: NavItem[] = [
     icon: <ClipboardIcon />,
     module: 'ip-services-fee-builder',
   },
+  { label: 'Database Backup', href: '/database-backup', icon: <DatabaseIcon />, adminOnly: true },
   { label: 'Users', href: '/users', icon: <UsersIcon />, module: 'users' },
   { label: 'Roles', href: '/roles', icon: <ClipboardIcon />, module: 'roles' },
 ];
@@ -216,6 +226,7 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
   const { can, canView } = usePermission();
 
   const canAccess = (item: NavItem) => {
+    if (item.adminOnly && user?.role !== 'admin') return false;
     if (!item.module) return true;
     return item.action ? can(item.action, item.module) : canView(item.module);
   };

@@ -415,6 +415,7 @@ export default function ClientsPage() {
       label: 'Created At',
       sortable: true,
       sortValue: (row) => new Date(row.createdAt).getTime(),
+      exportValue: (row) => new Date(row.createdAt).toLocaleDateString(),
       render: (row) => new Date(row.createdAt).toLocaleDateString(),
     },
     {
@@ -422,6 +423,7 @@ export default function ClientsPage() {
       label: 'Updated At',
       sortable: true,
       sortValue: (row) => new Date(row.updatedAt).getTime(),
+      exportValue: (row) => new Date(row.updatedAt).toLocaleDateString(),
       render: (row) => new Date(row.updatedAt).toLocaleDateString(),
     },
     {
@@ -483,6 +485,27 @@ export default function ClientsPage() {
                 Import File
               </Button>
             </label>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportCSV().catch(() => setError('Failed to export CSV'))}
+            >
+              Export CSV
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportExcel().catch(() => setError('Failed to export Excel'))}
+            >
+              Export Excel
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportPDF().catch(() => setError('Failed to export PDF'))}
+            >
+              Export PDF
+            </Button>
           </Stack>
         </CardContent>
       </Card>
@@ -521,6 +544,7 @@ export default function ClientsPage() {
               setPage(1);
             }}
             loading={false}
+            exportFileName="clients"
           />
         )
       )}

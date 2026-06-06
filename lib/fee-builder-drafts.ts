@@ -47,6 +47,8 @@ export interface FeeBuilderDraft {
   columnOrder?: string[];
   columnWidths?: Record<string, number>;
   rowHeights?: Record<string, number>;
+  hiddenRowKeys?: string[];
+  hiddenProcedureColumns?: string[];
 }
 
 export const FEE_BUILDER_AUTOSAVE_STORAGE_KEY = 'fee-builder-pricing-rule-autosave';

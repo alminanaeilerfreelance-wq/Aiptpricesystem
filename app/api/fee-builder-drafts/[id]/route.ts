@@ -57,6 +57,8 @@ const buildDraftPayload = (body: DraftBody, user: JWTPayload) => {
     editedFees: cleanObject(body.editedFees),
     rowOrder: cleanArray(body.rowOrder),
     columnOrder: cleanArray(body.columnOrder),
+    hiddenRowKeys: cleanArray(body.hiddenRowKeys),
+    hiddenProcedureColumns: cleanArray(body.hiddenProcedureColumns),
     columnVisibility: cleanObject(body.columnVisibility),
     columnWidths: cleanObject(body.columnWidths),
     rowHeights: cleanObject(body.rowHeights),

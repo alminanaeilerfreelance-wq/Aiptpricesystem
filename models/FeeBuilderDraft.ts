@@ -12,6 +12,8 @@ export interface IFeeBuilderDraft extends Document {
   editedFees: Record<string, { officialFee: string; attorneyFee: string }>;
   rowOrder: string[];
   columnOrder: string[];
+  hiddenRowKeys: string[];
+  hiddenProcedureColumns: string[];
   columnVisibility: Record<string, boolean>;
   columnWidths: Record<string, number>;
   rowHeights: Record<string, number>;
@@ -54,6 +56,8 @@ const feeBuilderDraftSchema = new mongoose.Schema<IFeeBuilderDraft>(
     editedFees: { type: mongoose.Schema.Types.Mixed, default: mixedDefault },
     rowOrder: { type: [String], default: [] },
     columnOrder: { type: [String], default: [] },
+    hiddenRowKeys: { type: [String], default: [] },
+    hiddenProcedureColumns: { type: [String], default: [] },
     columnVisibility: { type: mongoose.Schema.Types.Mixed, default: mixedDefault },
     columnWidths: { type: mongoose.Schema.Types.Mixed, default: mixedDefault },
     rowHeights: { type: mongoose.Schema.Types.Mixed, default: mixedDefault },

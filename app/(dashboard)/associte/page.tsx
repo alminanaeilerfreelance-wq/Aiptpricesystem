@@ -684,6 +684,27 @@ export default function AssocitePage() {
                 Import File
               </Button>
             </label>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportCSV().catch(() => setError('Failed to export CSV'))}
+            >
+              Export CSV
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportExcel().catch(() => setError('Failed to export Excel'))}
+            >
+              Export Excel
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportPDF().catch(() => setError('Failed to export PDF'))}
+            >
+              Export PDF
+            </Button>
             <Button size="small" variant="outlined" onClick={handleClearFilters}>
               Clear Filters
             </Button>
@@ -725,6 +746,7 @@ export default function AssocitePage() {
               setPage(1);
             }}
             loading={false}
+            exportFileName="associte"
           />
         )
       )}

@@ -183,6 +183,8 @@ export default function FeeReportBuilderPage() {
   const [rowErrors, setRowErrors] = useState<Record<string, RowValidation>>({});
   const [rowOrder, setRowOrder] = useState<string[]>([]);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [hiddenRowKeys, setHiddenRowKeys] = useState<string[]>([]);
+  const [hiddenProcedureColumns, setHiddenProcedureColumns] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [rowHeights, setRowHeights] = useState<Record<string, number>>({});
   const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
@@ -247,6 +249,8 @@ export default function FeeReportBuilderPage() {
     editedFees,
     rowOrder,
     columnOrder,
+    hiddenRowKeys,
+    hiddenProcedureColumns,
     columnWidths,
     rowHeights,
     columnVisibility,
@@ -276,6 +280,8 @@ export default function FeeReportBuilderPage() {
     setEditedFees(draft.editedFees || {});
     setRowOrder(draft.rowOrder || []);
     setColumnOrder(draft.columnOrder || []);
+    setHiddenRowKeys(draft.hiddenRowKeys || []);
+    setHiddenProcedureColumns(draft.hiddenProcedureColumns || []);
     setColumnWidths(draft.columnWidths || {});
     setRowHeights(draft.rowHeights || {});
     setColumnVisibility({ ...DEFAULT_COLUMNS, ...(draft.columnVisibility || {}) });
@@ -310,6 +316,8 @@ export default function FeeReportBuilderPage() {
     setRowErrors({});
     setRowOrder([]);
     setColumnOrder([]);
+    setHiddenRowKeys([]);
+    setHiddenProcedureColumns([]);
     setColumnWidths({});
     setRowHeights({});
     setColumnVisibility({ ...DEFAULT_COLUMNS });
@@ -337,6 +345,8 @@ export default function FeeReportBuilderPage() {
     setSelectedProcedure('');
     setRowOrder([]);
     setColumnOrder([]);
+    setHiddenRowKeys([]);
+    setHiddenProcedureColumns([]);
     setPage(0);
     if (withAudit) {
       addAudit('All Fees Displayed');
@@ -409,6 +419,8 @@ export default function FeeReportBuilderPage() {
     editedFees,
     rowOrder,
     columnOrder,
+    hiddenRowKeys,
+    hiddenProcedureColumns,
     columnWidths,
     rowHeights,
     columnVisibility,
@@ -646,7 +658,7 @@ export default function FeeReportBuilderPage() {
     [tablePricingRules]
   );
 
-  const procedureColumns = useMemo(
+  const allProcedureColumns = useMemo(
     () => {
       const baseColumns = Array.from(new Set(sortedPricingRules.map((rule) => rule.procedureName).filter(Boolean))).sort((a, b) =>
         a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
@@ -665,7 +677,12 @@ export default function FeeReportBuilderPage() {
     [columnOrder, sortedPricingRules]
   );
 
-  const countryRows = useMemo<CountryFeeRow[]>(() => {
+  const procedureColumns = useMemo(
+    () => allProcedureColumns.filter((procedure) => !hiddenProcedureColumns.includes(procedure)),
+    [allProcedureColumns, hiddenProcedureColumns]
+  );
+
+  const allCountryRows = useMemo<CountryFeeRow[]>(() => {
     const groupedRows = new Map<string, CountryFeeRow>();
 
     sortedPricingRules.forEach((rule) => {
@@ -705,6 +722,24 @@ export default function FeeReportBuilderPage() {
       return a.countryName.localeCompare(b.countryName, undefined, { numeric: true, sensitivity: 'base' });
     });
   }, [rowOrder, sortedPricingRules]);
+
+  const countryRows = useMemo(
+    () => allCountryRows.filter((row) => !hiddenRowKeys.includes(row.key)),
+    [allCountryRows, hiddenRowKeys]
+  );
+
+  const hiddenCountryRows = useMemo(
+    () =>
+      hiddenRowKeys
+        .map((rowKey) => allCountryRows.find((row) => row.key === rowKey))
+        .filter((row): row is CountryFeeRow => Boolean(row)),
+    [allCountryRows, hiddenRowKeys]
+  );
+
+  const hiddenProcedureColumnNames = useMemo(
+    () => hiddenProcedureColumns.filter((procedure) => allProcedureColumns.includes(procedure)),
+    [allProcedureColumns, hiddenProcedureColumns]
+  );
 
   const pagedCountryRows = useMemo(
     () => countryRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
@@ -848,6 +883,8 @@ export default function FeeReportBuilderPage() {
     setSelectedProcedure(selectionProcedure);
     setRowOrder(Array.from(new Set(selectedRules.map((rule) => makeCountryKey(rule)))));
     setColumnOrder(Array.from(new Set(selectedRules.map((rule) => rule.procedureName).filter(Boolean))));
+    setHiddenRowKeys([]);
+    setHiddenProcedureColumns([]);
     setPage(0);
     setSelectionDialogOpen(false);
     addAudit(`Quotation Table Selection: ${selectedIds.length} pricing rule${selectedIds.length === 1 ? '' : 's'}`);
@@ -860,6 +897,8 @@ export default function FeeReportBuilderPage() {
     setSelectedProcedure('');
     setRowOrder([]);
     setColumnOrder([]);
+    setHiddenRowKeys([]);
+    setHiddenProcedureColumns([]);
     setPage(0);
     addAudit('Quotation Table Selection Cleared');
     showSuccessToast('Quotation table cleared');
@@ -954,6 +993,39 @@ export default function FeeReportBuilderPage() {
     setDraggedColumn(null);
     addAudit('Column Order Saved');
     showSuccessToast('Column order saved');
+  };
+
+  const removeCountryRow = (countryRow: CountryFeeRow) => {
+    setHiddenRowKeys((current) => Array.from(new Set([...current, countryRow.key])));
+    setPage(0);
+    addAudit(`Row Removed: ${countryRow.countryName}`);
+    showSuccessToast('Row removed');
+  };
+
+  const restoreCountryRow = (rowKey: string) => {
+    const row = allCountryRows.find((item) => item.key === rowKey);
+    setHiddenRowKeys((current) => current.filter((item) => item !== rowKey));
+    addAudit(`Row Restored: ${row?.countryName || rowKey}`);
+    showSuccessToast('Row added back');
+  };
+
+  const removeProcedureColumn = (procedure: string) => {
+    setHiddenProcedureColumns((current) => Array.from(new Set([...current, procedure])));
+    addAudit(`Column Removed: ${procedure}`);
+    showSuccessToast('Column removed');
+  };
+
+  const restoreProcedureColumn = (procedure: string) => {
+    setHiddenProcedureColumns((current) => current.filter((item) => item !== procedure));
+    addAudit(`Column Restored: ${procedure}`);
+    showSuccessToast('Column added back');
+  };
+
+  const restoreAllRemovedItems = () => {
+    setHiddenRowKeys([]);
+    setHiddenProcedureColumns([]);
+    addAudit('Removed Rows and Columns Restored');
+    showSuccessToast('Rows and columns added back');
   };
 
   const getProcedureColumnWidth = (procedure: string) => Math.max(58, columnWidths[procedure] || columnWidth);
@@ -1492,6 +1564,8 @@ export default function FeeReportBuilderPage() {
                     setPage(0);
                     setRowOrder([]);
                     setColumnOrder([]);
+                    setHiddenRowKeys([]);
+                    setHiddenProcedureColumns([]);
                   }}
                 >
                   <MenuItem value="">All Countries</MenuItem>
@@ -1517,6 +1591,8 @@ export default function FeeReportBuilderPage() {
                     setPage(0);
                     setRowOrder([]);
                     setColumnOrder([]);
+                    setHiddenRowKeys([]);
+                    setHiddenProcedureColumns([]);
                   }}
                 >
                   {SERVICES.map((service) => (
@@ -1593,6 +1669,8 @@ export default function FeeReportBuilderPage() {
               setPage(0);
               setRowOrder([]);
               setColumnOrder([]);
+              setHiddenRowKeys([]);
+              setHiddenProcedureColumns([]);
             }}
             variant="scrollable"
             scrollButtons="auto"
@@ -1644,6 +1722,55 @@ export default function FeeReportBuilderPage() {
             >
               This draft table is empty. Add only the fees needed for the quotation.
             </Alert>
+          )}
+
+          {(hiddenCountryRows.length > 0 || hiddenProcedureColumnNames.length > 0) && (
+            <Box sx={{ p: 1.25, borderBottom: '1px solid #D7DDE7', bgcolor: '#FFF7ED' }}>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1}
+                sx={{ alignItems: { xs: 'stretch', md: 'center' }, flexWrap: 'wrap' }}
+              >
+                <Typography sx={{ fontSize: 13, fontWeight: 900, color: '#7C2D12' }}>
+                  Removed from table
+                </Typography>
+                {hiddenCountryRows.length > 0 && (
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 0.75 }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 800, color: '#9A3412' }}>Rows:</Typography>
+                    {hiddenCountryRows.map((row) => (
+                      <Button
+                        key={row.key}
+                        size="small"
+                        variant="outlined"
+                        onClick={() => restoreCountryRow(row.key)}
+                        sx={{ bgcolor: '#FFFFFF', borderColor: '#FDBA74', color: '#7C2D12' }}
+                      >
+                        Add {row.countryName}
+                      </Button>
+                    ))}
+                  </Stack>
+                )}
+                {hiddenProcedureColumnNames.length > 0 && (
+                  <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 0.75 }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 800, color: '#9A3412' }}>Columns:</Typography>
+                    {hiddenProcedureColumnNames.map((procedure) => (
+                      <Button
+                        key={procedure}
+                        size="small"
+                        variant="outlined"
+                        onClick={() => restoreProcedureColumn(procedure)}
+                        sx={{ bgcolor: '#FFFFFF', borderColor: '#FDBA74', color: '#7C2D12' }}
+                      >
+                        Add {procedure}
+                      </Button>
+                    ))}
+                  </Stack>
+                )}
+                <Button size="small" variant="contained" onClick={restoreAllRemovedItems}>
+                  Add All Back
+                </Button>
+              </Stack>
+            </Box>
           )}
 
           <TableContainer sx={{ maxHeight: 'calc(100vh - 280px)', bgcolor: '#FFFFFF', overflow: 'auto' }}>
@@ -1724,7 +1851,58 @@ export default function FeeReportBuilderPage() {
                           position: 'relative',
                         }}
                       >
-                        {procedure}
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 0.5,
+                            minWidth: 0,
+                          }}
+                        >
+                          <Typography
+                            component="span"
+                            sx={{
+                              fontSize: 13,
+                              fontWeight: 900,
+                              lineHeight: 1.05,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {procedure}
+                          </Typography>
+                          <Box
+                            component="button"
+                            type="button"
+                            title={`Remove ${procedure} column`}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onDragStart={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              removeProcedureColumn(procedure);
+                            }}
+                            sx={{
+                              border: '1px solid rgba(127, 29, 29, 0.35)',
+                              bgcolor: '#FEE2E2',
+                              color: '#991B1B',
+                              borderRadius: 0.75,
+                              cursor: 'pointer',
+                              fontSize: 11,
+                              fontWeight: 900,
+                              lineHeight: 1,
+                              minWidth: 18,
+                              height: 18,
+                              px: 0.4,
+                              '&:hover': {
+                                bgcolor: '#FCA5A5',
+                              },
+                            }}
+                          >
+                            x
+                          </Box>
+                        </Box>
                         <Box
                           onMouseDown={(event) => startColumnResize(event, procedure)}
                           sx={{
@@ -1874,9 +2052,54 @@ export default function FeeReportBuilderPage() {
                             )}
                           </TableCell>
                           <TableCell sx={{ width: countryNameWidth, px: 0.45, borderRight: '2px solid #111827' }}>
-                            <Typography sx={{ fontSize: 13, fontWeight: 900, lineHeight: 1.05, color: 'inherit' }}>
-                              {countryRow.countryName}
-                            </Typography>
+                            <Stack
+                              direction="row"
+                              spacing={0.75}
+                              sx={{ alignItems: 'center', justifyContent: 'space-between', minWidth: 0 }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: 13,
+                                  fontWeight: 900,
+                                  lineHeight: 1.05,
+                                  color: 'inherit',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {countryRow.countryName}
+                              </Typography>
+                              <Box
+                                component="button"
+                                type="button"
+                                title={`Remove ${countryRow.countryName} row`}
+                                onMouseDown={(event) => event.stopPropagation()}
+                                onDragStart={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  removeCountryRow(countryRow);
+                                }}
+                                sx={{
+                                  border: '1px solid rgba(127, 29, 29, 0.35)',
+                                  bgcolor: '#FEE2E2',
+                                  color: '#991B1B',
+                                  borderRadius: 0.75,
+                                  cursor: 'pointer',
+                                  flexShrink: 0,
+                                  fontSize: 10,
+                                  fontWeight: 900,
+                                  lineHeight: 1,
+                                  height: 18,
+                                  px: 0.5,
+                                  '&:hover': {
+                                    bgcolor: '#FCA5A5',
+                                  },
+                                }}
+                              >
+                                Remove
+                              </Box>
+                            </Stack>
                           </TableCell>
                         </>
                       )}

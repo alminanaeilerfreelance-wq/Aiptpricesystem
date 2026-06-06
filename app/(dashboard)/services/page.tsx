@@ -15,16 +15,8 @@ import {
   FormControl,
   InputLabel,
   MenuItem,
-  Pagination,
   Select,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
   TextField,
   Typography,
   IconButton,
@@ -35,8 +27,6 @@ import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { servicesService } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
-import { usePermission } from '@/hooks/usePermission';
-import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 
@@ -46,13 +36,10 @@ interface Service {
   _id: string;
   name: string;
   category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
-  description?: string;
-  basePrice?: number;
   createdAt: string;
   updatedAt: string;
 }
 
-const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
 const CATEGORY_OPTIONS = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
 const categoryColors: Record<string, { bg: string; text: string }> = {
   Trademark: { bg: '#2563EB1A', text: '#2563EB' },
@@ -96,8 +83,6 @@ export default function ServicesPage() {
   const [formData, setFormData] = useState({
     name: '',
     category: 'Trademark' as Service['category'],
-    description: '',
-    basePrice: '0',
   });
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingService, setViewingService] = useState<Service | null>(null);
@@ -145,8 +130,6 @@ export default function ServicesPage() {
     setFormData({
       name: '',
       category: 'Trademark',
-      description: '',
-      basePrice: '0',
     });
     setOpenForm(true);
   };
@@ -156,8 +139,6 @@ export default function ServicesPage() {
     setFormData({
       name: service.name,
       category: service.category,
-      description: service.description || '',
-      basePrice: String(service.basePrice ?? 0),
     });
     setOpenForm(true);
   };
@@ -214,8 +195,6 @@ export default function ServicesPage() {
       for (const row of dataRows) {
         const name = String(row[0] ?? '').trim();
         const category = String(row[1] ?? '').trim();
-        const description = String(row[2] ?? '').trim();
-        const basePrice = row[3] ? Number(row[3]) : 0;
 
         if (!name || !category) continue;
         if (!CATEGORY_OPTIONS.includes(category)) {
@@ -224,7 +203,7 @@ export default function ServicesPage() {
         }
 
         try {
-          await servicesService.create({ name, category, description, basePrice });
+          await servicesService.create({ name, category });
           importedCount += 1;
         } catch {
           importErrors.push(`Failed to import "${name}"`);
@@ -290,8 +269,6 @@ export default function ServicesPage() {
     const ws = XLSX.utils.json_to_sheet(records.map((s) => ({
       Name: s.name,
       Category: s.category,
-      Description: stripHtml(s.description || ''),
-      'Base Price': s.basePrice,
       Created: new Date(s.createdAt).toLocaleDateString(),
     })));
     const wb = XLSX.utils.book_new();
@@ -310,8 +287,6 @@ export default function ServicesPage() {
     const ws = XLSX.utils.json_to_sheet(records.map((s) => ({
       Name: s.name,
       Category: s.category,
-      Description: stripHtml(s.description || ''),
-      'Base Price': s.basePrice,
       Created: new Date(s.createdAt).toLocaleDateString(),
     })));
     const wb = XLSX.utils.book_new();
@@ -331,11 +306,10 @@ export default function ServicesPage() {
     const doc = new jsPDF.jsPDF();
 
     autoTable.default(doc, {
-      head: [['Name', 'Category', 'Price', 'Created']],
+      head: [['Name', 'Category', 'Created']],
       body: records.map((s) => [
         s.name.slice(0, 30),
         s.category,
-        `$${s.basePrice || 0}`,
         new Date(s.createdAt).toLocaleDateString(),
       ]),
       startY: 10,
@@ -345,8 +319,6 @@ export default function ServicesPage() {
     showSuccessToast(`PDF exported (${records.length} rows)`);
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-
   const applyCategoryFilter = (nextCategory: string) => {
     setCategoryFilter(nextCategory);
     setPage(1);
@@ -354,8 +326,15 @@ export default function ServicesPage() {
 
   const serviceColumns: MuiDataTableColumn<Service>[] = [
     {
+      id: 'name',
+      label: 'Service Name',
+      sortable: true,
+      searchValue: (row) => row.name,
+      render: (row) => row.name,
+    },
+    {
       id: 'category',
-      label: 'Services',
+      label: 'Category',
       sortable: true,
       searchValue: (row) => row.category,
       render: (row) => (
@@ -380,6 +359,7 @@ export default function ServicesPage() {
       label: 'Created',
       sortable: true,
       sortValue: (row) => new Date(row.createdAt).getTime(),
+      exportValue: (row) => new Date(row.createdAt).toLocaleDateString(),
       render: (row) => new Date(row.createdAt).toLocaleDateString(),
     },
     {
@@ -427,8 +407,6 @@ export default function ServicesPage() {
     setFormData({
       name: '',
       category: 'Trademark',
-      description: '',
-      basePrice: '0',
     });
   };
 
@@ -438,20 +416,12 @@ export default function ServicesPage() {
       return;
     }
 
-    const parsedBasePrice = Number(formData.basePrice || '0');
-    if (!Number.isFinite(parsedBasePrice) || parsedBasePrice < 0) {
-      setError('Base price must be a valid non-negative number');
-      return;
-    }
-
     try {
       setLoading(true);
       setError('');
       const payload = {
         name: formData.name.trim(),
         category: formData.category,
-        description: formData.description.trim() || undefined,
-        basePrice: parsedBasePrice,
       };
 
       if (editingId) {
@@ -518,6 +488,27 @@ export default function ServicesPage() {
                 Import CSV
               </Button>
             </label>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportCSV().catch(() => setError('Failed to export CSV'))}
+            >
+              Export CSV
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportExcel().catch(() => setError('Failed to export Excel'))}
+            >
+              Export Excel
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => handleExportPDF().catch(() => setError('Failed to export PDF'))}
+            >
+              Export PDF
+            </Button>
           </Stack>
         </CardContent>
       </Card>
@@ -551,12 +542,13 @@ export default function ServicesPage() {
                 setPage(1);
               }}
               showToolbar
-            searchTerm={search}
-            onSearchTermChange={(nextSearch) => {
-              setSearch(nextSearch);
-              setPage(1);
-            }}
+              searchTerm={search}
+              onSearchTermChange={(nextSearch) => {
+                setSearch(nextSearch);
+                setPage(1);
+              }}
               loading={false}
+              exportFileName="services"
             />
           </>
         )
@@ -591,19 +583,6 @@ export default function ServicesPage() {
                 ))}
               </Select>
             </FormControl>
-            <TextField
-              label="Base Price"
-              type="number"
-              value={formData.basePrice}
-              onChange={(e) => setFormData((prev) => ({ ...prev, basePrice: e.target.value }))}
-            />
-            <TextField
-              label="Description"
-              value={formData.description}
-              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-              multiline
-              minRows={3}
-            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -625,16 +604,6 @@ export default function ServicesPage() {
 
               <Typography variant="subtitle2" gutterBottom>Category</Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>{viewingService.category}</Typography>
-
-              <Typography variant="subtitle2" gutterBottom>Base Price</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>${viewingService.basePrice || 0}</Typography>
-
-              {viewingService.description && (
-                <>
-                  <Typography variant="subtitle2" gutterBottom>Description</Typography>
-                  <Typography variant="body2">{viewingService.description}</Typography>
-                </>
-              )}
             </Box>
           )}
         </DialogContent>

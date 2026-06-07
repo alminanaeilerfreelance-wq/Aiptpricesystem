@@ -787,6 +787,7 @@ export default function InquiresPage() {
               options={services}
               value={services.find((service) => service._id === formData.serviceId) || null}
               isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionKey={(option) => option._id}
               getOptionLabel={(option) => `${option.name} (${option.category})`}
               onChange={(_, value) => {
                 setFormData((prev) => ({
@@ -814,6 +815,7 @@ export default function InquiresPage() {
               options={filteredProcedures}
               value={selectedProcedures}
               isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionKey={(option) => option._id}
               getOptionLabel={(option) =>
                 `${option.name} (${option.countryName || option.serviceCategory})`
               }
@@ -904,6 +906,7 @@ export default function InquiresPage() {
               options={countries}
               value={selectedCountries}
               isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionKey={(option) => option._id}
               getOptionLabel={(option) => `${option.abbreviation} - ${option.name}`}
               onChange={(_, value) => {
                 setFormData((prev) => ({
@@ -926,6 +929,7 @@ export default function InquiresPage() {
               options={clients}
               value={clients.find((client) => client._id === formData.clientId) || null}
               isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionKey={(option) => option._id}
               getOptionLabel={(option) =>
                 option.companyName
                   ? `${option.name} (${option.companyName})`

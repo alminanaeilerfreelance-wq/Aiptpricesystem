@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import Client from '@/models/Client';
+import Client, { normalizeClientType } from '@/models/Client';
 import { getUserFromRequest } from '@/lib/auth';
 import mongoose from 'mongoose';
 
@@ -11,6 +11,36 @@ interface RouteContext {
 const toErrorPayload = (fallback: string, err: unknown) => {
   const message = err instanceof Error ? err.message : fallback;
   return { error: fallback, details: message };
+};
+
+const toOptionalString = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  return text || undefined;
+};
+
+const textFields = ['email', 'phone', 'address', 'country', 'companyName', 'notes'] as const;
+
+const hasOwn = (body: Record<string, unknown>, field: string) =>
+  Object.prototype.hasOwnProperty.call(body, field);
+
+const toClientUpdatePayload = (body: Record<string, unknown>) => {
+  const payload: Record<string, unknown> = {};
+
+  if (hasOwn(body, 'name')) {
+    payload.name = String(body.name || '').trim();
+  }
+
+  for (const field of textFields) {
+    if (hasOwn(body, field)) {
+      payload[field] = toOptionalString(body[field]);
+    }
+  }
+
+  if (hasOwn(body, 'type')) {
+    payload.type = normalizeClientType(body.type);
+  }
+
+  return payload;
 };
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
@@ -53,12 +83,14 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     await connectDB();
 
     const body = await req.json();
-    if (body?.name !== undefined && !String(body.name).trim()) {
+    const payload = toClientUpdatePayload(body || {});
+
+    if (Object.prototype.hasOwnProperty.call(payload, 'name') && !payload.name) {
       return NextResponse.json({ error: 'Client name cannot be empty' }, { status: 400 });
     }
     const client = await Client.findByIdAndUpdate(
       id,
-      { $set: body },
+      { $set: payload },
       { new: true, runValidators: true }
     );
 

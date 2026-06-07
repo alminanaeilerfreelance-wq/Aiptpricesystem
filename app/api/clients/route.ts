@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
-import Client from '@/models/Client';
+import Client, { normalizeClientType } from '@/models/Client';
 import { getUserFromRequest } from '@/lib/auth';
 
 const toErrorPayload = (fallback: string, err: unknown) => {
   const message = err instanceof Error ? err.message : fallback;
   return { error: fallback, details: message };
 };
+
+const toOptionalString = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  return text || undefined;
+};
+
+const toClientPayload = (body: Record<string, unknown>) => ({
+  name: String(body.name || '').trim(),
+  email: toOptionalString(body.email),
+  phone: toOptionalString(body.phone),
+  type: normalizeClientType(body.type),
+  address: toOptionalString(body.address),
+  country: toOptionalString(body.country),
+  companyName: toOptionalString(body.companyName),
+  notes: toOptionalString(body.notes),
+});
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,10 +88,12 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const body = await req.json();
-    if (!body?.name || !String(body.name).trim()) {
+    const payload = toClientPayload(body || {});
+
+    if (!payload.name) {
       return NextResponse.json({ error: 'Client name is required' }, { status: 400 });
     }
-    const client = await Client.create(body);
+    const client = await Client.create(payload);
 
     return NextResponse.json(client, { status: 201 });
   } catch (err: unknown) {

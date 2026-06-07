@@ -19,7 +19,7 @@ import {
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
-import { clientsService, Client } from '@/services/clients.service';
+import { clientsService, Client, ClientType } from '@/services/clients.service';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuth } from '@/hooks/useAuth';
@@ -32,6 +32,7 @@ interface ClientForm {
   name: string;
   email: string;
   phone: string;
+  type: ClientType;
   address: string;
   country: string;
   companyName: string;
@@ -42,10 +43,18 @@ const defaultForm: ClientForm = {
   name: '',
   email: '',
   phone: '',
+  type: 'Direct',
   address: '',
   country: '',
   companyName: '',
   notes: '',
+};
+
+const CLIENT_TYPE_OPTIONS: ClientType[] = ['Direct', 'Agent'];
+
+const normalizeClientType = (value: unknown): ClientType => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === 'agent' ? 'Agent' : 'Direct';
 };
 
 export default function ClientsPage() {
@@ -117,6 +126,7 @@ export default function ClientsPage() {
       name: item.name || '',
       email: item.email || '',
       phone: item.phone || '',
+      type: normalizeClientType(item.type),
       address: item.address || '',
       country: item.country || '',
       companyName: item.companyName || '',
@@ -155,6 +165,7 @@ export default function ClientsPage() {
         name: formData.name.trim(),
         email: formData.email.trim() || undefined,
         phone: formData.phone.trim() || undefined,
+        type: formData.type,
         address: formData.address.trim() || undefined,
         country: formData.country.trim() || undefined,
         companyName: formData.companyName.trim() || undefined,
@@ -223,10 +234,13 @@ export default function ClientsPage() {
         const name = String(row[0] ?? '').trim();
         const email = String(row[1] ?? '').trim();
         const phone = String(row[2] ?? '').trim();
-        const address = String(row[3] ?? '').trim();
-        const country = String(row[4] ?? '').trim();
-        const companyName = String(row[5] ?? '').trim();
-        const notes = String(row[6] ?? '').trim();
+        const fourthColumn = String(row[3] ?? '').trim();
+        const hasTypeColumn = ['agent', 'direct'].includes(fourthColumn.toLowerCase());
+        const type = hasTypeColumn ? normalizeClientType(fourthColumn) : 'Direct';
+        const address = String(row[hasTypeColumn ? 4 : 3] ?? '').trim();
+        const country = String(row[hasTypeColumn ? 5 : 4] ?? '').trim();
+        const companyName = String(row[hasTypeColumn ? 6 : 5] ?? '').trim();
+        const notes = String(row[hasTypeColumn ? 7 : 6] ?? '').trim();
 
         if (!name) continue;
 
@@ -235,6 +249,7 @@ export default function ClientsPage() {
             name,
             email: email || undefined,
             phone: phone || undefined,
+            type,
             address: address || undefined,
             country: country || undefined,
             companyName: companyName || undefined,
@@ -304,12 +319,11 @@ export default function ClientsPage() {
       'Client Name': item.name,
       Email: item.email || '',
       Phone: item.phone || '',
+      Type: normalizeClientType(item.type),
       Address: item.address || '',
       Country: item.country || '',
       'Company Name': item.companyName || '',
       Notes: item.notes || '',
-      Created: new Date(item.createdAt).toLocaleDateString(),
-      Updated: new Date(item.updatedAt).toLocaleDateString(),
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Clients');
@@ -329,12 +343,11 @@ export default function ClientsPage() {
       'Client Name': item.name,
       Email: item.email || '',
       Phone: item.phone || '',
+      Type: normalizeClientType(item.type),
       Address: item.address || '',
       Country: item.country || '',
       'Company Name': item.companyName || '',
       Notes: item.notes || '',
-      Created: new Date(item.createdAt).toLocaleDateString(),
-      Updated: new Date(item.updatedAt).toLocaleDateString(),
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Clients');
@@ -354,17 +367,19 @@ export default function ClientsPage() {
     const doc = new jsPDF.jsPDF({ orientation: 'landscape' });
 
     autoTable.default(doc, {
-      head: [['Client Name', 'Email', 'Phone', 'Country', 'Company Name', 'Created']],
+      head: [['Client Name', 'Email', 'Phone', 'Type', 'Address', 'Country', 'Company Name', 'Notes']],
       body: records.map((item) => [
         item.name,
         item.email || '-',
         item.phone || '-',
+        normalizeClientType(item.type),
+        item.address || '-',
         item.country || '-',
         item.companyName || '-',
-        new Date(item.createdAt).toLocaleDateString(),
+        item.notes || '-',
       ]),
       startY: 10,
-      styles: { fontSize: 8 },
+      styles: { fontSize: 7 },
       headStyles: { fillColor: [33, 150, 243] },
     });
 
@@ -396,6 +411,21 @@ export default function ClientsPage() {
       render: (row) => row.phone || '-',
     },
     {
+      id: 'type',
+      label: 'Type',
+      sortable: true,
+      searchValue: (row) => normalizeClientType(row.type),
+      render: (row) => normalizeClientType(row.type),
+    },
+    {
+      id: 'address',
+      label: 'Address',
+      sortable: true,
+      minWidth: 180,
+      searchValue: (row) => row.address || '',
+      render: (row) => row.address || '-',
+    },
+    {
       id: 'country',
       label: 'Country',
       sortable: true,
@@ -411,20 +441,12 @@ export default function ClientsPage() {
       render: (row) => row.companyName || '-',
     },
     {
-      id: 'createdAt',
-      label: 'Created At',
+      id: 'notes',
+      label: 'Notes',
       sortable: true,
-      sortValue: (row) => new Date(row.createdAt).getTime(),
-      exportValue: (row) => new Date(row.createdAt).toLocaleDateString(),
-      render: (row) => new Date(row.createdAt).toLocaleDateString(),
-    },
-    {
-      id: 'updatedAt',
-      label: 'Updated At',
-      sortable: true,
-      sortValue: (row) => new Date(row.updatedAt).getTime(),
-      exportValue: (row) => new Date(row.updatedAt).toLocaleDateString(),
-      render: (row) => new Date(row.updatedAt).toLocaleDateString(),
+      minWidth: 200,
+      searchValue: (row) => row.notes || '',
+      render: (row) => row.notes || '-',
     },
     {
       id: 'actions',
@@ -571,6 +593,21 @@ export default function ClientsPage() {
               onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
             />
             <TextField
+              label="Type"
+              value={formData.type}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, type: normalizeClientType(e.target.value) }))
+              }
+              select
+              required
+            >
+              {CLIENT_TYPE_OPTIONS.map((type) => (
+                <MenuItem key={type} value={type}>
+                  {type}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
               label="Address"
               value={formData.address}
               onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
@@ -612,12 +649,11 @@ export default function ClientsPage() {
               <Typography><strong>Client Name:</strong> {viewingItem.name}</Typography>
               <Typography><strong>Email:</strong> {viewingItem.email || '-'}</Typography>
               <Typography><strong>Phone:</strong> {viewingItem.phone || '-'}</Typography>
+              <Typography><strong>Type:</strong> {normalizeClientType(viewingItem.type)}</Typography>
               <Typography><strong>Address:</strong> {viewingItem.address || '-'}</Typography>
               <Typography><strong>Country:</strong> {viewingItem.country || '-'}</Typography>
               <Typography><strong>Company Name:</strong> {viewingItem.companyName || '-'}</Typography>
               <Typography><strong>Notes:</strong> {viewingItem.notes || '-'}</Typography>
-              <Typography><strong>Created At:</strong> {new Date(viewingItem.createdAt).toLocaleString()}</Typography>
-              <Typography><strong>Updated At:</strong> {new Date(viewingItem.updatedAt).toLocaleString()}</Typography>
             </Stack>
           )}
         </DialogContent>

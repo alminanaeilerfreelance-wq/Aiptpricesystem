@@ -54,10 +54,10 @@ const CLIENT_TYPES = [
 ];
 
 const CLIENTS = [
-  { name: 'Al Khaleej Trading Company', email: 'info@alkhaleej.com', country: 'Saudi Arabia', type: 'Company', status: 'Big' },
-  { name: 'TechVision LLC', email: 'legal@techvision.ae', country: 'United Arab Emirates', type: 'Company', status: 'Big' },
-  { name: 'Global Innovations Inc.', email: 'ip@globalinnovations.com', country: 'United States', type: 'Company', status: 'Big' },
-  { name: 'Kuwait Finance House', email: 'legal@kfh.com.kw', country: 'Kuwait', type: 'Company', status: 'Big' },
+  { name: 'Al Khaleej Trading Company', email: 'info@alkhaleej.com', country: 'Saudi Arabia', type: 'Direct', status: 'Big' },
+  { name: 'TechVision LLC', email: 'legal@techvision.ae', country: 'United Arab Emirates', type: 'Direct', status: 'Big' },
+  { name: 'Global Innovations Inc.', email: 'ip@globalinnovations.com', country: 'United States', type: 'Direct', status: 'Big' },
+  { name: 'Kuwait Finance House', email: 'legal@kfh.com.kw', country: 'Kuwait', type: 'Direct', status: 'Big' },
 ];
 
 const PRICING_RULES = [

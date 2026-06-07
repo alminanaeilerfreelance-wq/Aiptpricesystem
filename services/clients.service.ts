@@ -1,5 +1,7 @@
 import apiClient from './apiClient';
 
+export type ClientType = 'Agent' | 'Direct';
+
 export interface Client {
   _id: string;
   name: string;
@@ -10,7 +12,7 @@ export interface Client {
   country?: string;
   continent?: string;
   companyName?: string;
-  type?: 'Individual' | 'Company' | 'Organization';
+  type?: ClientType | string;
   registrationNumber?: string;
   taxId?: string;
   notes?: string;
@@ -29,7 +31,7 @@ export interface CreateClientDto {
   country?: string;
   continent?: string;
   companyName?: string;
-  type?: 'Individual' | 'Company' | 'Organization';
+  type?: ClientType;
   registrationNumber?: string;
   taxId?: string;
   notes?: string;
@@ -73,7 +75,7 @@ export const clientsService = {
    * Create a new client.
    * POST /api/clients
    */
-  async create(data: object): Promise<Client> {
+  async create(data: CreateClientDto): Promise<Client> {
     const response = await apiClient.post<Client>('/api/clients', data);
     return response.data;
   },
@@ -82,7 +84,7 @@ export const clientsService = {
    * Update an existing client.
    * PATCH /api/clients/:id
    */
-  async update(id: string, data: object): Promise<Client> {
+  async update(id: string, data: Partial<CreateClientDto>): Promise<Client> {
     const response = await apiClient.patch<Client>(`/api/clients/${id}`, data);
     return response.data;
   },

@@ -12,14 +12,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
   Stack,
-  Tab,
-  Tabs,
-  Paper,
   TextField,
   Typography,
   IconButton,
@@ -30,11 +23,8 @@ import {
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
 import { proceduresService } from '@/services/procedures.service';
-import { countriesService } from '@/services/countries.service';
 import { servicesService } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
-import { usePermission } from '@/hooks/usePermission';
-import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 
@@ -43,17 +33,10 @@ export const dynamic = 'force-dynamic';
 interface Procedure {
   _id: string;
   name: string;
-  countryId: string;
-  countryName: string;
   serviceId: string;
   serviceName: string;
   serviceCategory: string;
   createdAt: string;
-}
-
-interface CountryOption {
-  _id: string;
-  name: string;
 }
 
 interface ServiceOption {
@@ -61,16 +44,6 @@ interface ServiceOption {
   name: string;
   category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
 }
-
-const CATEGORIES = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
-
-const categoryColors: Record<string, { bg: string; text: string }> = {
-  Trademark: { bg: '#2563EB1A', text: '#2563EB' },
-  Patent: { bg: '#16A34A1A', text: '#16A34A' },
-  Copyright: { bg: '#F59E0B1A', text: '#F59E0B' },
-  Design: { bg: '#9333EA1A', text: '#9333EA' },
-  Litigation: { bg: '#DC26261A', text: '#DC2626' },
-};
 
 const EyeIcon = () => (
   <SvgIcon fontSize="small" viewBox="0 0 24 24">
@@ -89,10 +62,7 @@ const TrashIcon = () => (
 );
 
 export default function ProceduresPage() {
-  const { user } = useAuth();
-  const { canAdd, canEdit, canDelete, canView } = usePermission();
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState(0);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -106,11 +76,8 @@ export default function ProceduresPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    countryId: '',
     serviceId: '',
-    serviceCategory: 'Trademark',
   });
-  const [countries, setCountries] = useState<CountryOption[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
 
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -122,17 +89,13 @@ export default function ProceduresPage() {
     setMounted(true);
   }, []);
 
-  const currentCategory = activeTab === 0 ? '' : CATEGORIES[activeTab - 1];
-
   const fetchProcedures = useCallback(
     async (params?: {
       nextPage?: number;
       nextSearch?: string;
-      nextCategory?: string;
     }) => {
       const nextPage = params?.nextPage ?? page;
       const nextSearch = params?.nextSearch ?? debouncedSearch;
-      const nextCategory = params?.nextCategory ?? currentCategory;
       try {
         setLoading(true);
         setError('');
@@ -140,7 +103,6 @@ export default function ProceduresPage() {
           page: nextPage,
           limit,
           search: nextSearch || undefined,
-          category: nextCategory || undefined,
         });
         setProcedures(Array.isArray(response?.procedures) ? response.procedures : []);
         setTotal(response?.total || 0);
@@ -152,20 +114,15 @@ export default function ProceduresPage() {
         setLoading(false);
       }
     },
-    [currentCategory, debouncedSearch, limit, page]
+    [debouncedSearch, limit, page]
   );
-
-  useEffect(() => {
-    setPage(1);
-  }, [activeTab]);
 
   useEffect(() => {
     fetchProcedures({
       nextPage: page,
       nextSearch: debouncedSearch,
-      nextCategory: currentCategory,
     });
-  }, [activeTab, debouncedSearch, fetchProcedures, page, currentCategory]);
+  }, [debouncedSearch, fetchProcedures, page]);
 
   useEffect(() => {
     setPage(1);
@@ -174,14 +131,9 @@ export default function ProceduresPage() {
   useEffect(() => {
     const loadLookups = async () => {
       try {
-        const [countriesRes, servicesRes] = await Promise.all([
-          countriesService.list({ page: 1, limit: 1000 }),
-          servicesService.list({ page: 1, limit: 1000 }),
-        ]);
-        setCountries((countriesRes.countries || []).map((c) => ({ _id: c._id, name: c.name })));
+        const servicesRes = await servicesService.list({ page: 1, limit: 1000 });
         setServices((servicesRes.services || []).map((s) => ({ _id: s._id, name: s.name, category: s.category })));
       } catch {
-        setCountries([]);
         setServices([]);
       }
     };
@@ -192,9 +144,7 @@ export default function ProceduresPage() {
     setEditingId(null);
     setFormData({
       name: '',
-      countryId: '',
       serviceId: '',
-      serviceCategory: currentCategory || 'Trademark',
     });
     setOpenForm(true);
   };
@@ -203,9 +153,7 @@ export default function ProceduresPage() {
     setEditingId(procedure._id);
     setFormData({
       name: procedure.name,
-      countryId: procedure.countryId || '',
       serviceId: procedure.serviceId || '',
-      serviceCategory: procedure.serviceCategory,
     });
     setOpenForm(true);
   };
@@ -215,9 +163,7 @@ export default function ProceduresPage() {
     setEditingId(null);
     setFormData({
       name: '',
-      countryId: '',
       serviceId: '',
-      serviceCategory: 'Trademark',
     });
   };
 
@@ -227,16 +173,8 @@ export default function ProceduresPage() {
       return;
     }
 
-    if (!CATEGORIES.includes(formData.serviceCategory)) {
-      setError('Service category is required');
-      return;
-    }
-    if (!formData.countryId) {
-      setError('Country is required');
-      return;
-    }
     if (!formData.serviceId) {
-      setError('Service type is required');
+      setError('Service is required');
       return;
     }
 
@@ -246,9 +184,7 @@ export default function ProceduresPage() {
 
       const payload = {
         name: formData.name.trim(),
-        countryId: formData.countryId,
         serviceId: formData.serviceId,
-        serviceCategory: formData.serviceCategory,
       };
 
       if (editingId) {
@@ -322,37 +258,29 @@ export default function ProceduresPage() {
 
       let importedCount = 0;
       const importErrors: string[] = [];
-      const countryByName = new Map(
-        countries.map((country) => [country.name.trim().toLowerCase(), country])
+      const serviceByName = new Map(
+        services.map((service) => [service.name.trim().toLowerCase(), service])
       );
 
       for (const row of dataRows) {
         const name = String(row[0] ?? '').trim();
-        const countryName = String(row[1] ?? '').trim();
-        const category = String(row[2] ?? '').trim();
+        const secondValue = String(row[1] ?? '').trim();
+        const thirdValue = String(row[2] ?? '').trim();
+        const serviceName = thirdValue || secondValue;
 
-        if (!name || !countryName || !category) continue;
-        if (!CATEGORIES.includes(category)) {
-          importErrors.push(`Invalid service type "${category}" for procedure "${name}"`);
-          continue;
-        }
-        const country = countryByName.get(countryName.toLowerCase());
-        if (!country) {
-          importErrors.push(`Country "${countryName}" not found for procedure "${name}"`);
-          continue;
-        }
-        const service = services.find((item) => item.category === category);
+        if (!name || !serviceName) continue;
+        const service =
+          serviceByName.get(serviceName.toLowerCase()) ||
+          services.find((item) => item.category.toLowerCase() === serviceName.toLowerCase());
         if (!service) {
-          importErrors.push(`No service model found for service type "${category}"`);
+          importErrors.push(`Service "${serviceName}" not found for procedure "${name}"`);
           continue;
         }
 
         try {
           await proceduresService.create({
             name,
-            countryId: country._id,
             serviceId: service._id,
-            serviceCategory: category,
           });
           importedCount += 1;
         } catch {
@@ -386,7 +314,6 @@ export default function ProceduresPage() {
       page: 1,
       limit: pageSize,
       search: debouncedSearch || undefined,
-      category: currentCategory || undefined,
     });
 
     const firstData = Array.isArray(firstResponse?.procedures)
@@ -403,7 +330,6 @@ export default function ProceduresPage() {
           page: p,
           limit: pageSize,
           search: debouncedSearch || undefined,
-          category: currentCategory || undefined,
         })
       );
     }
@@ -414,7 +340,7 @@ export default function ProceduresPage() {
     );
 
     return [...firstData, ...remainingData];
-  }, [currentCategory, debouncedSearch]);
+  }, [debouncedSearch]);
 
   const handleExportCSV = async () => {
     const records = await getAllFilteredProcedures();
@@ -426,8 +352,7 @@ export default function ProceduresPage() {
     const ws = XLSX.utils.json_to_sheet(
       records.map((p) => ({
         Name: p.name,
-        Country: p.countryName || '',
-        'Service Type': p.serviceCategory,
+        Service: p.serviceName || '',
         Created: new Date(p.createdAt).toLocaleDateString(),
       }))
     );
@@ -447,8 +372,7 @@ export default function ProceduresPage() {
     const ws = XLSX.utils.json_to_sheet(
       records.map((p) => ({
         Name: p.name,
-        Country: p.countryName || '',
-        'Service Type': p.serviceCategory,
+        Service: p.serviceName || '',
         Created: new Date(p.createdAt).toLocaleDateString(),
       }))
     );
@@ -469,11 +393,10 @@ export default function ProceduresPage() {
     const doc = new jsPDF.jsPDF();
 
     autoTable.default(doc, {
-      head: [['Name', 'Country', 'Service Type', 'Created']],
+      head: [['Name', 'Service', 'Created']],
       body: records.map((p) => [
         p.name,
-        p.countryName || '',
-        p.serviceCategory,
+        p.serviceName || '',
         new Date(p.createdAt).toLocaleDateString(),
       ]),
       startY: 10,
@@ -494,33 +417,11 @@ export default function ProceduresPage() {
       render: (row) => row.name,
     },
     {
-      id: 'country',
-      label: 'Country',
+      id: 'serviceName',
+      label: 'Service',
       sortable: true,
-      searchValue: (row) => row.countryName || '',
-      render: (row) => row.countryName || '-',
-    },
-    {
-      id: 'serviceCategory',
-      label: 'Service Type',
-      sortable: true,
-      searchValue: (row) => row.serviceCategory,
-      render: (row) => (
-        <Box
-          sx={{
-            display: 'inline-block',
-            backgroundColor: categoryColors[row.serviceCategory]?.bg || '#f0f0f0',
-            color: categoryColors[row.serviceCategory]?.text || '#000',
-            px: 2,
-            py: 0.5,
-            borderRadius: 1,
-            fontSize: '0.85rem',
-            fontWeight: 500,
-          }}
-        >
-          {row.serviceCategory}
-        </Box>
-      ),
+      searchValue: (row) => row.serviceName || '',
+      render: (row) => row.serviceName || '-',
     },
     {
       id: 'createdAt',
@@ -580,15 +481,6 @@ export default function ProceduresPage() {
         </Alert>
       )}
 
-      <Paper sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-          <Tab label="All" />
-          {CATEGORIES.map((cat) => (
-            <Tab key={cat} label={cat} />
-          ))}
-        </Tabs>
-      </Paper>
-
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Stack direction="row" spacing={1}>
@@ -637,12 +529,13 @@ export default function ProceduresPage() {
                 setPage(1);
               }}
               showToolbar
-            searchTerm={search}
-            onSearchTermChange={(nextSearch) => {
-              setSearch(nextSearch);
-              setPage(1);
-            }}
+              searchTerm={search}
+              onSearchTermChange={(nextSearch) => {
+                setSearch(nextSearch);
+                setPage(1);
+              }}
               loading={false}
+              exportFileName="procedures"
             />
           </>
         )
@@ -659,29 +552,16 @@ export default function ProceduresPage() {
               required
             />
             <Autocomplete
-              options={countries}
-              value={countries.find((c) => c._id === formData.countryId) || null}
+              options={services}
+              value={services.find((s) => s._id === formData.serviceId) || null}
               getOptionLabel={(option) => option.name}
               onChange={(_, value) =>
                 setFormData((prev) => ({
                   ...prev,
-                  countryId: value?._id || '',
-                }))
-              }
-              renderInput={(params) => <TextField {...params} label="Country" required />}
-            />
-            <Autocomplete
-              options={services}
-              value={services.find((s) => s._id === formData.serviceId) || null}
-              getOptionLabel={(option) => `${option.name} (${option.category})`}
-              onChange={(_, value) =>
-                setFormData((prev) => ({
-                  ...prev,
                   serviceId: value?._id || '',
-                  serviceCategory: value?.category || prev.serviceCategory,
                 }))
               }
-              renderInput={(params) => <TextField {...params} label="Service Type" required />}
+              renderInput={(params) => <TextField {...params} label="Service" required />}
             />
           </Stack>
         </DialogContent>
@@ -711,17 +591,10 @@ export default function ProceduresPage() {
               </Typography>
 
               <Typography variant="subtitle2" gutterBottom>
-                Service Type
+                Service
               </Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>
-                {viewingProcedure.serviceCategory}
-              </Typography>
-
-              <Typography variant="subtitle2" gutterBottom>
-                Country
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>
-                {viewingProcedure.countryName || '-'}
+                {viewingProcedure.serviceName || '-'}
               </Typography>
             </Box>
           )}

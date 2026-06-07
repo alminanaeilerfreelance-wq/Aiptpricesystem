@@ -19,7 +19,6 @@ interface RequirementInput {
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   title: string;
   requirements: string;
-  upsertByCountry?: boolean;
 }
 
 interface ListResponse {

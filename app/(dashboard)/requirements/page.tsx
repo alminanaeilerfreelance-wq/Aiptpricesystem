@@ -163,8 +163,8 @@ export default function RequirementsPage() {
   useEffect(() => {
     const loadCountries = async () => {
       try {
-        const response = await countriesService.list({ page: 1, limit: 1000 });
-        setCountries(response.countries || []);
+        const allCountries = await countriesService.listAll();
+        setCountries(allCountries);
       } catch {
         setCountries([]);
       }
@@ -245,7 +245,6 @@ export default function RequirementsPage() {
 
       let importedCount = 0;
       let createdCount = 0;
-      let updatedCount = 0;
       const importErrors: string[] = [];
       const countryByName = new Map(countries.map((country) => [normalize(country.name), country]));
       const countryByAbbreviation = new Map(
@@ -286,12 +285,9 @@ export default function RequirementsPage() {
           serviceCategory: serviceCategory as 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation',
           title,
           requirements: requirementsText,
-          upsertByCountry: true,
         });
         if (result.status === 201) {
           createdCount += 1;
-        } else {
-          updatedCount += 1;
         }
         importedCount += 1;
       }
@@ -303,7 +299,7 @@ export default function RequirementsPage() {
           await fetchRequirements({ nextPage: 1 });
         }
         showSuccessToast(
-          `Import completed: ${importedCount} total (${createdCount} created, ${updatedCount} updated)`
+          `Import completed: ${importedCount} total (${createdCount} created)`
         );
       }
 
@@ -515,7 +511,7 @@ export default function RequirementsPage() {
               <EyeIcon />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Edit">
+          <Tooltip title="Edit / Update">
             <IconButton
               size="small"
               onClick={() => handleEdit(row)}
@@ -548,10 +544,10 @@ export default function RequirementsPage() {
 
       <Box sx={{ p: 3, flex: 1 }}>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mb: 3 }}>
-        <Button variant="contained" onClick={handleAdd}>
-          + Add Requirement
-        </Button>
-      </Box>
+          <Button variant="contained" onClick={handleAdd}>
+            + Add New Requirement
+          </Button>
+        </Box>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
@@ -573,6 +569,9 @@ export default function RequirementsPage() {
                   </MenuItem>
                 ))}
               </Select>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75 }}>
+                {countries.length} countries loaded from Countries.
+              </Typography>
             </FormControl>
             <FormControl sx={{ minWidth: 180 }}>
               <InputLabel>Sort By</InputLabel>
@@ -634,7 +633,7 @@ export default function RequirementsPage() {
           title="No requirements found"
           description="Start by adding your first requirement"
           onAction={handleAdd}
-          actionLabel="Add Requirement"
+          actionLabel="Add New Requirement"
         />
       ) : (
         !loading && (
@@ -661,11 +660,11 @@ export default function RequirementsPage() {
                 }
               }}
               showToolbar
-            searchTerm={search}
-            onSearchTermChange={(nextSearch) => {
-              setSearch(nextSearch);
-              setPage(1);
-            }}
+              searchTerm={search}
+              onSearchTermChange={(nextSearch) => {
+                setSearch(nextSearch);
+                setPage(1);
+              }}
               loading={false}
             />
           </>
@@ -674,7 +673,10 @@ export default function RequirementsPage() {
 
       <RequirementForm
         open={openForm}
-        onClose={() => setOpenForm(false)}
+        onClose={() => {
+          setOpenForm(false);
+          setEditingId(null);
+        }}
         onSuccess={handleFormSuccess}
         editingId={editingId}
       />
@@ -699,6 +701,16 @@ export default function RequirementsPage() {
           )}
         </DialogContent>
         <DialogActions>
+          <Button
+            onClick={() => {
+              if (!viewingRequirement) return;
+              setViewDialogOpen(false);
+              handleEdit(viewingRequirement);
+            }}
+            variant="contained"
+          >
+            Edit / Update
+          </Button>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>

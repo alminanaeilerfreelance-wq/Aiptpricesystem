@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
-import Requirement from '@/models/Requirement';
+import Requirement, { ensureRequirementDuplicatesAllowed } from '@/models/Requirement';
 import Country from '@/models/Country';
 import mongoose from 'mongoose';
 
@@ -39,10 +39,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     await connectDB();
+    await ensureRequirementDuplicatesAllowed();
 
     const { id } = await params;
     const body = await req.json();
-    const { country, serviceCategory, title, requirements, upsertByCountry = false } = body;
+    const { country, serviceCategory, title, requirements } = body;
     const safeTitle = normalizeTitle(title);
     const safeRequirements = typeof requirements === 'string' ? sanitizeRichText(requirements) : '';
     const normalizedServiceCategory =
@@ -72,28 +73,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Country not found' }, { status: 404 });
     }
 
-    const duplicateCountry = await Requirement.findOne({
-      country,
-      serviceCategory: normalizedServiceCategory,
-      _id: { $ne: new mongoose.Types.ObjectId(id) },
-    });
-
-    if (duplicateCountry) {
-      if (upsertByCountry) {
-        duplicateCountry.requirements = safeRequirements;
-        duplicateCountry.title = safeTitle;
-        duplicateCountry.serviceCategory = normalizedServiceCategory;
-        await duplicateCountry.save();
-        await Requirement.findByIdAndDelete(id);
-        await duplicateCountry.populate('country', 'name abbreviation');
-        return NextResponse.json(duplicateCountry, { status: 200 });
-      }
-      return NextResponse.json(
-        { error: 'Requirement for this country already exists' },
-        { status: 409 }
-      );
-    }
-
     const requirement = await Requirement.findByIdAndUpdate(
       id,
       {
@@ -111,12 +90,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     return NextResponse.json(requirement, { status: 200 });
   } catch (error: any) {
-    if (error?.code === 11000) {
-      return NextResponse.json(
-        { error: 'Requirement for this country already exists' },
-        { status: 409 }
-      );
-    }
     console.error('PUT /api/requirements/[id] error:', error);
     return NextResponse.json({ error: 'Failed to update requirement' }, { status: 500 });
   }

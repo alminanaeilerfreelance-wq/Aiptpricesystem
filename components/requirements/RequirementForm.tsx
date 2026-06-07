@@ -66,6 +66,7 @@ const INITIAL_FORM_DATA: {
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
 
 const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSuccess, editingId }) => {
+  const isEditMode = Boolean(editingId);
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
 
   const [countries, setCountries] = useState<Country[]>([]);
@@ -78,8 +79,8 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
     const fetchCountries = async () => {
       try {
         setCountriesLoading(true);
-        const response = await countriesService.list({ page: 1, limit: 1000 });
-        setCountries(response.countries);
+        const allCountries = await countriesService.listAll();
+        setCountries(allCountries);
       } catch (err) {
         console.error('Failed to fetch countries:', err);
         setError('Failed to fetch countries');
@@ -99,6 +100,8 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
       if (!editingId) return;
 
       try {
+        setFormData(INITIAL_FORM_DATA);
+        setError('');
         setLoading(true);
         const response = await requirementsService.getById(editingId);
         setFormData({
@@ -120,6 +123,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
       fetchRequirement();
     } else if (open && !editingId) {
       setFormData(INITIAL_FORM_DATA);
+      setError('');
     }
   }, [open, editingId]);
 
@@ -146,7 +150,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         requirements: formData.requirements,
       };
 
-      if (editingId) {
+      if (isEditMode && editingId) {
         await requirementsService.update(editingId, payload);
       } else {
         await requirementsService.create(payload);
@@ -169,15 +173,15 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>{editingId ? 'Edit Requirement' : 'Add Requirement'}</DialogTitle>
+    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
+      <DialogTitle>{isEditMode ? 'Edit / Update Requirement' : 'Add Requirement'}</DialogTitle>
       <form onSubmit={handleSubmit}>
         <DialogContent>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
             {/* Country Select */}
-            <FormControl fullWidth disabled={countriesLoading}>
+            <FormControl fullWidth disabled={loading || countriesLoading}>
               <InputLabel>Country *</InputLabel>
               <Select
                 value={formData.country}
@@ -187,13 +191,13 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
                 <MenuItem value="">Select a country</MenuItem>
                 {countries.map((country) => (
                   <MenuItem key={country._id} value={country._id}>
-                    {country.name}
+                    {country.abbreviation ? `${country.abbreviation} - ${country.name}` : country.name}
                   </MenuItem>
                 ))}
               </Select>
             </FormControl>
 
-            <FormControl fullWidth>
+            <FormControl fullWidth disabled={loading}>
               <InputLabel>Service *</InputLabel>
               <Select
                 value={formData.serviceCategory}
@@ -218,6 +222,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               fullWidth
               required
+              disabled={loading}
             />
 
             {/* Requirements Rich Text Editor */}
@@ -229,6 +234,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
                 value={formData.requirements}
                 onChange={(content) => setFormData({ ...formData, requirements: content })}
                 theme="snow"
+                readOnly={loading}
                 modules={{
                   toolbar: [
                     [{ header: [1, 2, false] }],
@@ -253,7 +259,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
             disabled={loading || countriesLoading}
             startIcon={loading && <CircularProgress size={20} />}
           >
-            {loading ? 'Saving...' : editingId ? 'Update' : 'Add'}
+            {loading ? (isEditMode ? 'Updating...' : 'Adding...') : isEditMode ? 'Update Requirement' : 'Add Requirement'}
           </Button>
         </DialogActions>
       </form>

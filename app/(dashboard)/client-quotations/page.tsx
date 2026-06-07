@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import dynamicImport from 'next/dynamic';
 import {
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -47,6 +49,10 @@ import Topbar from '@/components/layout/Topbar';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@/components/feedback/heroToast';
 import { useSettingsContext } from '@/context/SettingsContext';
 
+const ReactQuill = dynamicImport(() => import('react-quill-new'), {
+  ssr: false,
+});
+
 type ServiceCategory = 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
 type ClassType = 'single' | 'multi';
 type ClientQuotationStatus = ClientQuotation['status'];
@@ -55,6 +61,7 @@ interface RequirementOption {
   _id: string;
   countryId?: string;
   countryName: string;
+  serviceCategory?: ServiceCategory;
   title?: string;
   requirements: string;
 }
@@ -84,6 +91,14 @@ interface ServiceDraft {
   otherFees: number;
   vatFee: number; // stored as VAT percent
   discount: number;
+}
+
+interface RequirementEditorData {
+  country: string;
+  countryName: string;
+  serviceCategory: ServiceCategory | '';
+  title: string;
+  requirements: string;
 }
 
 interface InvoiceServiceTableColors {
@@ -119,6 +134,24 @@ const defaultServiceDraft: ServiceDraft = {
   discount: 0,
 };
 
+const defaultRequirementEditorData: RequirementEditorData = {
+  country: '',
+  countryName: '',
+  serviceCategory: '',
+  title: '',
+  requirements: '',
+};
+
+const requirementEditorModules = {
+  toolbar: [
+    [{ header: [1, 2, false] }],
+    ['bold', 'italic', 'underline'],
+    ['link', 'blockquote', 'code-block'],
+    [{ list: 'ordered' }, { list: 'bullet' }],
+    ['clean'],
+  ],
+};
+
 const defaultInvoiceServiceTableColors: InvoiceServiceTableColors = {
   headerBg: '#EEF2FF',
   headerText: '#111827',
@@ -141,6 +174,9 @@ const defaultInvoiceServiceTableColors: InvoiceServiceTableColors = {
 
 const INVOICE_TABLE_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceTableColors.v1';
 const INVOICE_CELL_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceCellColors.v1';
+const CLIENT_QUOTATION_REPORT_TITLE = 'CLIENT QUOTATION REPORT';
+const REPORT_PDF_FONT = 'times';
+const REPORT_CSS_FONT_STACK = '"Times New Roman", Times, serif';
 
 const toCurrency = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -633,6 +669,14 @@ export default function ClientQuotationsPage() {
   const [selectedRequirementIds, setSelectedRequirementIds] = useState<string[]>([]);
   const [selectedRequirementCountryId, setSelectedRequirementCountryId] = useState('');
   const [requirementDraftIds, setRequirementDraftIds] = useState<string[]>([]);
+  const [requirementEditorOpen, setRequirementEditorOpen] = useState(false);
+  const [editingRequirementId, setEditingRequirementId] = useState<string | null>(null);
+  const [requirementEditorData, setRequirementEditorData] = useState<RequirementEditorData>(
+    defaultRequirementEditorData
+  );
+  const [requirementEditorLoading, setRequirementEditorLoading] = useState(false);
+  const [requirementEditorSaving, setRequirementEditorSaving] = useState(false);
+  const [requirementEditorError, setRequirementEditorError] = useState('');
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(defaultServiceDraft);
   const [serviceCountrySelections, setServiceCountrySelections] = useState<string[]>([]);
   const [services, setServices] = useState<ClientQuotationServiceItem[]>([]);
@@ -1084,22 +1128,22 @@ export default function ClientQuotationsPage() {
         doc.setFillColor(37, 99, 235);
         doc.roundedRect(margin, 32, 44, 44, 8, 8, 'F');
         doc.setTextColor(255, 255, 255);
-        doc.setFont('helvetica', 'bold');
+        doc.setFont(REPORT_PDF_FONT, 'bold');
         doc.setFontSize(20);
         doc.text('A', margin + 17, 60);
       }
       doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(18);
       doc.text(company?.companyName || 'AIP&T LAW FIRM', margin + 58, 48);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont(REPORT_PDF_FONT, 'normal');
       doc.setFontSize(9);
       doc.text([company?.address || 'Professional IP legal services', company?.email || '', company?.contact || ''].filter(Boolean), margin + 58, 66);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(24);
-      doc.text('CLIENT QUOTATION INVOICE', pageWidth - margin, 50, { align: 'right' });
+      doc.text(CLIENT_QUOTATION_REPORT_TITLE, pageWidth - margin, 50, { align: 'right' });
       doc.setFontSize(10);
-      doc.text(`Invoice No: ${invoiceNo}`, pageWidth - margin, 72, { align: 'right' });
+      doc.text(`Quotation No: ${invoiceNo}`, pageWidth - margin, 72, { align: 'right' });
       doc.text(`Date: ${invoiceDate}`, pageWidth - margin, 88, { align: 'right' });
 
       const statusColor = STATUS_COLOR_MAP[status as ClientQuotationStatus] || STATUS_COLOR_MAP.Submitted;
@@ -1109,11 +1153,11 @@ export default function ClientQuotationsPage() {
       doc.setDrawColor(226, 232, 240);
       doc.roundedRect(margin, 140, pageWidth - margin * 2, 92, 8, 8, 'S');
 
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(10);
       doc.text('BILL TO', margin + 18, 162);
       doc.text('PROJECT DETAILS', pageWidth / 2 + 12, 162);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont(REPORT_PDF_FONT, 'normal');
       doc.setFontSize(9);
       doc.text(
         [
@@ -1145,14 +1189,14 @@ export default function ClientQuotationsPage() {
       doc.setFillColor(...hexToRgbTuple(invoiceServiceTableColors.headerBg));
       doc.roundedRect(margin, serviceSectionY, 5, 44, 3, 3, 'F');
       doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(13);
       doc.text('Service Details', margin + 16, serviceSectionY + 18);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont(REPORT_PDF_FONT, 'normal');
       doc.setFontSize(8.5);
       doc.setTextColor(100, 116, 139);
       doc.text('Professional fee breakdown by country, procedure, tax, discount, and total.', margin + 16, serviceSectionY + 32);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(15, 23, 42);
       doc.text(`${serviceStats.serviceCount} service${serviceStats.serviceCount === 1 ? '' : 's'}`, pageWidth - margin - 168, serviceSectionY + 18);
@@ -1254,7 +1298,7 @@ export default function ClientQuotationsPage() {
         ],
         theme: 'grid',
         styles: {
-          font: 'helvetica',
+          font: REPORT_PDF_FONT,
           fontSize: 8.2,
           cellPadding: { top: 7, right: 6, bottom: 7, left: 6 },
           lineColor: borderRgb,
@@ -1298,23 +1342,23 @@ export default function ClientQuotationsPage() {
 
       const afterServicesY = ((doc as any).lastAutoTable?.finalY || 330) + 18;
       doc.setTextColor(15, 23, 42);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(12);
       doc.text('Requirement Details', margin, afterServicesY);
       const requirementRows = getRequirementDisplayRows(quotation);
       autoTable.default(doc, {
         startY: afterServicesY + 12,
-        head: [['Country', 'Title', 'Description']],
+        head: [['Title', 'Country', 'Description']],
         body: requirementRows.length > 0
           ? requirementRows.map((requirement) => [
-              requirement.countryName,
               requirement.title,
+              requirement.countryName,
               requirement.requirementsText,
             ])
-          : [[countryNames || '-', '-', 'No requirement details available.']],
+          : [['-', countryNames || '-', 'No requirement details available.']],
         theme: 'grid',
         styles: {
-          font: 'helvetica',
+          font: REPORT_PDF_FONT,
           fontSize: 8.5,
           cellPadding: 6,
           lineColor: borderRgb,
@@ -1329,7 +1373,8 @@ export default function ClientQuotationsPage() {
         },
         columnStyles: {
           0: { cellWidth: 120 },
-          1: { cellWidth: pageWidth - margin * 2 - 120 },
+          1: { cellWidth: 100 },
+          2: { cellWidth: pageWidth - margin * 2 - 220 },
         },
         margin: { left: margin, right: margin },
       });
@@ -1337,10 +1382,10 @@ export default function ClientQuotationsPage() {
       const afterRequirementY = ((doc as any).lastAutoTable?.finalY || afterServicesY) + 24;
       const termsY = Math.max(afterRequirementY, pageHeight - 130);
       doc.setTextColor(71, 85, 105);
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(9);
       doc.text('Terms and Notes', margin, termsY);
-      doc.setFont('helvetica', 'normal');
+      doc.setFont(REPORT_PDF_FONT, 'normal');
       doc.setFontSize(8.5);
       doc.text(
         [
@@ -1359,10 +1404,10 @@ export default function ClientQuotationsPage() {
       doc.text(`${company?.companyName || 'AIP&T LAW FIRM'} - ${company?.countryName || countryNames}`, margin, pageHeight - 24);
       doc.text(`Generated ${new Date().toLocaleString()}`, pageWidth - margin, pageHeight - 24, { align: 'right' });
 
-      doc.save(`${toPdfFileName(invoiceNo)}-invoice.pdf`);
-      showSuccessToast('Invoice PDF downloaded successfully.');
+      doc.save(`${toPdfFileName(invoiceNo)}-report.pdf`);
+      showSuccessToast('Quotation report PDF downloaded successfully.');
     } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to download invoice PDF.');
+      showErrorToast(err?.message || 'Failed to download quotation report PDF.');
     } finally {
       setDownloadingPdfId(null);
     }
@@ -1443,25 +1488,25 @@ export default function ClientQuotationsPage() {
       const requirementRowsHtml = requirementRows.length > 0
         ? requirementRows.map((requirement, index) => `
             <tr>
-              <td style="${wordCellStyle(`requirement-row-${index}-country`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(requirement.countryName || '-')}</td>
               <td style="${wordCellStyle(`requirement-row-${index}-title`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${escapeHtml(requirement.title || '-')}</td>
-              <td style="${wordCellStyle(`requirement-row-${index}-description`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${requirement.requirementsHtml || 'No requirement details available.'}</td>
+              <td style="${wordCellStyle(`requirement-row-${index}-country`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(requirement.countryName || '-')}</td>
+              <td class="requirement-description" style="${wordCellStyle(`requirement-row-${index}-description`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${requirement.requirementsHtml || 'No requirement details available.'}</td>
             </tr>
           `).join('')
         : `<tr>
-            <td style="${wordCellStyle('requirement-row-country', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(countryNames || '-')}</td>
             <td style="${wordCellStyle('requirement-row-title', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">-</td>
-            <td style="${wordCellStyle('requirement-row-description', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">No requirement details available.</td>
+            <td style="${wordCellStyle('requirement-row-country', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(countryNames || '-')}</td>
+            <td class="requirement-description" style="${wordCellStyle('requirement-row-description', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">No requirement details available.</td>
           </tr>`;
       const html = `
         <!doctype html>
         <html>
           <head>
             <meta charset="utf-8" />
-            <title>${escapeHtml(invoiceNo)} Invoice</title>
+            <title>${escapeHtml(invoiceNo)} Report</title>
             <style>
               @page { size: A4 portrait; margin: 18mm; }
-              body { font-family: Arial, sans-serif; color: #0f172a; margin: 0; }
+              body { font-family: ${REPORT_CSS_FONT_STACK}; color: #0f172a; margin: 0; }
               .page { width: 100%; }
               .hero { background: #0b1739; color: #fff; padding: 28px; border-radius: 14px; }
               .logo { width: 54px; height: 54px; border-radius: 10px; background: #fff; object-fit: contain; }
@@ -1489,6 +1534,9 @@ export default function ClientQuotationsPage() {
               .service-table td, .service-table th { word-break: normal; overflow-wrap: break-word; }
               .procedure-main { font-weight: 800; color: inherit; }
               .procedure-sub { color: inherit; opacity: .78; font-size: 10px; }
+              .requirement-description p { margin: 0 0 7px; }
+              .requirement-description p:last-child { margin-bottom: 0; }
+              .requirement-description ul, .requirement-description ol { margin: 4px 0 4px 18px; padding: 0; }
               .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
               .footer { margin-top: 22px; color: #64748b; font-size: 11px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
             </style>
@@ -1506,8 +1554,8 @@ export default function ClientQuotationsPage() {
                     </td>
                   </tr>
                 </table>
-                <h1>CLIENT QUOTATION INVOICE</h1>
-                <div class="meta">Invoice No: ${escapeHtml(invoiceNo)} | Date: ${escapeHtml(invoiceDate)} | Status: ${escapeHtml(quotation.status || 'Submitted')}</div>
+                <h1>${CLIENT_QUOTATION_REPORT_TITLE}</h1>
+                <div class="meta">Quotation No: ${escapeHtml(invoiceNo)} | Date: ${escapeHtml(invoiceDate)} | Status: ${escapeHtml(quotation.status || 'Submitted')}</div>
               </div>
               <table class="layout-table" style="margin:18px 0;">
                 <tr>
@@ -1577,14 +1625,14 @@ export default function ClientQuotationsPage() {
               <h2 class="section-title" style="margin:18px 0 8px;">Requirement Details</h2>
               <table class="service-table">
                 <colgroup>
-                  <col style="width:20%;" />
                   <col style="width:24%;" />
+                  <col style="width:20%;" />
                   <col style="width:56%;" />
                 </colgroup>
                 <thead>
                   <tr>
-                    <th style="${wordCellStyle('requirement-header-country', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Country</th>
                     <th style="${wordCellStyle('requirement-header-title', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Title</th>
+                    <th style="${wordCellStyle('requirement-header-country', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Country</th>
                     <th style="${wordCellStyle('requirement-header-description', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Description</th>
                   </tr>
                 </thead>
@@ -1603,12 +1651,12 @@ export default function ClientQuotationsPage() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${toPdfFileName(invoiceNo)}-invoice.doc`;
+      anchor.download = `${toPdfFileName(invoiceNo)}-report.doc`;
       anchor.click();
       URL.revokeObjectURL(url);
-      showSuccessToast('Invoice Word document downloaded successfully.');
+      showSuccessToast('Quotation report Word document downloaded successfully.');
     } catch (err: any) {
-      showErrorToast(err?.message || 'Failed to download invoice Word document.');
+      showErrorToast(err?.message || 'Failed to download quotation report Word document.');
     }
   };
 
@@ -1701,7 +1749,7 @@ export default function ClientQuotationsPage() {
               <EyeIcon />
             </IconButton>
           </Tooltip>
-          <Tooltip title="Download Invoice PDF">
+          <Tooltip title="Download Report PDF">
             <span>
               <IconButton
                 size="small"
@@ -1763,6 +1811,12 @@ export default function ClientQuotationsPage() {
     setSelectedRequirementIds([]);
     setSelectedRequirementCountryId('');
     setRequirementDraftIds([]);
+    setRequirementEditorOpen(false);
+    setEditingRequirementId(null);
+    setRequirementEditorData(defaultRequirementEditorData);
+    setRequirementEditorLoading(false);
+    setRequirementEditorSaving(false);
+    setRequirementEditorError('');
     setServiceDraft(defaultServiceDraft);
     setServiceCountrySelections([]);
     setServices([]);
@@ -1824,11 +1878,95 @@ export default function ClientQuotationsPage() {
     setRequirementDraftIds([]);
   };
 
-  const handleEditRequirementInCart = (requirement: RequirementOption) => {
+  const handleEditRequirementInCart = async (requirement: RequirementOption) => {
     if (requirement.countryId) {
       setSelectedRequirementCountryId(requirement.countryId);
     }
-    setRequirementDraftIds([requirement._id]);
+    setEditingRequirementId(requirement._id);
+    setRequirementEditorData({
+      country: requirement.countryId || '',
+      countryName: requirement.countryName || '',
+      serviceCategory: requirement.serviceCategory || serviceCategory || '',
+      title: requirement.title || '',
+      requirements: requirement.requirements || '',
+    });
+    setRequirementEditorError('');
+    setRequirementEditorOpen(true);
+    setRequirementEditorLoading(true);
+
+    try {
+      const response = await requirementsService.getById(requirement._id);
+      setRequirementEditorData({
+        country: response.data.country?._id || requirement.countryId || '',
+        countryName: response.data.country?.name || requirement.countryName || '',
+        serviceCategory: response.data.serviceCategory || requirement.serviceCategory || serviceCategory || '',
+        title: response.data.title || '',
+        requirements: response.data.requirements || '',
+      });
+    } catch (err: any) {
+      setRequirementEditorError(
+        err?.response?.data?.error || err?.message || 'Failed to load latest requirement details.'
+      );
+    } finally {
+      setRequirementEditorLoading(false);
+    }
+  };
+
+  const handleCloseRequirementEditor = () => {
+    setRequirementEditorOpen(false);
+    setEditingRequirementId(null);
+    setRequirementEditorData(defaultRequirementEditorData);
+    setRequirementEditorError('');
+    setRequirementEditorLoading(false);
+    setRequirementEditorSaving(false);
+  };
+
+  const handleSaveRequirementEditor = async () => {
+    if (!editingRequirementId) return;
+    if (
+      !requirementEditorData.country ||
+      !requirementEditorData.serviceCategory ||
+      !requirementEditorData.title.trim() ||
+      !stripHtml(requirementEditorData.requirements)
+    ) {
+      setRequirementEditorError('Title and requirement details are required.');
+      return;
+    }
+
+    try {
+      setRequirementEditorSaving(true);
+      setRequirementEditorError('');
+      const response = await requirementsService.update(editingRequirementId, {
+        country: requirementEditorData.country,
+        serviceCategory: requirementEditorData.serviceCategory as ServiceCategory,
+        title: requirementEditorData.title.trim(),
+        requirements: requirementEditorData.requirements,
+      });
+      const updatedRequirement = response.data;
+      setRequirementsState((prev) => ({
+        ...prev,
+        items: prev.items.map((item) =>
+          item._id === editingRequirementId
+            ? {
+                ...item,
+                countryId: updatedRequirement.country?._id || requirementEditorData.country,
+                countryName: updatedRequirement.country?.name || requirementEditorData.countryName,
+                serviceCategory: updatedRequirement.serviceCategory || requirementEditorData.serviceCategory || undefined,
+                title: updatedRequirement.title || '',
+                requirements: updatedRequirement.requirements || '',
+              }
+            : item
+        ),
+      }));
+      notifySuccess('Requirement details updated in Requirements database.');
+      handleCloseRequirementEditor();
+    } catch (err: any) {
+      setRequirementEditorError(
+        err?.response?.data?.error || err?.message || 'Failed to update requirement details.'
+      );
+    } finally {
+      setRequirementEditorSaving(false);
+    }
   };
 
   const handleRemoveRequirementFromCart = (requirementId: string) => {
@@ -2081,6 +2219,7 @@ export default function ClientQuotationsPage() {
               _id: row._id,
               countryId: typeof row.country === 'string' ? row.country : row.country?._id || '',
               countryName: row.country?.name || '',
+              serviceCategory: row.serviceCategory,
               title: row.title || '',
               requirements: row.requirements || '',
             });
@@ -2260,6 +2399,8 @@ export default function ClientQuotationsPage() {
               top: 0,
               width: '210mm',
               minHeight: '297mm',
+              fontFamily: `${REPORT_CSS_FONT_STACK} !important`,
+              color: '#0F172A !important',
               padding: '0 !important',
               margin: '0 !important',
               backgroundColor: '#fff !important',
@@ -2273,6 +2414,9 @@ export default function ClientQuotationsPage() {
             '.client-quotation-invoice-print .MuiCard-root': {
               breakInside: 'avoid',
               pageBreakInside: 'avoid',
+            },
+            '.client-quotation-invoice-print .MuiTypography-root, .client-quotation-invoice-print .MuiTableCell-root': {
+              fontFamily: 'inherit !important',
             },
             '.client-quotation-invoice-print .MuiTableContainer-root': {
               overflow: 'visible !important',
@@ -2302,6 +2446,31 @@ export default function ClientQuotationsPage() {
             },
             '.client-quotation-invoice-print .invoice-service-table td': {
               fontSize: '10.5px !important',
+            },
+            '.client-quotation-invoice-print .invoice-requirements-card': {
+              breakInside: 'auto !important',
+              pageBreakInside: 'auto !important',
+              border: '1px solid #D7DDE7 !important',
+              boxShadow: 'none !important',
+            },
+            '.client-quotation-invoice-print .invoice-requirements-table th': {
+              fontSize: '10px !important',
+              textTransform: 'uppercase',
+              letterSpacing: '0.02em',
+            },
+            '.client-quotation-invoice-print .invoice-requirements-table td': {
+              fontSize: '10.5px !important',
+              verticalAlign: 'top',
+            },
+            '.client-quotation-invoice-print .invoice-requirement-description p': {
+              margin: '0 0 6px !important',
+            },
+            '.client-quotation-invoice-print .invoice-requirement-description p:last-child': {
+              marginBottom: '0 !important',
+            },
+            '.client-quotation-invoice-print .invoice-requirement-description ul, .client-quotation-invoice-print .invoice-requirement-description ol': {
+              margin: '4px 0 4px 18px !important',
+              padding: '0 !important',
             },
             '.client-quotation-invoice-print .invoice-money-cell': {
               whiteSpace: 'nowrap',
@@ -2543,7 +2712,7 @@ export default function ClientQuotationsPage() {
                                         </Typography>
                                       </Box>
                                       <Stack direction="row" spacing={1}>
-                                        <Tooltip title="Edit requirement selection">
+                                        <Tooltip title="Edit requirement details">
                                           <IconButton
                                             size="small"
                                             onClick={() => handleEditRequirementInCart(requirement)}
@@ -3039,6 +3208,81 @@ export default function ClientQuotationsPage() {
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={requirementEditorOpen}
+        onClose={handleCloseRequirementEditor}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Edit Requirement Details</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {requirementEditorError && (
+              <Alert severity="error">{requirementEditorError}</Alert>
+            )}
+            {requirementEditorLoading ? (
+              <Box sx={{ py: 4, textAlign: 'center' }}>
+                <CircularProgress />
+              </Box>
+            ) : (
+              <>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <TextField
+                      label="Country"
+                      value={requirementEditorData.countryName || '-'}
+                      fullWidth
+                      slotProps={{ input: { readOnly: true } }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <TextField
+                      label="Service"
+                      value={requirementEditorData.serviceCategory || '-'}
+                      fullWidth
+                      slotProps={{ input: { readOnly: true } }}
+                    />
+                  </Grid>
+                </Grid>
+                <TextField
+                  label="Title *"
+                  value={requirementEditorData.title}
+                  onChange={(event) =>
+                    setRequirementEditorData((prev) => ({ ...prev, title: event.target.value }))
+                  }
+                  fullWidth
+                />
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+                    Requirement Details *
+                  </Typography>
+                  <ReactQuill
+                    value={requirementEditorData.requirements}
+                    onChange={(content) =>
+                      setRequirementEditorData((prev) => ({ ...prev, requirements: content }))
+                    }
+                    theme="snow"
+                    modules={requirementEditorModules}
+                  />
+                </Box>
+              </>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseRequirementEditor} disabled={requirementEditorSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveRequirementEditor}
+            disabled={requirementEditorLoading || requirementEditorSaving}
+          >
+            {requirementEditorSaving ? 'Saving...' : 'Save Requirement'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={priceRuleDialogOpen} onClose={() => setPriceRuleDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>Select Price Rule</DialogTitle>
         <DialogContent>
@@ -3142,7 +3386,7 @@ export default function ClientQuotationsPage() {
       </Dialog>
 
       <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle sx={{ fontWeight: 800 }}>Client Quotation Invoice</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 800 }}>Client Quotation Report</DialogTitle>
         <DialogContent>
           {viewingItem && (
             <Box
@@ -3154,6 +3398,7 @@ export default function ClientQuotationsPage() {
                 borderColor: 'divider',
                 borderRadius: 2,
                 bgcolor: '#F8FAFC',
+                fontFamily: REPORT_CSS_FONT_STACK,
               }}
             >
               <Card
@@ -3205,10 +3450,10 @@ export default function ClientQuotationsPage() {
                             variant="overline"
                             sx={{ letterSpacing: 1.6, color: '#BFDBFE', fontWeight: 800 }}
                           >
-                            Professional Invoice
+                            Professional Report
                           </Typography>
                           <Typography variant="h4" sx={{ fontWeight: 900, lineHeight: 1.05 }}>
-                            CLIENT QUOTATION INVOICE
+                            {CLIENT_QUOTATION_REPORT_TITLE}
                           </Typography>
                           <Typography variant="body2" sx={{ color: '#CBD5E1', mt: 0.75 }}>
                             {selectedInvoiceCompanyDetail?.companyName || settings?.companyName || 'AIP&T LAW FIRM'}
@@ -3257,7 +3502,7 @@ export default function ClientQuotationsPage() {
                       >
                         <Grid container spacing={1.25}>
                           {[
-                            ['Invoice No', viewingItem.quotationNo || viewingItem._id],
+                            ['Quotation No', viewingItem.quotationNo || viewingItem._id],
                             ['Date', viewingItem.createdAt ? new Date(viewingItem.createdAt).toLocaleDateString() : '-'],
                             ['Inquiry Project', viewingItem.inquirySnapshot?.referenceNo || viewingItem.inquiryProjects?.join(', ') || '-'],
                             ['Country', viewingItem.inquirySnapshot?.countryNames?.join(', ') || '-'],
@@ -4099,7 +4344,7 @@ export default function ClientQuotationsPage() {
                 </CardContent>
               </Card>
 
-              <Card variant="outlined" sx={{ mt: 2, borderRadius: 3, borderColor: '#DDE7F3' }}>
+              <Card className="invoice-requirements-card" variant="outlined" sx={{ mt: 2, borderRadius: 3, borderColor: '#DDE7F3' }}>
                 <CardContent>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
                     Requirement Details
@@ -4112,14 +4357,19 @@ export default function ClientQuotationsPage() {
                       bgcolor: '#FFFFFF',
                     }}
                   >
-                    <Table size="small">
+                    <Table className="invoice-requirements-table" size="small" sx={{ tableLayout: 'fixed' }}>
+                      <colgroup>
+                        <col style={{ width: '24%' }} />
+                        <col style={{ width: '20%' }} />
+                        <col style={{ width: '56%' }} />
+                      </colgroup>
                       <TableHead sx={{ bgcolor: invoiceServiceTableColors.headerBg }}>
                         <TableRow>
                           <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
-                            Country
+                            Title
                           </TableCell>
                           <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
-                            Title
+                            Country
                           </TableCell>
                           <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
                             Description
@@ -4130,14 +4380,15 @@ export default function ClientQuotationsPage() {
                         {getRequirementDisplayRows(viewingItem).length > 0 ? (
                           getRequirementDisplayRows(viewingItem).map((requirement, index) => (
                             <TableRow key={`${requirement.countryName}-${requirement.title}-${index}`}>
-                              <TableCell sx={{ width: { xs: 120, md: 180 }, color: invoiceServiceTableColors.countryColText }}>
-                                {requirement.countryName || '-'}
-                              </TableCell>
-                              <TableCell sx={{ width: { xs: 140, md: 220 }, color: invoiceServiceTableColors.procedureColText, fontWeight: 700 }}>
+                              <TableCell sx={{ color: invoiceServiceTableColors.procedureColText, fontWeight: 700, verticalAlign: 'top' }}>
                                 {requirement.title || '-'}
                               </TableCell>
-                              <TableCell sx={{ color: invoiceServiceTableColors.procedureColText }}>
+                              <TableCell sx={{ color: invoiceServiceTableColors.countryColText, verticalAlign: 'top' }}>
+                                {requirement.countryName || '-'}
+                              </TableCell>
+                              <TableCell sx={{ color: invoiceServiceTableColors.procedureColText, verticalAlign: 'top' }}>
                                 <Box
+                                  className="invoice-requirement-description"
                                   sx={{
                                     '& p': { m: 0, mb: 1 },
                                     '& p:last-of-type': { mb: 0 },
@@ -4151,8 +4402,8 @@ export default function ClientQuotationsPage() {
                           ))
                         ) : (
                           <TableRow>
-                            <TableCell>{getRequirementCountryName(viewingItem) || '-'}</TableCell>
                             <TableCell>-</TableCell>
+                            <TableCell>{getRequirementCountryName(viewingItem) || '-'}</TableCell>
                             <TableCell>
                               <Typography variant="body2" color="text.secondary">
                                 No requirement details available.
@@ -4172,14 +4423,14 @@ export default function ClientQuotationsPage() {
           {viewingItem && (
             <>
               <Button variant="outlined" onClick={() => handleDownloadInvoicePdf(viewingItem)}>
-                Download PDF
+                Download PDF Report
               </Button>
               <Button variant="outlined" onClick={() => handleDownloadInvoiceWord(viewingItem)}>
-                Download Word
+                Download Word Report
               </Button>
             </>
           )}
-          <Button onClick={() => window.print()}>Print Invoice</Button>
+          <Button onClick={() => window.print()}>Print Report</Button>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>

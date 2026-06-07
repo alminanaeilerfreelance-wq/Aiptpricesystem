@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
-import Requirement from '@/models/Requirement';
+import Requirement, { ensureRequirementDuplicatesAllowed } from '@/models/Requirement';
 import Country from '@/models/Country';
 import mongoose from 'mongoose';
 
@@ -129,9 +129,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     await connectDB();
+    await ensureRequirementDuplicatesAllowed();
 
     const body = await req.json();
-    const { country, serviceCategory, title, requirements, upsertByCountry = false } = body;
+    const { country, serviceCategory, title, requirements } = body;
     const safeTitle = normalizeTitle(title);
     const safeRequirements = typeof requirements === 'string' ? sanitizeRichText(requirements) : '';
 
@@ -156,25 +157,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Country not found' }, { status: 404 });
     }
 
-    const requirementFilter: Record<string, unknown> = { country };
-    requirementFilter.serviceCategory = normalizedServiceCategory;
-    const existingRequirement = await Requirement.findOne(requirementFilter);
-    if (existingRequirement) {
-      if (!upsertByCountry) {
-        return NextResponse.json(
-          { error: 'Requirement for this country already exists' },
-          { status: 409 }
-        );
-      }
-
-      existingRequirement.requirements = safeRequirements;
-      existingRequirement.title = safeTitle;
-      existingRequirement.serviceCategory = normalizedServiceCategory;
-      await existingRequirement.save();
-      await existingRequirement.populate('country', 'name abbreviation');
-      return NextResponse.json(existingRequirement, { status: 200 });
-    }
-
     const newRequirement = new Requirement({
       country,
       serviceCategory: normalizedServiceCategory,
@@ -186,12 +168,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(newRequirement, { status: 201 });
   } catch (error: any) {
-    if (error?.code === 11000) {
-      return NextResponse.json(
-        { error: 'Requirement for this country already exists' },
-        { status: 409 }
-      );
-    }
     console.error('POST /api/requirements error:', error);
     return NextResponse.json({ error: 'Failed to create requirement' }, { status: 500 });
   }

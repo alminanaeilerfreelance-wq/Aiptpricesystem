@@ -44,4 +44,44 @@ if (existingRequirement && !existingRequirement.schema.path('title')) {
   delete mongoose.models.Requirement;
 }
 
-export default mongoose.models.Requirement || mongoose.model<IRequirement>('Requirement', RequirementSchema);
+const RequirementModel = (
+  mongoose.models.Requirement || mongoose.model<IRequirement>('Requirement', RequirementSchema)
+) as Model<IRequirement>;
+
+type RequirementIndex = {
+  name?: string;
+  key?: Record<string, unknown>;
+  unique?: boolean;
+};
+
+let legacyUniqueIndexCleanupPromise: Promise<void> | null = null;
+
+export function ensureRequirementDuplicatesAllowed() {
+  if (!legacyUniqueIndexCleanupPromise) {
+    legacyUniqueIndexCleanupPromise = (async () => {
+      try {
+        const indexes = await RequirementModel.collection.indexes() as RequirementIndex[];
+
+        const legacyUniqueIndexes = indexes.filter((index) => {
+          if (!index.unique || !index.name || index.name === '_id_') return false;
+
+          const keys = Object.keys(index.key ?? {});
+          return (
+            keys.includes('country') &&
+            keys.every((key) => key === 'country' || key === 'serviceCategory')
+          );
+        });
+
+        await Promise.all(
+          legacyUniqueIndexes.map((index) => RequirementModel.collection.dropIndex(index.name as string))
+        );
+      } catch (error) {
+        console.warn('Unable to remove legacy unique requirement indexes:', error);
+      }
+    })();
+  }
+
+  return legacyUniqueIndexCleanupPromise;
+}
+
+export default RequirementModel;

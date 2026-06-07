@@ -114,8 +114,8 @@ const extractSerialFromReference = (referenceNo: string): string | null => {
   return match ? match[1] : null;
 };
 
-const buildReferenceNo = (serial: string, countryCodes: string[]): string =>
-  `${serial}${countryCodes.join('/')}`;
+const buildReferenceNo = (serial: string, countryCodes: string[], selectedCountryCount: number): string =>
+  `${serial}${selectedCountryCount > 1 ? 'INT' : countryCodes[0] || 'COUNTRY'}`;
 
 const nextAvailableSerial = async (excludeId: string, preferredSerial?: string | null): Promise<string> => {
   const excludeObjectId = new mongoose.Types.ObjectId(excludeId);
@@ -256,14 +256,14 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       .map((country) => normalizeCountryCode(country.abbreviation || ''))
       .filter(Boolean);
 
-    if (countryCodes.length === 0) {
+    if (finalCountryIdStrings.length === 1 && countryCodes.length === 0) {
       return NextResponse.json({ error: 'Unable to generate reference from selected countries' }, { status: 400 });
     }
 
     const preferredSerial = extractSerialFromReference(existing.referenceNo || '');
     const serial = await nextAvailableSerial(id, preferredSerial);
 
-    updatePayload.referenceNo = buildReferenceNo(serial, countryCodes);
+    updatePayload.referenceNo = buildReferenceNo(serial, countryCodes, finalCountryIdStrings.length);
     updatePayload.serviceId = new mongoose.Types.ObjectId(finalServiceId);
     updatePayload.procedureId = new mongoose.Types.ObjectId(finalProcedureIdStrings[0]);
     updatePayload.procedureIds = finalProcedureIdStrings.map(

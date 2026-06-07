@@ -100,6 +100,27 @@ const validateServiceRows = (services: RawServiceItem[]): string[] => {
   return errors;
 };
 
+const getInquiryCountryNames = (inquiry: any): string[] =>
+  Array.isArray(inquiry?.countryIds)
+    ? inquiry.countryIds.map((country: any) => String(country?.name || '').trim()).filter(Boolean)
+    : [];
+
+const validateServiceCountries = (services: RawServiceItem[], inquiry: any): string[] => {
+  const allowedCountryNames = new Set(
+    getInquiryCountryNames(inquiry).map((countryName) => countryName.toLowerCase())
+  );
+  if (allowedCountryNames.size === 0) return [];
+
+  return services.flatMap((service, index) => {
+    const countryName = String(service.countryName || '').trim();
+    if (!countryName) return [`Service row ${index + 1}: Country is required.`];
+    if (!allowedCountryNames.has(countryName.toLowerCase())) {
+      return [`Service row ${index + 1}: Country must match the inquiry countries.`];
+    }
+    return [];
+  });
+};
+
 const calculateServices = (services: RawServiceItem[]) => {
   const normalized = services.map((service) => {
     const classType = service.classType === 'multi' ? 'multi' : 'single';
@@ -393,6 +414,16 @@ export async function POST(req: NextRequest) {
         {
           error: 'Invalid fee values',
           details: validationErrors,
+        },
+        { status: 400 }
+      );
+    }
+    const serviceCountryErrors = validateServiceCountries(services, inquiry);
+    if (serviceCountryErrors.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Invalid service countries',
+          details: serviceCountryErrors,
         },
         { status: 400 }
       );

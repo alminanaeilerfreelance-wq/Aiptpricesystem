@@ -105,8 +105,8 @@ const normalizeCountryCode = (value: string): string =>
 
 const formatSerial = (value: number): string => String(value).padStart(5, '0');
 
-const buildReferenceNo = (serial: string, countryCodes: string[]): string =>
-  `${serial}${countryCodes.join('/')}`;
+const buildReferenceNo = (serial: string, countryCodes: string[], selectedCountryCount: number): string =>
+  `${serial}${selectedCountryCount > 1 ? 'INT' : countryCodes[0] || 'COUNTRY'}`;
 
 const nextAvailableSerial = async (): Promise<string> => {
   let sequence = (await Inquire.countDocuments()) + 1;
@@ -314,12 +314,12 @@ export async function POST(req: NextRequest) {
       .map((country) => normalizeCountryCode(country.abbreviation || ''))
       .filter(Boolean);
 
-    if (countryCodes.length === 0) {
+    if (countryIdStrings.length === 1 && countryCodes.length === 0) {
       return NextResponse.json({ error: 'Unable to generate reference from selected countries' }, { status: 400 });
     }
 
     const serial = await nextAvailableSerial();
-    const referenceNo = buildReferenceNo(serial, countryCodes);
+    const referenceNo = buildReferenceNo(serial, countryCodes, countryIdStrings.length);
 
     const created = await Inquire.create({
       inquiryDate,

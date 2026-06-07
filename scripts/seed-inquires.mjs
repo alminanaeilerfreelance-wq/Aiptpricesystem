@@ -151,10 +151,10 @@ async function seedInquires() {
         continue;
       }
 
-      let referenceNo = `${formatSerial(serial)}${countryCodes.join('/')}`;
+      let referenceNo = `${formatSerial(serial)}INT`;
       while (existingRefs.has(referenceNo)) {
         serial += 1;
-        referenceNo = `${formatSerial(serial)}${countryCodes.join('/')}`;
+        referenceNo = `${formatSerial(serial)}INT`;
       }
       existingRefs.add(referenceNo);
 
@@ -198,4 +198,3 @@ seedInquires().catch(async (err) => {
   }
   process.exit(1);
 });
-

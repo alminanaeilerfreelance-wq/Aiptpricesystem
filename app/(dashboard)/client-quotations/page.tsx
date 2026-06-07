@@ -59,6 +59,12 @@ interface RequirementOption {
   requirements: string;
 }
 
+interface InquiryCountryOption {
+  _id: string;
+  name: string;
+  abbreviation?: string;
+}
+
 interface RequirementsState {
   loading: boolean;
   error: string;
@@ -361,6 +367,28 @@ const computeVatAmount = (attorneyFeeAfterDiscount: number, vatPercent: number):
 const getQuotationCountryNames = (quotation: ClientQuotation | null | undefined): string =>
   quotation?.inquirySnapshot?.countryNames?.join(', ') || '';
 
+const getInquiryCountryOptions = (inquiry: Inquire | null | undefined): InquiryCountryOption[] =>
+  Array.isArray(inquiry?.countryIds)
+    ? inquiry.countryIds
+        .flatMap((country: any): InquiryCountryOption[] => {
+          if (!country || typeof country === 'string') return [];
+          return [{
+            _id: String(country._id || ''),
+            name: String(country.name || '').trim(),
+            abbreviation: String(country.abbreviation || '').trim().toUpperCase(),
+          }];
+        })
+        .filter((country) => Boolean(country._id && country.name))
+    : [];
+
+const getInquiryReferenceSuffix = (referenceNo?: string): string =>
+  String(referenceNo || '').replace(/^\d{5}/, '').trim().toUpperCase();
+
+const isInternationalInquiryReference = (
+  inquiry: Inquire | null | undefined,
+  countries: InquiryCountryOption[]
+): boolean => getInquiryReferenceSuffix(inquiry?.referenceNo) === 'INT' || countries.length > 1;
+
 const getRequirementOptionLabel = (requirement: Pick<RequirementOption, 'title' | 'requirements'>): string =>
   requirement.title?.trim() || stripHtml(requirement.requirements || '').slice(0, 120) || 'Untitled Requirement';
 
@@ -603,7 +631,10 @@ export default function ClientQuotationsPage() {
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedInquiryId, setSelectedInquiryId] = useState('');
   const [selectedRequirementIds, setSelectedRequirementIds] = useState<string[]>([]);
+  const [selectedRequirementCountryId, setSelectedRequirementCountryId] = useState('');
+  const [requirementDraftIds, setRequirementDraftIds] = useState<string[]>([]);
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(defaultServiceDraft);
+  const [serviceCountrySelections, setServiceCountrySelections] = useState<string[]>([]);
   const [services, setServices] = useState<ClientQuotationServiceItem[]>([]);
   const [editingServiceIndex, setEditingServiceIndex] = useState<number | null>(null);
   const [editingServiceDraft, setEditingServiceDraft] = useState<ServiceDraft | null>(null);
@@ -835,6 +866,12 @@ export default function ClientQuotationsPage() {
       .map((id) => requirementById.get(id))
       .filter((item): item is RequirementOption => Boolean(item));
   }, [requirementsState.items, selectedRequirementIds]);
+  const selectedRequirementDrafts = useMemo(() => {
+    const requirementById = new Map(requirementsState.items.map((item) => [item._id, item]));
+    return requirementDraftIds
+      .map((id) => requirementById.get(id))
+      .filter((item): item is RequirementOption => Boolean(item));
+  }, [requirementsState.items, requirementDraftIds]);
   const inquiryProcedureOptions = useMemo(
     () => Array.from(new Set(getInquireProcedureNames(selectedInquiry))).filter(Boolean),
     [selectedInquiry]
@@ -848,32 +885,60 @@ export default function ClientQuotationsPage() {
             .filter(Boolean)
         )
       );
-      if (fromPricingRules.length > 0) return fromPricingRules;
-      return inquiryProcedureOptions;
+      return Array.from(new Set([...inquiryProcedureOptions, ...fromPricingRules])).filter(Boolean);
     },
     [priceRules, inquiryProcedureOptions]
   );
-  const inquiryCountries = useMemo(
-    () =>
-      Array.isArray(selectedInquiry?.countryIds)
-        ? selectedInquiry.countryIds.map((country: any) => country?.name || '').filter(Boolean)
-        : [],
+  const inquiryCountryOptions = useMemo(
+    () => getInquiryCountryOptions(selectedInquiry),
     [selectedInquiry]
+  );
+  const inquiryCountries = useMemo(
+    () => inquiryCountryOptions.map((country) => country.name).filter(Boolean),
+    [inquiryCountryOptions]
+  );
+  const isInternationalInquiry = useMemo(
+    () => isInternationalInquiryReference(selectedInquiry, inquiryCountryOptions),
+    [selectedInquiry, inquiryCountryOptions]
   );
   const availableRuleCountries = useMemo(
     () => Array.from(new Set(inquiryCountries)),
     [inquiryCountries]
   );
+  const requirementCountryOptions = useMemo(
+    () =>
+      inquiryCountryOptions.map((country) => ({
+        ...country,
+        requirementCount: requirementsState.items.filter((requirement) => requirement.countryId === country._id).length,
+      })),
+    [inquiryCountryOptions, requirementsState.items]
+  );
+  const visibleRequirementOptions = useMemo(
+    () =>
+      selectedRequirementCountryId
+        ? requirementsState.items.filter((requirement) => requirement.countryId === selectedRequirementCountryId)
+        : [],
+    [requirementsState.items, selectedRequirementCountryId]
+  );
   const filteredPriceRules = useMemo(() => {
     const procedureFilter = serviceDraft.procedureName.trim();
+    const allowedCountries = new Set(inquiryCountries.map((country) => country.trim().toLowerCase()));
+    const selectedCountry = priceRuleCountryFilter.trim().toLowerCase();
     return (priceRules || []).filter((rule) => {
       const normalizedRuleProcedure = normalizeProcedureName(rule.procedureName || '');
+      const normalizedRuleCountry = String(rule.countryName || '').trim().toLowerCase();
+      if (allowedCountries.size > 0 && !allowedCountries.has(normalizedRuleCountry)) {
+        return false;
+      }
+      if (selectedCountry && normalizedRuleCountry !== selectedCountry) {
+        return false;
+      }
       if (procedureFilter) {
         return normalizedRuleProcedure === normalizeProcedureName(procedureFilter);
       }
       return true;
     });
-  }, [priceRules, serviceDraft.procedureName]);
+  }, [inquiryCountries, priceRuleCountryFilter, priceRules, serviceDraft.procedureName]);
   const selectedPriceRule = useMemo(
     () => filteredPriceRules.find((rule) => rule._id === selectedPriceRuleId) || null,
     [filteredPriceRules, selectedPriceRuleId]
@@ -912,18 +977,34 @@ export default function ClientQuotationsPage() {
   const inquiryProcedure = getInquireProcedureLabel(selectedInquiry);
   const inquiryCountry = inquiryCountries.join(', ');
   const primaryInquiryCountry = inquiryCountries[0] || '';
+  const getServiceCountryTargets = useCallback((): string[] => {
+    const selectedCountries = serviceCountrySelections
+      .map((country) => country.trim())
+      .filter(Boolean);
+    if (selectedCountries.length > 0) return Array.from(new Set(selectedCountries));
+
+    const draftCountry = serviceDraft.countryName.trim();
+    if (draftCountry) return [draftCountry];
+
+    return !isInternationalInquiry && primaryInquiryCountry ? [primaryInquiryCountry] : [];
+  }, [isInternationalInquiry, primaryInquiryCountry, serviceCountrySelections, serviceDraft.countryName]);
   const resolveServiceCountryName = useCallback(
     (countryName?: string) => {
       const normalizedCountry = String(countryName || '').trim();
       if (normalizedCountry) return normalizedCountry;
-      return priceRuleCountryFilter || primaryInquiryCountry || inquiryCountry || '';
+      return priceRuleCountryFilter || serviceCountrySelections[0] || primaryInquiryCountry || '';
     },
-    [priceRuleCountryFilter, primaryInquiryCountry, inquiryCountry]
+    [priceRuleCountryFilter, primaryInquiryCountry, serviceCountrySelections]
   );
   useEffect(() => {
     if (!primaryInquiryCountry) return;
-    setServiceDraft((prev) => (prev.countryName ? prev : { ...prev, countryName: primaryInquiryCountry }));
-  }, [primaryInquiryCountry]);
+    setServiceDraft((prev) => (prev.countryName || isInternationalInquiry ? prev : { ...prev, countryName: primaryInquiryCountry }));
+    setServiceCountrySelections((prev) => {
+      const valid = prev.filter((country) => inquiryCountries.includes(country));
+      if (valid.length > 0) return valid;
+      return isInternationalInquiry ? [] : [primaryInquiryCountry];
+    });
+  }, [inquiryCountries, isInternationalInquiry, primaryInquiryCountry]);
   const serviceDraftComputedRow = useMemo(
     () => computeClientRow(serviceDraft, serviceCategory),
     [serviceDraft, serviceCategory]
@@ -1680,7 +1761,10 @@ export default function ClientQuotationsPage() {
     setSelectedClientId('');
     setSelectedInquiryId('');
     setSelectedRequirementIds([]);
+    setSelectedRequirementCountryId('');
+    setRequirementDraftIds([]);
     setServiceDraft(defaultServiceDraft);
+    setServiceCountrySelections([]);
     setServices([]);
     setEditingServiceIndex(null);
     setEditingServiceDraft(null);
@@ -1706,12 +1790,15 @@ export default function ClientQuotationsPage() {
 
   const handleOpenEdit = (row: ClientQuotation) => {
     const quotationCountry = row.inquirySnapshot?.countryNames?.[0] || row.inquirySnapshot?.countryNames?.join(', ') || '';
+    const quotationCountries = row.inquirySnapshot?.countryNames || [];
     setEditingId(row._id);
     setSelectedClientId(typeof row.clientId === 'object' ? row.clientId?._id || '' : (row.clientId || ''));
     setSelectedInquiryId(
       typeof row.inquiryId === 'object' ? row.inquiryId?._id || '' : (row.inquiryId || '')
     );
     setSelectedRequirementIds(getQuotationRequirementIds(row));
+    setSelectedRequirementCountryId('');
+    setRequirementDraftIds([]);
     setServices(
       Array.isArray(row.services)
         ? row.services.map((service) => ({
@@ -1721,15 +1808,50 @@ export default function ClientQuotationsPage() {
         : []
     );
     setServiceDraft({ ...defaultServiceDraft, countryName: quotationCountry });
+    setServiceCountrySelections(quotationCountries.length > 1 ? [] : quotationCountries.filter(Boolean));
     setEditingServiceIndex(null);
     setEditingServiceDraft(null);
     setActiveTab((row.serviceCategory || row.inquirySnapshot?.serviceCategory || 'Trademark') as ServiceCategory);
     setOpenForm(true);
   };
 
+  const handleAddRequirementsToCart = () => {
+    if (requirementDraftIds.length === 0) {
+      notifyValidationError('Select at least one requirement title first.');
+      return;
+    }
+    setSelectedRequirementIds((prev) => Array.from(new Set([...prev, ...requirementDraftIds])));
+    setRequirementDraftIds([]);
+  };
+
+  const handleEditRequirementInCart = (requirement: RequirementOption) => {
+    if (requirement.countryId) {
+      setSelectedRequirementCountryId(requirement.countryId);
+    }
+    setRequirementDraftIds([requirement._id]);
+  };
+
+  const handleRemoveRequirementFromCart = (requirementId: string) => {
+    setSelectedRequirementIds((prev) => prev.filter((id) => id !== requirementId));
+    setRequirementDraftIds((prev) => prev.filter((id) => id !== requirementId));
+  };
+
   const handleAddService = () => {
     if (!serviceDraft.procedureName.trim()) {
       notifyValidationError('Procedure is required.');
+      return;
+    }
+    const allowedCountryNames = new Set(inquiryCountries.map((country) => country.trim().toLowerCase()));
+    const countryTargets = getServiceCountryTargets();
+    if (countryTargets.length === 0) {
+      notifyValidationError('Select at least one service country.');
+      return;
+    }
+    const invalidCountry = countryTargets.find(
+      (country) => allowedCountryNames.size > 0 && !allowedCountryNames.has(country.trim().toLowerCase())
+    );
+    if (invalidCountry) {
+      notifyValidationError(`Service country must match the selected inquiry countries: ${invalidCountry}`);
       return;
     }
     const feeErrors = validateServiceFees(serviceDraft);
@@ -1743,36 +1865,24 @@ export default function ClientQuotationsPage() {
     }
     const nextDraft = {
       ...serviceDraft,
-      countryName: resolveServiceCountryName(serviceDraft.countryName),
+      countryName: '',
     };
-    setServices((prev) => [...prev, computeClientRow(nextDraft, serviceCategory)]);
+    setServices((prev) => [
+      ...prev,
+      ...countryTargets.map((countryName) =>
+        computeClientRow({ ...nextDraft, countryName }, serviceCategory)
+      ),
+    ]);
     setServiceDraft((prev) => ({
       ...defaultServiceDraft,
       procedureName: prev.procedureName,
-      countryName: resolveServiceCountryName(prev.countryName),
+      countryName: isInternationalInquiry ? '' : resolveServiceCountryName(prev.countryName),
     }));
   };
 
   const handleSelectServiceProcedure = (procedureName: string) => {
     const normalizedProcedure = procedureName.trim();
     setServiceDraft((prev) => ({ ...prev, procedureName: normalizedProcedure }));
-    if (!normalizedProcedure) return;
-    if (editingServiceIndex !== null) {
-      notifyValidationError('Save or cancel current row editing before selecting another procedure.');
-      return;
-    }
-
-    const nextDraft: ServiceDraft = {
-      ...serviceDraft,
-      procedureName: normalizedProcedure,
-      countryName: resolveServiceCountryName(serviceDraft.countryName),
-    };
-    setServices((prev) => [...prev, computeClientRow(nextDraft, serviceCategory)]);
-    setServiceDraft((prev) => ({
-      ...defaultServiceDraft,
-      procedureName: normalizedProcedure,
-      countryName: resolveServiceCountryName(prev.countryName),
-    }));
   };
 
   const handleStartEditService = (index: number) => {
@@ -1791,6 +1901,14 @@ export default function ClientQuotationsPage() {
     if (editingServiceIndex === null || !editingServiceDraft) return;
     if (!editingServiceDraft.procedureName.trim()) {
       notifyValidationError('Procedure is required.');
+      return;
+    }
+    const allowedCountryNames = new Set(inquiryCountries.map((country) => country.trim().toLowerCase()));
+    if (
+      allowedCountryNames.size > 0 &&
+      !allowedCountryNames.has(resolveServiceCountryName(editingServiceDraft.countryName).trim().toLowerCase())
+    ) {
+      notifyValidationError('Service row country must match the selected inquiry countries.');
       return;
     }
     const feeErrors = validateServiceFees(editingServiceDraft);
@@ -1861,6 +1979,16 @@ export default function ClientQuotationsPage() {
       notifyValidationError('Add at least one service row.');
       return;
     }
+    const allowedCountryNames = new Set(inquiryCountries.map((country) => country.trim().toLowerCase()));
+    const invalidServiceCountry = services.find(
+      (service) =>
+        allowedCountryNames.size > 0 &&
+        !allowedCountryNames.has(resolveServiceCountryName(service.countryName).trim().toLowerCase())
+    );
+    if (invalidServiceCountry) {
+      notifyValidationError('Every service row country must match the selected inquiry countries.');
+      return;
+    }
     const rowValidationError = services
       .map((service) => validateServiceFees(toServiceDraftFromRow(service, serviceCategory)))
       .find((errors) => errors.length > 0)?.[0];
@@ -1921,12 +2049,13 @@ export default function ClientQuotationsPage() {
           items: [],
         });
         setSelectedRequirementIds([]);
+        setSelectedRequirementCountryId('');
+        setRequirementDraftIds([]);
         return;
       }
 
-      const countryNames = Array.isArray(selectedInquiry.countryIds)
-        ? selectedInquiry.countryIds.map((c: any) => c?.name || '').filter(Boolean).join(', ')
-        : '';
+      const selectedCountryOptions = getInquiryCountryOptions(selectedInquiry);
+      const countryNames = selectedCountryOptions.map((country) => country.name).filter(Boolean).join(', ');
       const selectedServiceCategory = ((selectedInquiry.serviceId as any)?.category || '') as string;
       setRequirementsState({
         loading: true,
@@ -1937,9 +2066,7 @@ export default function ClientQuotationsPage() {
       });
 
       try {
-        const countryIds = Array.isArray(selectedInquiry.countryIds)
-          ? selectedInquiry.countryIds.map((c: any) => (typeof c === 'string' ? c : c?._id)).filter(Boolean)
-          : [];
+        const countryIds = selectedCountryOptions.map((country) => country._id).filter(Boolean);
         const requirementsAcc: RequirementOption[] = [];
         for (const countryId of countryIds) {
           const response = await requirementsService.list({
@@ -1970,8 +2097,16 @@ export default function ClientQuotationsPage() {
         });
         setSelectedRequirementIds((prev) => {
           const availableIds = new Set(requirementsAcc.map((requirement) => requirement._id));
-          const retainedIds = prev.filter((id) => availableIds.has(id));
-          return retainedIds.length > 0 ? retainedIds : requirementsAcc.map((requirement) => requirement._id);
+          return prev.filter((id) => availableIds.has(id));
+        });
+        setRequirementDraftIds((prev) => {
+          const availableIds = new Set(requirementsAcc.map((requirement) => requirement._id));
+          return prev.filter((id) => availableIds.has(id));
+        });
+        setSelectedRequirementCountryId((prev) => {
+          const validCountryIds = new Set(selectedCountryOptions.map((country) => country._id));
+          if (prev && validCountryIds.has(prev)) return prev;
+          return selectedCountryOptions[0]?._id || '';
         });
       } catch {
         if (cancelled) return;
@@ -1983,6 +2118,8 @@ export default function ClientQuotationsPage() {
           items: [],
         });
         setSelectedRequirementIds([]);
+        setSelectedRequirementCountryId('');
+        setRequirementDraftIds([]);
       }
     };
 
@@ -2006,12 +2143,18 @@ export default function ClientQuotationsPage() {
       setPriceRulesLoading(true);
       setPriceRulesError('');
       try {
-        const countryFilter = priceRuleCountryFilter || inquiryCountries[0] || undefined;
+        const countryFilter = priceRuleCountryFilter || (!isInternationalInquiry ? inquiryCountries[0] : '');
+        if (!countryFilter) {
+          setPriceRules([]);
+          setSelectedPriceRuleId('');
+          return;
+        }
         const response = await pricingRulesService.list({
           page: 1,
           limit: 1000,
           category: serviceCategory,
           country: countryFilter,
+          status: 'active',
         });
         if (cancelled) return;
         setPriceRules(response.pricingRules || []);
@@ -2030,7 +2173,7 @@ export default function ClientQuotationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedInquiry, serviceCategory, priceRuleCountryFilter, inquiryCountries]);
+  }, [inquiryCountries, isInternationalInquiry, priceRuleCountryFilter, selectedInquiry, serviceCategory]);
 
   const handleOpenPriceRules = () => {
     if (!selectedInquiry) {
@@ -2043,7 +2186,7 @@ export default function ClientQuotationsPage() {
         procedureName: serviceDetailProcedureOptions[0],
       }));
     }
-    setPriceRuleCountryFilter(inquiryCountries[0] || '');
+    setPriceRuleCountryFilter(serviceCountrySelections[0] || inquiryCountries[0] || '');
     setSelectedPriceRuleId('');
     setPriceRuleDialogOpen(true);
   };
@@ -2061,15 +2204,20 @@ export default function ClientQuotationsPage() {
       notifyValidationError('Price rule procedure must match Service Details procedure.');
       return;
     }
+    const ruleCountryName = resolveServiceCountryName(selectedPriceRule.countryName);
     setServiceDraft((prev) => ({
       ...prev,
       procedureName: selectedPriceRule.procedureName || prev.procedureName,
-      countryName: resolveServiceCountryName(selectedPriceRule.countryName),
+      countryName: ruleCountryName,
       officialFee: Math.max(0, Number(selectedPriceRule.officialFee || 0)),
       attorneyFee: Math.max(0, Number(selectedPriceRule.attorneyFee || 0)),
       additionalFeePerClass:
         prev.classType === 'multi' ? Math.max(0, Number(selectedPriceRule.classFee || 0)) : 0,
     }));
+    if (ruleCountryName) {
+      setServiceCountrySelections([ruleCountryName]);
+      setPriceRuleCountryFilter(ruleCountryName);
+    }
     setPriceRuleDialogOpen(false);
   };
 
@@ -2251,8 +2399,14 @@ export default function ClientQuotationsPage() {
                             .map((country: any) => country?.name || '')
                             .filter(Boolean)
                         : [];
+                      const nextIsInternational =
+                        getInquiryReferenceSuffix(value?.referenceNo) === 'INT' || nextInquiryCountries.length > 1;
                       setSelectedInquiryId(value?._id || '');
                       setSelectedRequirementIds([]);
+                      setSelectedRequirementCountryId('');
+                      setRequirementDraftIds([]);
+                      setServiceCountrySelections(nextIsInternational ? [] : nextInquiryCountries.slice(0, 1));
+                      setPriceRuleCountryFilter('');
                       setEditingServiceIndex(null);
                       setEditingServiceDraft(null);
                       const inquiryProcedureNames = getInquireProcedureNames(value || null);
@@ -2262,7 +2416,7 @@ export default function ClientQuotationsPage() {
                       setServiceDraft((p) => ({
                         ...p,
                         procedureName: inquiryProcedureNames[0] || '',
-                        countryName: nextInquiryCountries[0] || '',
+                        countryName: nextIsInternational ? '' : nextInquiryCountries[0] || '',
                       }));
                     }}
                     noOptionsText="No unused inquiry projects"
@@ -2282,28 +2436,31 @@ export default function ClientQuotationsPage() {
                         <Typography variant="body2" color="text.secondary">Loading requirements...</Typography>
                       ) : requirementsState.error ? (
                         <Typography variant="body2" color="error">{requirementsState.error}</Typography>
-                      ) : !requirementsState.items.length ? (
-                        <Typography variant="body2" color="text.secondary">
-                          No requirements available for this country and service.
-                        </Typography>
                       ) : (
                         <Grid container spacing={2}>
                           <Grid size={{ xs: 12 }}>
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>
                               Service: {requirementsState.serviceCategory || '-'}
+                              {isInternationalInquiry ? ' | INT inquiry: select country requirements below' : ''}
                             </Typography>
                           </Grid>
-                          <Grid size={{ xs: 12 }}>
+                          <Grid size={{ xs: 12, md: 5 }}>
                             <Autocomplete
-                              multiple
-                              disableCloseOnSelect
-                              options={requirementsState.items}
-                              value={selectedRequirements}
-                              onChange={(_, value) => setSelectedRequirementIds(value.map((item) => item._id))}
+                              options={requirementCountryOptions}
+                              value={
+                                requirementCountryOptions.find(
+                                  (country) => country._id === selectedRequirementCountryId
+                                ) || null
+                              }
+                              onChange={(_, value) => {
+                                setSelectedRequirementCountryId(value?._id || '');
+                                setRequirementDraftIds([]);
+                              }}
                               isOptionEqualToValue={(option, value) => option._id === value._id}
                               getOptionKey={(option) => option._id}
-                              getOptionLabel={getRequirementOptionLabel}
-                              groupBy={(option) => option.countryName || 'Country'}
+                              getOptionLabel={(option) =>
+                                `${option.abbreviation ? `${option.abbreviation} - ` : ''}${option.name}`
+                              }
                               renderOption={(props, option) => {
                                 const optionProps = { ...props } as React.HTMLAttributes<HTMLLIElement> & {
                                   key?: React.Key;
@@ -2313,22 +2470,51 @@ export default function ClientQuotationsPage() {
                                   <li {...optionProps} key={option._id}>
                                     <Box>
                                       <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                                        {getRequirementOptionLabel(option)}
+                                        {option.name}
                                       </Typography>
                                       <Typography variant="caption" color="text.secondary">
-                                        {option.countryName || '-'}
+                                        {option.requirementCount} requirement{option.requirementCount === 1 ? '' : 's'}
                                       </Typography>
                                     </Box>
                                   </li>
                                 );
                               }}
-                              renderInput={(params) => <TextField {...params} label="Requirement Titles *" />}
+                              renderInput={(params) => <TextField {...params} label="Requirement Country *" />}
                             />
+                          </Grid>
+                          <Grid size={{ xs: 12, md: 7 }}>
+                            <Autocomplete
+                              multiple
+                              disableCloseOnSelect
+                              options={visibleRequirementOptions}
+                              value={selectedRequirementDrafts.filter(
+                                (requirement) => requirement.countryId === selectedRequirementCountryId
+                              )}
+                              onChange={(_, value) => setRequirementDraftIds(value.map((item) => item._id))}
+                              isOptionEqualToValue={(option, value) => option._id === value._id}
+                              getOptionKey={(option) => option._id}
+                              getOptionLabel={getRequirementOptionLabel}
+                              noOptionsText={
+                                selectedRequirementCountryId
+                                  ? 'No requirements for this selected country'
+                                  : 'Select a country first'
+                              }
+                              renderInput={(params) => <TextField {...params} label="Available Requirement Titles" />}
+                            />
+                          </Grid>
+                          <Grid size={{ xs: 12 }}>
+                            <Button
+                              variant="outlined"
+                              onClick={handleAddRequirementsToCart}
+                              disabled={requirementDraftIds.length === 0}
+                            >
+                              Add Selected Requirements to Quotation Cart
+                            </Button>
                           </Grid>
                           <Grid size={{ xs: 12 }}>
                             {selectedRequirements.length === 0 ? (
                               <Typography variant="body2" color="text.secondary">
-                                Select one or more requirement titles to preview the requirement details.
+                                No requirements in the quotation cart yet.
                               </Typography>
                             ) : (
                               <Stack spacing={1.5}>
@@ -2343,12 +2529,40 @@ export default function ClientQuotationsPage() {
                                       bgcolor: 'background.paper',
                                     }}
                                   >
-                                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                                      {getRequirementOptionLabel(requirement)}
-                                    </Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      Country: {requirement.countryName || '-'}
-                                    </Typography>
+                                    <Stack
+                                      direction={{ xs: 'column', sm: 'row' }}
+                                      spacing={1}
+                                      sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' } }}
+                                    >
+                                      <Box>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                          {getRequirementOptionLabel(requirement)}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                          Country: {requirement.countryName || '-'}
+                                        </Typography>
+                                      </Box>
+                                      <Stack direction="row" spacing={1}>
+                                        <Tooltip title="Edit requirement selection">
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleEditRequirementInCart(requirement)}
+                                            sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', '&:hover': { bgcolor: 'primary.dark' } }}
+                                          >
+                                            <NoteIcon />
+                                          </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title="Delete requirement from cart">
+                                          <IconButton
+                                            size="small"
+                                            onClick={() => handleRemoveRequirementFromCart(requirement._id)}
+                                            sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}
+                                          >
+                                            <TrashIcon />
+                                          </IconButton>
+                                        </Tooltip>
+                                      </Stack>
+                                    </Stack>
                                     <Box
                                       sx={{
                                         mt: 1,
@@ -2386,7 +2600,7 @@ export default function ClientQuotationsPage() {
                       <TextField
                         {...params}
                         label="Procedure"
-                        helperText="Loaded from Pricing Rules and added to cart on selection"
+                        helperText="Loaded from the inquiry and pricing rules; use Add Service to add the fee row."
                       />
                     )}
                   />
@@ -2395,6 +2609,34 @@ export default function ClientQuotationsPage() {
                   <Button variant="outlined" fullWidth onClick={handleOpenPriceRules}>
                     Select Price Rule
                   </Button>
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <Autocomplete
+                    multiple
+                    disableCloseOnSelect
+                    options={inquiryCountries}
+                    value={serviceCountrySelections.filter((country) => inquiryCountries.includes(country))}
+                    onChange={(_, value) => {
+                      setServiceCountrySelections(value);
+                      setServiceDraft((prev) => ({
+                        ...prev,
+                        countryName: value.length === 1 ? value[0] : prev.countryName,
+                      }));
+                    }}
+                    isOptionEqualToValue={(option, value) => option === value}
+                    noOptionsText="Select an inquiry project first"
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label={isInternationalInquiry ? 'Service Countries *' : 'Service Country *'}
+                        helperText={
+                          isInternationalInquiry
+                            ? 'INT inquiry: choose one or more inquiry countries for this fee row.'
+                            : 'Loaded from the selected inquiry.'
+                        }
+                      />
+                    )}
+                  />
                 </Grid>
                 <Grid size={{ xs: 12, md: 3 }}>
                   <FormControl fullWidth>
@@ -2537,7 +2779,27 @@ export default function ClientQuotationsPage() {
                                 )}
                               </TableCell>
                               <TableCell sx={{ minWidth: 160 }}>
-                                {resolveServiceCountryName(rowDraft.countryName) || '-'}
+                                {isEditingRow ? (
+                                  <TextField
+                                    select
+                                    size="small"
+                                    value={rowDraft.countryName}
+                                    onChange={(event) =>
+                                      setEditingServiceDraft((prev) =>
+                                        prev ? { ...prev, countryName: event.target.value } : prev
+                                      )
+                                    }
+                                    fullWidth
+                                  >
+                                    {inquiryCountries.map((country) => (
+                                      <MenuItem key={`${country}-${index}`} value={country}>
+                                        {country}
+                                      </MenuItem>
+                                    ))}
+                                  </TextField>
+                                ) : (
+                                  resolveServiceCountryName(rowDraft.countryName) || '-'
+                                )}
                               </TableCell>
                               <TableCell sx={{ minWidth: 140 }}>
                                 {isEditingRow ? (
@@ -2803,7 +3065,11 @@ export default function ClientQuotationsPage() {
                   select
                   label="Country"
                   value={priceRuleCountryFilter}
-                  onChange={(e) => setPriceRuleCountryFilter(e.target.value)}
+                  onChange={(e) => {
+                    const nextCountry = e.target.value;
+                    setPriceRuleCountryFilter(nextCountry);
+                    setServiceCountrySelections(nextCountry ? [nextCountry] : []);
+                  }}
                   fullWidth
                 >
                   {availableRuleCountries.map((country) => (

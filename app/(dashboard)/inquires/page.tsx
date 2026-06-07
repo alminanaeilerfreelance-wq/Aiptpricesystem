@@ -393,16 +393,16 @@ export default function InquiresPage() {
   );
 
   const referencePreview = useMemo(() => {
-    const countryCodes = selectedCountries
-      .map((country) => country.abbreviation?.trim().toUpperCase())
-      .filter(Boolean)
-      .join('/');
+    const referenceSuffix =
+      selectedCountries.length > 1
+        ? 'INT'
+        : selectedCountries[0]?.abbreviation?.trim().toUpperCase() || '';
 
     if (!editingId) {
-      return countryCodes ? `Auto (${countryCodes})` : 'Auto-generated on save';
+      return referenceSuffix ? `Auto (${referenceSuffix})` : 'Auto-generated on save';
     }
 
-    return `${referenceSerial}${countryCodes || 'COUNTRY'}`;
+    return `${referenceSerial}${referenceSuffix || 'COUNTRY'}`;
   }, [editingId, referenceSerial, selectedCountries]);
 
   const resetForm = () => {

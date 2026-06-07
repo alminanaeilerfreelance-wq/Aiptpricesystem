@@ -11,6 +11,7 @@ interface Requirement {
   _id: string;
   country: { _id: string; name: string };
   serviceCategory?: string;
+  title?: string;
   requirements: string;
 }
 
@@ -109,7 +110,7 @@ export const ServiceDetailsCard: React.FC<ServiceDetailsCardProps> = ({
 
   const requirementOptions = requirements.map((r) => ({
     value: r._id,
-    label: stripHtml(r.requirements).slice(0, 120),
+    label: r.title?.trim() || stripHtml(r.requirements).slice(0, 120),
   }));
 
   // Determine if class field should be shown

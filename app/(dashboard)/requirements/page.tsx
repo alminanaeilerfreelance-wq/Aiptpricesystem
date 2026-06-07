@@ -47,6 +47,7 @@ interface Requirement {
     abbreviation?: string;
   };
   serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  title?: string;
   requirements: string;
   createdAt: string;
   updatedAt: string;
@@ -63,6 +64,8 @@ interface Country {
 }
 
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
+const getRequirementTitle = (requirement: Requirement) =>
+  requirement.title?.trim() || stripHtml(requirement.requirements).slice(0, 80) || '-';
 const normalize = (value: string) => value.trim().toLowerCase();
 const sanitizeHtml = (value: string) => value
   .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
@@ -252,12 +255,19 @@ export default function RequirementsPage() {
       for (const row of dataRows) {
         const countryName = String(row[0] ?? '').trim();
         const serviceCategory = String(row[1] ?? '').trim();
-        const requirementsText = row
-          .slice(2)
+        const thirdColumn = String(row[2] ?? '').trim();
+        const trailingRequirementCells = row
+          .slice(3)
           .map((cell) => String(cell ?? '').trim())
-          .filter(Boolean)
-          .join(', ');
-        if (!countryName || !serviceCategory || !requirementsText) continue;
+          .filter(Boolean);
+        const requirementsText = trailingRequirementCells.length > 0
+          ? trailingRequirementCells.join(', ')
+          : thirdColumn;
+        const title = trailingRequirementCells.length > 0
+          ? thirdColumn
+          : stripHtml(requirementsText).slice(0, 80);
+
+        if (!countryName || !serviceCategory || !title || !requirementsText) continue;
 
         const normalizedCountry = normalize(countryName);
         const matchingCountry = countryByName.get(normalizedCountry) || countryByAbbreviation.get(normalizedCountry);
@@ -274,6 +284,7 @@ export default function RequirementsPage() {
         const result = await requirementsService.create({
           country: matchingCountry._id,
           serviceCategory: serviceCategory as 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation',
+          title,
           requirements: requirementsText,
           upsertByCountry: true,
         });
@@ -359,8 +370,8 @@ export default function RequirementsPage() {
     const ws = XLSX.utils.json_to_sheet(records.map((req) => ({
       Country: req.country.name,
       Service: req.serviceCategory || '',
+      Title: getRequirementTitle(req),
       Requirements: stripHtml(req.requirements),
-      Created: new Date(req.createdAt).toLocaleDateString(),
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Requirements');
@@ -378,8 +389,8 @@ export default function RequirementsPage() {
     const ws = XLSX.utils.json_to_sheet(records.map((req) => ({
       Country: req.country.name,
       Service: req.serviceCategory || '',
+      Title: getRequirementTitle(req),
       Requirements: stripHtml(req.requirements),
-      Created: new Date(req.createdAt).toLocaleDateString(),
     })));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Requirements');
@@ -398,12 +409,12 @@ export default function RequirementsPage() {
     const doc = new jsPDF.jsPDF();
 
     autoTable.default(doc, {
-      head: [['Country', 'Service', 'Requirements', 'Created']],
+      head: [['Country', 'Service', 'Title', 'Requirements']],
       body: records.map((req) => [
         req.country.name,
         req.serviceCategory || '',
+        getRequirementTitle(req),
         stripHtml(req.requirements).slice(0, 100),
-        new Date(req.createdAt).toLocaleDateString(),
       ]),
       startY: 10,
     });
@@ -415,9 +426,9 @@ export default function RequirementsPage() {
   const handleDownloadTemplate = async () => {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.aoa_to_sheet([
-      ['Country (Name or Abbreviation)', 'Service', 'Requirements'],
-      ['Saudi Arabia', 'Trademark', 'Sample requirement text'],
-      ['SA', 'Patent', 'Another sample using abbreviation'],
+      ['Country (Name or Abbreviation)', 'Service', 'Title', 'Requirements'],
+      ['Saudi Arabia', 'Trademark', 'Trademark Filing Documents', 'Sample requirement text'],
+      ['SA', 'Patent', 'Patent Filing Documents', 'Another sample using abbreviation'],
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');
@@ -469,16 +480,16 @@ export default function RequirementsPage() {
       searchValue: (row) => row.serviceCategory || '',
     },
     {
-      id: 'requirements',
-      label: 'Requirements',
+      id: 'title',
+      label: 'Title',
       sortable: false,
       minWidth: 320,
       render: (row) => (
         <Typography noWrap sx={{ maxWidth: 320 }}>
-          {stripHtml(row.requirements)}
+          {getRequirementTitle(row)}
         </Typography>
       ),
-      searchValue: (row) => stripHtml(row.requirements),
+      searchValue: (row) => `${getRequirementTitle(row)} ${stripHtml(row.requirements)}`,
     },
     {
       id: 'createdAt',
@@ -677,6 +688,8 @@ export default function RequirementsPage() {
               <Typography variant="body2" sx={{ mb: 2 }}>{viewingRequirement.country.name}</Typography>
               <Typography variant="subtitle2" gutterBottom>Service</Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>{viewingRequirement.serviceCategory || '-'}</Typography>
+              <Typography variant="subtitle2" gutterBottom>Title</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{getRequirementTitle(viewingRequirement)}</Typography>
               <Typography variant="subtitle2" gutterBottom>Requirements</Typography>
               <Box
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(viewingRequirement.requirements) }}

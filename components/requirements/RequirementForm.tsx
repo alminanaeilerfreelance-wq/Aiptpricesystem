@@ -19,6 +19,7 @@ import {
   CircularProgress,
   Box,
   Alert,
+  TextField,
 } from '@mui/material';
 import { countriesService } from '@/services/countries.service';
 import requirementsService from '@/services/requirements.service';
@@ -53,10 +54,12 @@ const SERVICE_CATEGORY_OPTIONS: ServiceCategory[] = [
 const INITIAL_FORM_DATA: {
   country: string;
   serviceCategory: ServiceCategory | '';
+  title: string;
   requirements: string;
 } = {
   country: '',
   serviceCategory: '',
+  title: '',
   requirements: '',
 };
 
@@ -101,6 +104,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         setFormData({
           country: response.data.country._id,
           serviceCategory: response.data.serviceCategory || '',
+          title: response.data.title || '',
           requirements: response.data.requirements,
         });
         setError('');
@@ -122,7 +126,12 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.country || !formData.serviceCategory || !stripHtml(formData.requirements)) {
+    if (
+      !formData.country ||
+      !formData.serviceCategory ||
+      !formData.title.trim() ||
+      !stripHtml(formData.requirements)
+    ) {
       setError('Please fill in all required fields');
       return;
     }
@@ -133,6 +142,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
       const payload = {
         country: formData.country,
         serviceCategory: formData.serviceCategory,
+        title: formData.title.trim(),
         requirements: formData.requirements,
       };
 
@@ -184,16 +194,16 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
             </FormControl>
 
             <FormControl fullWidth>
-              <InputLabel>Service Category *</InputLabel>
+              <InputLabel>Service *</InputLabel>
               <Select
                 value={formData.serviceCategory}
                 onChange={(e) => setFormData({
                   ...formData,
                   serviceCategory: e.target.value as ServiceCategory | '',
                 })}
-                label="Service Category *"
+                label="Service *"
               >
-                <MenuItem value="">Select a service category</MenuItem>
+                <MenuItem value="">Select a service</MenuItem>
                 {SERVICE_CATEGORY_OPTIONS.map((serviceCategory) => (
                   <MenuItem key={serviceCategory} value={serviceCategory}>
                     {serviceCategory}
@@ -201,6 +211,14 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
                 ))}
               </Select>
             </FormControl>
+
+            <TextField
+              label="Title *"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              fullWidth
+              required
+            />
 
             {/* Requirements Rich Text Editor */}
             <Box>

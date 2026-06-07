@@ -19,6 +19,13 @@ export interface IClientQuotationServiceItem {
   grandTotal: number;
 }
 
+export interface IClientQuotationRequirementSnapshotItem {
+  requirementId?: mongoose.Types.ObjectId;
+  countryName?: string;
+  title?: string;
+  requirements?: string;
+}
+
 export interface IClientQuotation extends Document {
   quotationNo: string;
   clientId?: mongoose.Types.ObjectId;
@@ -37,9 +44,12 @@ export interface IClientQuotation extends Document {
     serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   };
   requirementId?: mongoose.Types.ObjectId;
+  requirementIds?: mongoose.Types.ObjectId[];
   requirementSnapshot?: {
     countryName?: string;
+    title?: string;
     requirements?: string;
+    selectedRequirements?: IClientQuotationRequirementSnapshotItem[];
   };
   inquiryProjects: string[];
   serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
@@ -79,6 +89,16 @@ const serviceItemSchema = new mongoose.Schema<IClientQuotationServiceItem>(
   { _id: false }
 );
 
+const requirementSnapshotItemSchema = new mongoose.Schema<IClientQuotationRequirementSnapshotItem>(
+  {
+    requirementId: { type: mongoose.Schema.Types.ObjectId, ref: 'Requirement' },
+    countryName: { type: String, trim: true },
+    title: { type: String, trim: true },
+    requirements: { type: String, trim: true },
+  },
+  { _id: false }
+);
+
 const clientQuotationSchema = new mongoose.Schema<IClientQuotation>(
   {
     quotationNo: { type: String, unique: true },
@@ -98,9 +118,12 @@ const clientQuotationSchema = new mongoose.Schema<IClientQuotation>(
       serviceCategory: { type: String, enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'] },
     },
     requirementId: { type: mongoose.Schema.Types.ObjectId, ref: 'Requirement' },
+    requirementIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Requirement' }],
     requirementSnapshot: {
       countryName: { type: String, trim: true },
+      title: { type: String, trim: true },
       requirements: { type: String, trim: true },
+      selectedRequirements: [requirementSnapshotItemSchema],
     },
     inquiryProjects: [{ type: String, required: true, trim: true }],
     serviceCategory: { type: String, enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'] },
@@ -132,6 +155,11 @@ clientQuotationSchema.index({ clientId: 1 });
 clientQuotationSchema.index({ inquiryProjects: 1 });
 clientQuotationSchema.index({ serviceCategory: 1 });
 clientQuotationSchema.index({ createdAt: -1 });
+
+const existingClientQuotation = mongoose.models.ClientQuotation as Model<IClientQuotation> | undefined;
+if (existingClientQuotation && !existingClientQuotation.schema.path('requirementIds')) {
+  delete mongoose.models.ClientQuotation;
+}
 
 const ClientQuotation: Model<IClientQuotation> =
   (mongoose.models.ClientQuotation as Model<IClientQuotation>) ||

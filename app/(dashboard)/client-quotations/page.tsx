@@ -53,7 +53,9 @@ type ClientQuotationStatus = ClientQuotation['status'];
 
 interface RequirementOption {
   _id: string;
+  countryId?: string;
   countryName: string;
+  title?: string;
   requirements: string;
 }
 
@@ -359,6 +361,47 @@ const computeVatAmount = (attorneyFeeAfterDiscount: number, vatPercent: number):
 const getQuotationCountryNames = (quotation: ClientQuotation | null | undefined): string =>
   quotation?.inquirySnapshot?.countryNames?.join(', ') || '';
 
+const getRequirementOptionLabel = (requirement: Pick<RequirementOption, 'title' | 'requirements'>): string =>
+  requirement.title?.trim() || stripHtml(requirement.requirements || '').slice(0, 120) || 'Untitled Requirement';
+
+const getRequirementSnapshotEntries = (quotation: ClientQuotation | null | undefined) => {
+  const selectedRequirements = quotation?.requirementSnapshot?.selectedRequirements;
+  if (Array.isArray(selectedRequirements) && selectedRequirements.length > 0) {
+    return selectedRequirements;
+  }
+
+  if (quotation?.requirementSnapshot?.requirements) {
+    return [
+      {
+        countryName: quotation.requirementSnapshot.countryName || getQuotationCountryNames(quotation),
+        title: quotation.requirementSnapshot.title || '',
+        requirements: quotation.requirementSnapshot.requirements,
+      },
+    ];
+  }
+
+  return [];
+};
+
+const getReferenceId = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && '_id' in value) {
+    return String((value as { _id?: unknown })._id || '');
+  }
+  return '';
+};
+
+const getQuotationRequirementIds = (quotation: ClientQuotation): string[] => {
+  const ids = Array.isArray(quotation.requirementIds)
+    ? quotation.requirementIds.map((requirement) => getReferenceId(requirement)).filter(Boolean)
+    : [];
+
+  if (ids.length > 0) return ids;
+
+  const legacyRequirementId = getReferenceId(quotation.requirementId);
+  return legacyRequirementId ? [legacyRequirementId] : [];
+};
+
 const getServiceCountryName = (
   service: ClientQuotationServiceItem,
   quotation: ClientQuotation | null | undefined
@@ -403,7 +446,29 @@ const getInvoiceVatHeaderLabel = (quotation: ClientQuotation | null | undefined)
 };
 
 const getRequirementCountryName = (quotation: ClientQuotation | null | undefined): string =>
-  String(quotation?.requirementSnapshot?.countryName || getQuotationCountryNames(quotation) || '').trim();
+  String(
+    quotation?.requirementSnapshot?.countryName ||
+      Array.from(
+        new Set(
+          getRequirementSnapshotEntries(quotation)
+            .map((requirement) => requirement.countryName || '')
+            .filter(Boolean)
+        )
+      ).join(', ') ||
+      getQuotationCountryNames(quotation) ||
+      ''
+  ).trim();
+
+const getRequirementDisplayRows = (quotation: ClientQuotation | null | undefined) =>
+  getRequirementSnapshotEntries(quotation).map((requirement) => {
+    const requirementsHtml = sanitizeHtml(requirement.requirements || '');
+    return {
+      countryName: requirement.countryName || getRequirementCountryName(quotation) || '-',
+      title: requirement.title?.trim() || 'Requirement',
+      requirementsHtml,
+      requirementsText: stripHtml(requirementsHtml) || 'No requirement details available.',
+    };
+  });
 
 const getServiceDetailsStats = (quotation: ClientQuotation) => {
   const serviceItems = quotation.services || [];
@@ -537,7 +602,7 @@ export default function ClientQuotationsPage() {
 
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedInquiryId, setSelectedInquiryId] = useState('');
-  const [selectedRequirementId, setSelectedRequirementId] = useState('');
+  const [selectedRequirementIds, setSelectedRequirementIds] = useState<string[]>([]);
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(defaultServiceDraft);
   const [services, setServices] = useState<ClientQuotationServiceItem[]>([]);
   const [editingServiceIndex, setEditingServiceIndex] = useState<number | null>(null);
@@ -764,10 +829,12 @@ export default function ClientQuotationsPage() {
       ),
     [inquiries, selectedInquiryId, usedInquiryIds]
   );
-  const selectedRequirement = useMemo(
-    () => requirementsState.items.find((item) => item._id === selectedRequirementId) || null,
-    [requirementsState.items, selectedRequirementId]
-  );
+  const selectedRequirements = useMemo(() => {
+    const requirementById = new Map(requirementsState.items.map((item) => [item._id, item]));
+    return selectedRequirementIds
+      .map((id) => requirementById.get(id))
+      .filter((item): item is RequirementOption => Boolean(item));
+  }, [requirementsState.items, selectedRequirementIds]);
   const inquiryProcedureOptions = useMemo(
     () => Array.from(new Set(getInquireProcedureNames(selectedInquiry))).filter(Boolean),
     [selectedInquiry]
@@ -1153,14 +1220,17 @@ export default function ClientQuotationsPage() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.text('Requirement Details', margin, afterServicesY);
-      const requirementCountry = getRequirementCountryName(quotation) || countryNames;
-      const requirementDescription =
-        stripHtml(sanitizeHtml(quotation.requirementSnapshot?.requirements || '')) ||
-        'No requirement details available.';
+      const requirementRows = getRequirementDisplayRows(quotation);
       autoTable.default(doc, {
         startY: afterServicesY + 12,
-        head: [['Country', 'Description']],
-        body: [[requirementCountry || '-', requirementDescription]],
+        head: [['Country', 'Title', 'Description']],
+        body: requirementRows.length > 0
+          ? requirementRows.map((requirement) => [
+              requirement.countryName,
+              requirement.title,
+              requirement.requirementsText,
+            ])
+          : [[countryNames || '-', '-', 'No requirement details available.']],
         theme: 'grid',
         styles: {
           font: 'helvetica',
@@ -1235,8 +1305,7 @@ export default function ClientQuotationsPage() {
       const isTrademarkInvoice = serviceCategory === 'Trademark';
       const serviceStats = getServiceDetailsStats(quotation);
       const vatHeaderLabel = getInvoiceVatHeaderLabel(quotation);
-      const requirementCountry = getRequirementCountryName(quotation) || countryNames;
-      const requirementDescriptionHtml = sanitizeHtml(quotation.requirementSnapshot?.requirements || '');
+      const requirementRows = getRequirementDisplayRows(quotation);
       const wordCellStyle = (cellKey: string, defaultBg: string, defaultText: string, align: 'left' | 'right' = 'left') => {
         const { backgroundColor, textColor } = getInvoiceExportCellColors(
           cellKey,
@@ -1290,6 +1359,19 @@ export default function ClientQuotationsPage() {
           `;
         })
         .join('');
+      const requirementRowsHtml = requirementRows.length > 0
+        ? requirementRows.map((requirement, index) => `
+            <tr>
+              <td style="${wordCellStyle(`requirement-row-${index}-country`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(requirement.countryName || '-')}</td>
+              <td style="${wordCellStyle(`requirement-row-${index}-title`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${escapeHtml(requirement.title || '-')}</td>
+              <td style="${wordCellStyle(`requirement-row-${index}-description`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${requirement.requirementsHtml || 'No requirement details available.'}</td>
+            </tr>
+          `).join('')
+        : `<tr>
+            <td style="${wordCellStyle('requirement-row-country', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(countryNames || '-')}</td>
+            <td style="${wordCellStyle('requirement-row-title', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">-</td>
+            <td style="${wordCellStyle('requirement-row-description', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">No requirement details available.</td>
+          </tr>`;
       const html = `
         <!doctype html>
         <html>
@@ -1414,20 +1496,19 @@ export default function ClientQuotationsPage() {
               <h2 class="section-title" style="margin:18px 0 8px;">Requirement Details</h2>
               <table class="service-table">
                 <colgroup>
+                  <col style="width:20%;" />
                   <col style="width:24%;" />
-                  <col style="width:76%;" />
+                  <col style="width:56%;" />
                 </colgroup>
                 <thead>
                   <tr>
                     <th style="${wordCellStyle('requirement-header-country', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Country</th>
+                    <th style="${wordCellStyle('requirement-header-title', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Title</th>
                     <th style="${wordCellStyle('requirement-header-description', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Description</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td style="${wordCellStyle('requirement-row-country', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(requirementCountry || '-')}</td>
-                    <td style="${wordCellStyle('requirement-row-description', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${requirementDescriptionHtml || 'No requirement details available.'}</td>
-                  </tr>
+                  ${requirementRowsHtml}
                 </tbody>
               </table>
               <div class="footer">
@@ -1598,7 +1679,7 @@ export default function ClientQuotationsPage() {
     setEditingId(null);
     setSelectedClientId('');
     setSelectedInquiryId('');
-    setSelectedRequirementId('');
+    setSelectedRequirementIds([]);
     setServiceDraft(defaultServiceDraft);
     setServices([]);
     setEditingServiceIndex(null);
@@ -1630,9 +1711,7 @@ export default function ClientQuotationsPage() {
     setSelectedInquiryId(
       typeof row.inquiryId === 'object' ? row.inquiryId?._id || '' : (row.inquiryId || '')
     );
-    setSelectedRequirementId(
-      typeof row.requirementId === 'object' ? row.requirementId?._id || '' : (row.requirementId || '')
-    );
+    setSelectedRequirementIds(getQuotationRequirementIds(row));
     setServices(
       Array.isArray(row.services)
         ? row.services.map((service) => ({
@@ -1774,8 +1853,8 @@ export default function ClientQuotationsPage() {
       notifyValidationError('Save or cancel current row editing before submitting.');
       return;
     }
-    if (requirementsState.items.length > 0 && !selectedRequirementId) {
-      notifyValidationError('Requirement selection is required.');
+    if (requirementsState.items.length > 0 && selectedRequirementIds.length === 0) {
+      notifyValidationError('Select at least one requirement title.');
       return;
     }
     if (services.length === 0) {
@@ -1794,7 +1873,8 @@ export default function ClientQuotationsPage() {
       const payload = {
         clientId: selectedClientId,
         inquiryId: selectedInquiryId,
-        requirementId: selectedRequirementId || undefined,
+        requirementId: selectedRequirementIds[0] || undefined,
+        requirementIds: selectedRequirementIds,
         services: services.map((s) => ({
           procedureName: s.procedureName,
           countryName: resolveServiceCountryName(s.countryName),
@@ -1840,7 +1920,7 @@ export default function ClientQuotationsPage() {
           serviceCategory: '',
           items: [],
         });
-        setSelectedRequirementId('');
+        setSelectedRequirementIds([]);
         return;
       }
 
@@ -1863,16 +1943,18 @@ export default function ClientQuotationsPage() {
         const requirementsAcc: RequirementOption[] = [];
         for (const countryId of countryIds) {
           const response = await requirementsService.list({
-          page: 1,
-          limit: 1000,
-          countryId,
-          serviceCategory: (selectedServiceCategory || undefined) as ServiceCategory | undefined,
-        });
+            page: 1,
+            limit: 1000,
+            countryId,
+            serviceCategory: (selectedServiceCategory || undefined) as ServiceCategory | undefined,
+          });
           const rows = Array.isArray(response.data?.data) ? response.data.data : [];
           rows.forEach((row: any) => {
             requirementsAcc.push({
               _id: row._id,
+              countryId: typeof row.country === 'string' ? row.country : row.country?._id || '',
               countryName: row.country?.name || '',
+              title: row.title || '',
               requirements: row.requirements || '',
             });
           });
@@ -1886,7 +1968,11 @@ export default function ClientQuotationsPage() {
           serviceCategory: selectedServiceCategory,
           items: requirementsAcc,
         });
-        setSelectedRequirementId((prev) => prev || requirementsAcc[0]?._id || '');
+        setSelectedRequirementIds((prev) => {
+          const availableIds = new Set(requirementsAcc.map((requirement) => requirement._id));
+          const retainedIds = prev.filter((id) => availableIds.has(id));
+          return retainedIds.length > 0 ? retainedIds : requirementsAcc.map((requirement) => requirement._id);
+        });
       } catch {
         if (cancelled) return;
         setRequirementsState({
@@ -1896,7 +1982,7 @@ export default function ClientQuotationsPage() {
           serviceCategory: selectedServiceCategory,
           items: [],
         });
-        setSelectedRequirementId('');
+        setSelectedRequirementIds([]);
       }
     };
 
@@ -2166,7 +2252,7 @@ export default function ClientQuotationsPage() {
                             .filter(Boolean)
                         : [];
                       setSelectedInquiryId(value?._id || '');
-                      setSelectedRequirementId('');
+                      setSelectedRequirementIds([]);
                       setEditingServiceIndex(null);
                       setEditingServiceDraft(null);
                       const inquiryProcedureNames = getInquireProcedureNames(value || null);
@@ -2209,22 +2295,74 @@ export default function ClientQuotationsPage() {
                           </Grid>
                           <Grid size={{ xs: 12 }}>
                             <Autocomplete
+                              multiple
+                              disableCloseOnSelect
                               options={requirementsState.items}
-                              value={selectedRequirement}
-                              onChange={(_, value) => setSelectedRequirementId(value?._id || '')}
-                              getOptionLabel={(option) => stripHtml(option.requirements).slice(0, 120)}
-                              renderInput={(params) => <TextField {...params} label="Requirement *" />}
+                              value={selectedRequirements}
+                              onChange={(_, value) => setSelectedRequirementIds(value.map((item) => item._id))}
+                              isOptionEqualToValue={(option, value) => option._id === value._id}
+                              getOptionKey={(option) => option._id}
+                              getOptionLabel={getRequirementOptionLabel}
+                              groupBy={(option) => option.countryName || 'Country'}
+                              renderOption={(props, option) => {
+                                const optionProps = { ...props } as React.HTMLAttributes<HTMLLIElement> & {
+                                  key?: React.Key;
+                                };
+                                delete optionProps.key;
+                                return (
+                                  <li {...optionProps} key={option._id}>
+                                    <Box>
+                                      <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                        {getRequirementOptionLabel(option)}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        {option.countryName || '-'}
+                                      </Typography>
+                                    </Box>
+                                  </li>
+                                );
+                              }}
+                              renderInput={(params) => <TextField {...params} label="Requirement Titles *" />}
                             />
                           </Grid>
                           <Grid size={{ xs: 12 }}>
-                            <TextField
-                              label="Requirements"
-                              value={selectedRequirement ? stripHtml(selectedRequirement.requirements || '') : ''}
-                              fullWidth
-                              multiline
-                              minRows={4}
-                              slotProps={{ input: { readOnly: true } }}
-                            />
+                            {selectedRequirements.length === 0 ? (
+                              <Typography variant="body2" color="text.secondary">
+                                Select one or more requirement titles to preview the requirement details.
+                              </Typography>
+                            ) : (
+                              <Stack spacing={1.5}>
+                                {selectedRequirements.map((requirement) => (
+                                  <Box
+                                    key={requirement._id}
+                                    sx={{
+                                      border: '1px solid',
+                                      borderColor: 'divider',
+                                      borderRadius: 1.5,
+                                      p: 1.5,
+                                      bgcolor: 'background.paper',
+                                    }}
+                                  >
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                      {getRequirementOptionLabel(requirement)}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Country: {requirement.countryName || '-'}
+                                    </Typography>
+                                    <Box
+                                      sx={{
+                                        mt: 1,
+                                        '& p': { m: 0, mb: 1 },
+                                        '& p:last-of-type': { mb: 0 },
+                                      }}
+                                      dangerouslySetInnerHTML={{
+                                        __html: sanitizeHtml(requirement.requirements || ''),
+                                      }}
+                                    />
+                                  </Box>
+                                ))}
+                              </Stack>
+                            )}
                           </Grid>
                         </Grid>
                       )}
@@ -3715,33 +3853,47 @@ export default function ClientQuotationsPage() {
                             Country
                           </TableCell>
                           <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
+                            Title
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
                             Description
                           </TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        <TableRow>
-                          <TableCell sx={{ width: { xs: 140, md: 220 }, color: invoiceServiceTableColors.countryColText }}>
-                            {getRequirementCountryName(viewingItem) || '-'}
-                          </TableCell>
-                          <TableCell sx={{ color: invoiceServiceTableColors.procedureColText }}>
-                            {viewingItem.requirementSnapshot?.requirements ? (
-                              <Box
-                                sx={{
-                                  '& p': { m: 0, mb: 1 },
-                                  '& p:last-of-type': { mb: 0 },
-                                }}
-                                dangerouslySetInnerHTML={{
-                                  __html: sanitizeHtml(viewingItem.requirementSnapshot.requirements),
-                                }}
-                              />
-                            ) : (
+                        {getRequirementDisplayRows(viewingItem).length > 0 ? (
+                          getRequirementDisplayRows(viewingItem).map((requirement, index) => (
+                            <TableRow key={`${requirement.countryName}-${requirement.title}-${index}`}>
+                              <TableCell sx={{ width: { xs: 120, md: 180 }, color: invoiceServiceTableColors.countryColText }}>
+                                {requirement.countryName || '-'}
+                              </TableCell>
+                              <TableCell sx={{ width: { xs: 140, md: 220 }, color: invoiceServiceTableColors.procedureColText, fontWeight: 700 }}>
+                                {requirement.title || '-'}
+                              </TableCell>
+                              <TableCell sx={{ color: invoiceServiceTableColors.procedureColText }}>
+                                <Box
+                                  sx={{
+                                    '& p': { m: 0, mb: 1 },
+                                    '& p:last-of-type': { mb: 0 },
+                                  }}
+                                  dangerouslySetInnerHTML={{
+                                    __html: requirement.requirementsHtml,
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell>{getRequirementCountryName(viewingItem) || '-'}</TableCell>
+                            <TableCell>-</TableCell>
+                            <TableCell>
                               <Typography variant="body2" color="text.secondary">
                                 No requirement details available.
                               </Typography>
-                            )}
-                          </TableCell>
-                        </TableRow>
+                            </TableCell>
+                          </TableRow>
+                        )}
                       </TableBody>
                     </Table>
                   </TableContainer>

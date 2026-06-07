@@ -12,6 +12,7 @@ const sanitizeRichText = (value: string) => value
   .replace(/\son\w+='[^']*'/gi, '')
   .replace(/javascript:/gi, '');
 const hasMeaningfulContent = (value: string) => value.replace(/<[^>]*>/g, '').trim().length > 0;
+const normalizeTitle = (value: unknown) => String(value ?? '').trim();
 
 export async function GET(req: NextRequest) {
   try {
@@ -60,6 +61,7 @@ export async function GET(req: NextRequest) {
       const matchingCountryIds = matchingCountries.map((country) => country._id);
 
       filter.$or = [
+        { title: searchRegex },
         { requirements: searchRegex },
         ...(matchingCountryIds.length > 0 ? [{ country: { $in: matchingCountryIds } }] : []),
       ];
@@ -85,6 +87,7 @@ export async function GET(req: NextRequest) {
               $project: {
                 _id: 1,
                 serviceCategory: 1,
+                title: 1,
                 requirements: 1,
                 createdAt: 1,
                 updatedAt: 1,
@@ -128,15 +131,22 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const body = await req.json();
-    const { country, serviceCategory, requirements, upsertByCountry = false } = body;
+    const { country, serviceCategory, title, requirements, upsertByCountry = false } = body;
+    const safeTitle = normalizeTitle(title);
     const safeRequirements = typeof requirements === 'string' ? sanitizeRichText(requirements) : '';
 
     const normalizedServiceCategory =
       typeof serviceCategory === 'string' ? serviceCategory.trim() : '';
 
-    if (!country || !normalizedServiceCategory || !safeRequirements || !hasMeaningfulContent(safeRequirements)) {
+    if (
+      !country ||
+      !normalizedServiceCategory ||
+      !safeTitle ||
+      !safeRequirements ||
+      !hasMeaningfulContent(safeRequirements)
+    ) {
       return NextResponse.json(
-        { error: 'Missing required fields: country, serviceCategory, requirements' },
+        { error: 'Missing required fields: country, service, title, requirements' },
         { status: 400 }
       );
     }
@@ -158,6 +168,7 @@ export async function POST(req: NextRequest) {
       }
 
       existingRequirement.requirements = safeRequirements;
+      existingRequirement.title = safeTitle;
       existingRequirement.serviceCategory = normalizedServiceCategory;
       await existingRequirement.save();
       await existingRequirement.populate('country', 'name abbreviation');
@@ -167,6 +178,7 @@ export async function POST(req: NextRequest) {
     const newRequirement = new Requirement({
       country,
       serviceCategory: normalizedServiceCategory,
+      title: safeTitle,
       requirements: safeRequirements,
     });
     await newRequirement.save();

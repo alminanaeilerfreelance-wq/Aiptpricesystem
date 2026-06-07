@@ -45,7 +45,18 @@ export interface ClientQuotation {
     serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   };
   requirementId?: string | { _id: string };
-  requirementSnapshot?: { countryName?: string; requirements?: string };
+  requirementIds?: Array<string | { _id: string }>;
+  requirementSnapshot?: {
+    countryName?: string;
+    title?: string;
+    requirements?: string;
+    selectedRequirements?: Array<{
+      requirementId?: string | { _id: string };
+      countryName?: string;
+      title?: string;
+      requirements?: string;
+    }>;
+  };
   inquiryProjects: string[];
   services: ClientQuotationServiceItem[];
   totalOfficialFees: number;
@@ -78,6 +89,7 @@ export interface CreateClientQuotationDto {
   clientId: string;
   inquiryId: string;
   requirementId?: string;
+  requirementIds?: string[];
   services: Array<Partial<ClientQuotationServiceItem> & { procedureName: string }>;
   status?: 'Draft' | 'Submitted' | 'Approved' | 'Rejected';
 }

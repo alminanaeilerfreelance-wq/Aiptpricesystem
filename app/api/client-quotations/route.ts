@@ -168,6 +168,124 @@ const calculateServices = (services: RawServiceItem[]) => {
   return { normalized, totals };
 };
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const sanitizeRichText = (value: string) =>
+  value
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, '')
+    .replace(/\son\w+="[^"]*"/gi, '')
+    .replace(/\son\w+='[^']*'/gi, '')
+    .replace(/javascript:/gi, '');
+
+const toIdString = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && '_id' in value) {
+    return String((value as { _id?: unknown })._id || '');
+  }
+  return '';
+};
+
+const getRequestedRequirementIds = (body: Record<string, unknown>) => {
+  const rawIds = Array.isArray(body.requirementIds)
+    ? body.requirementIds
+    : typeof body.requirementId === 'string'
+      ? [body.requirementId]
+      : [];
+
+  return Array.from(
+    new Set(rawIds.map((id) => String(id || '').trim()).filter(Boolean))
+  );
+};
+
+const buildRequirementPayload = async (
+  requestedIds: string[],
+  inquiry: any,
+  serviceCategory: ServiceCategory
+) => {
+  if (requestedIds.length === 0) {
+    return {};
+  }
+
+  const invalidId = requestedIds.find((id) => !mongoose.Types.ObjectId.isValid(id));
+  if (invalidId) {
+    return { error: 'Invalid requirement selection', status: 400 };
+  }
+
+  const inquiryCountryIds = new Set(
+    (Array.isArray(inquiry?.countryIds) ? inquiry.countryIds : [])
+      .map((country: any) => toIdString(country))
+      .filter(Boolean)
+  );
+
+  const requirements = await Requirement.find({ _id: { $in: requestedIds } })
+    .populate({ path: 'country', select: 'name', strictPopulate: false })
+    .lean();
+  const requirementById = new Map(requirements.map((requirement: any) => [String(requirement._id), requirement]));
+  const orderedRequirements = requestedIds
+    .map((id) => requirementById.get(id))
+    .filter(Boolean);
+
+  if (orderedRequirements.length !== requestedIds.length) {
+    return { error: 'Requirement not found', status: 404 };
+  }
+
+  const invalidRequirement = orderedRequirements.find((requirement: any) => {
+    const requirementCountryId = toIdString(requirement.country);
+    const matchesCountry = inquiryCountryIds.size === 0 || inquiryCountryIds.has(requirementCountryId);
+    const matchesService = !requirement.serviceCategory || requirement.serviceCategory === serviceCategory;
+    return !matchesCountry || !matchesService;
+  });
+
+  if (invalidRequirement) {
+    return {
+      error: 'Selected requirements must match the inquiry countries and service',
+      status: 400,
+    };
+  }
+
+  const selectedRequirements = orderedRequirements.map((requirement: any) => ({
+    requirementId: requirement._id,
+    countryName: requirement.country?.name || '',
+    title: String(requirement.title || '').trim(),
+    requirements: sanitizeRichText(String(requirement.requirements || '')),
+  }));
+
+  const countryName = Array.from(
+    new Set(selectedRequirements.map((requirement) => requirement.countryName).filter(Boolean))
+  ).join(', ');
+  const title = selectedRequirements
+    .map((requirement) => requirement.title)
+    .filter(Boolean)
+    .join(', ');
+  const requirementsHtml = selectedRequirements
+    .map((requirement) => `
+      <section>
+        <h4>${escapeHtml(requirement.title || 'Requirement')}</h4>
+        <p><strong>Country:</strong> ${escapeHtml(requirement.countryName || '-')}</p>
+        ${requirement.requirements || ''}
+      </section>
+    `)
+    .join('');
+
+  return {
+    requirementId: selectedRequirements[0]?.requirementId,
+    requirementIds: selectedRequirements.map((requirement) => requirement.requirementId),
+    requirementSnapshot: {
+      countryName,
+      title,
+      requirements: requirementsHtml,
+      selectedRequirements,
+    },
+  };
+};
+
 export async function GET(req: NextRequest) {
   try {
     const user = getUserFromRequest(req);
@@ -200,7 +318,8 @@ export async function GET(req: NextRequest) {
       ClientQuotation.find(filter)
         .populate({ path: 'clientId', select: 'name email type country phone', strictPopulate: false })
         .populate({ path: 'inquiryId', select: 'referenceNo', strictPopulate: false })
-        .populate({ path: 'requirementId', select: 'requirements country', strictPopulate: false })
+        .populate({ path: 'requirementId', select: 'title requirements country', strictPopulate: false })
+        .populate({ path: 'requirementIds', select: 'title requirements country', strictPopulate: false })
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -287,17 +406,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let requirementId: mongoose.Types.ObjectId | undefined;
-    let requirementSnapshot: { countryName?: string; requirements?: string } | undefined;
-    if (typeof body?.requirementId === 'string' && mongoose.Types.ObjectId.isValid(body.requirementId)) {
-      requirementId = new mongoose.Types.ObjectId(body.requirementId);
-      const requirement: any = await Requirement.findById(requirementId).populate({ path: 'country', select: 'name' }).lean();
-      if (requirement) {
-        requirementSnapshot = {
-          countryName: (requirement.country as any)?.name || '',
-          requirements: requirement.requirements || '',
-        };
-      }
+    const requirementPayload = await buildRequirementPayload(
+      getRequestedRequirementIds(body || {}),
+      inquiry,
+      serviceCategory
+    );
+    if ('error' in requirementPayload) {
+      return NextResponse.json(
+        { error: requirementPayload.error },
+        { status: requirementPayload.status as number }
+      );
     }
 
     const clientQuotation = await ClientQuotation.create({
@@ -316,8 +434,7 @@ export async function POST(req: NextRequest) {
         countryNames: Array.isArray(inquiry.countryIds) ? inquiry.countryIds.map((c: any) => c?.name).filter(Boolean) : [],
         serviceCategory,
       },
-      requirementId,
-      requirementSnapshot,
+      ...requirementPayload,
       inquiryProjects: [String(inquiry.referenceNo || '').trim()],
       serviceCategory,
       services: normalized,
@@ -328,7 +445,8 @@ export async function POST(req: NextRequest) {
     const populated = await clientQuotation.populate([
       { path: 'clientId', select: 'name email type country phone', strictPopulate: false },
       { path: 'inquiryId', select: 'referenceNo', strictPopulate: false },
-      { path: 'requirementId', select: 'requirements country', strictPopulate: false },
+      { path: 'requirementId', select: 'title requirements country', strictPopulate: false },
+      { path: 'requirementIds', select: 'title requirements country', strictPopulate: false },
     ]);
 
     return NextResponse.json(populated, { status: 201 });

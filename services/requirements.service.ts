@@ -8,6 +8,7 @@ interface Requirement {
     code: string;
   };
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  title?: string;
   requirements: string;
   createdAt: string;
   updatedAt: string;
@@ -16,6 +17,7 @@ interface Requirement {
 interface RequirementInput {
   country: string;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  title: string;
   requirements: string;
   upsertByCountry?: boolean;
 }

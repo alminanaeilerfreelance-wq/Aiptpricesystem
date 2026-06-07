@@ -11,6 +11,7 @@ const sanitizeRichText = (value: string) => value
   .replace(/\son\w+='[^']*'/gi, '')
   .replace(/javascript:/gi, '');
 const hasMeaningfulContent = (value: string) => value.replace(/<[^>]*>/g, '').trim().length > 0;
+const normalizeTitle = (value: unknown) => String(value ?? '').trim();
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -41,7 +42,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const { id } = await params;
     const body = await req.json();
-    const { country, serviceCategory, requirements, upsertByCountry = false } = body;
+    const { country, serviceCategory, title, requirements, upsertByCountry = false } = body;
+    const safeTitle = normalizeTitle(title);
     const safeRequirements = typeof requirements === 'string' ? sanitizeRichText(requirements) : '';
     const normalizedServiceCategory =
       typeof serviceCategory === 'string' ? serviceCategory.trim() : '';
@@ -51,9 +53,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     // Validation
-    if (!country || !normalizedServiceCategory || !safeRequirements || !hasMeaningfulContent(safeRequirements)) {
+    if (
+      !country ||
+      !normalizedServiceCategory ||
+      !safeTitle ||
+      !safeRequirements ||
+      !hasMeaningfulContent(safeRequirements)
+    ) {
       return NextResponse.json(
-        { error: 'Missing required fields: country, serviceCategory, requirements' },
+        { error: 'Missing required fields: country, service, title, requirements' },
         { status: 400 }
       );
     }
@@ -73,6 +81,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (duplicateCountry) {
       if (upsertByCountry) {
         duplicateCountry.requirements = safeRequirements;
+        duplicateCountry.title = safeTitle;
         duplicateCountry.serviceCategory = normalizedServiceCategory;
         await duplicateCountry.save();
         await Requirement.findByIdAndDelete(id);
@@ -90,6 +99,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       {
         country,
         serviceCategory: normalizedServiceCategory,
+        title: safeTitle,
         requirements: safeRequirements,
       },
       { new: true, runValidators: true }

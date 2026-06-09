@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Checkbox,
@@ -13,7 +14,6 @@ import {
   DialogTitle,
   FormControl,
   FormControlLabel,
-  FormHelperText,
   IconButton,
   InputLabel,
   List,
@@ -43,6 +43,7 @@ import { showSuccessToast } from '@/components/feedback/heroToast';
 import { CreatePricingRuleDto, pricingRulesService } from '@/services/pricing-rules.service';
 import { Country, countriesService } from '@/services/countries.service';
 import { Procedure, proceduresService } from '@/services/procedures.service';
+import useDebounce from '@/hooks/useDebounce';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,9 +66,18 @@ interface PricingRuleRow {
   updatedAt: string;
   isNew?: boolean;
   country?: {
+    _id?: string;
     flagCode?: string;
     abbreviation?: string;
     name?: string;
+    isActive?: boolean;
+  } | null;
+  procedure?: {
+    _id?: string;
+    name?: string;
+    serviceCategory?: ServiceKey;
+    serviceName?: string;
+    isActive?: boolean;
   } | null;
 }
 
@@ -223,6 +233,53 @@ const makeDefaultRuleForm = (serviceCategory: ServiceKey): EditableRule => ({
   isActive: true,
 });
 
+const uniqueById = <T extends { _id: string }>(items: T[]) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item._id || seen.has(item._id)) return false;
+    seen.add(item._id);
+    return true;
+  });
+};
+
+const syntheticCountryId = (name: string, abbreviation: string) =>
+  `selected-country-${name}-${abbreviation}`.replace(/\s+/g, '-').toLowerCase();
+
+const syntheticProcedureId = (name: string, serviceCategory: ServiceKey) =>
+  `selected-procedure-${serviceCategory}-${name}`.replace(/\s+/g, '-').toLowerCase();
+
+const makeCountryValue = (name: string, abbreviation: string): Country | null => {
+  const countryName = name.trim();
+  const countryAbbreviation = abbreviation.trim().toUpperCase();
+  if (!countryName && !countryAbbreviation) return null;
+
+  return {
+    _id: syntheticCountryId(countryName, countryAbbreviation),
+    name: countryName,
+    abbreviation: countryAbbreviation,
+    flagCode: countryAbbreviation.toLowerCase(),
+    isActive: true,
+    createdAt: '',
+    updatedAt: '',
+  };
+};
+
+const makeProcedureValue = (name: string, serviceCategory: ServiceKey): Procedure | null => {
+  const procedureName = name.trim();
+  if (!procedureName) return null;
+
+  return {
+    _id: syntheticProcedureId(procedureName, serviceCategory),
+    name: procedureName,
+    serviceId: '',
+    serviceName: serviceCategory,
+    serviceCategory,
+    isActive: true,
+    createdAt: '',
+    updatedAt: '',
+  };
+};
+
 export default function PricingRulesPage() {
   const [selectedService, setSelectedService] = useState<ServiceKey>('Trademark');
   const [pricingRules, setPricingRules] = useState<PricingRuleRow[]>([]);
@@ -231,8 +288,16 @@ export default function PricingRulesPage() {
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [countries, setCountries] = useState<Country[]>([]);
-  const [procedures, setProcedures] = useState<Procedure[]>([]);
+  const [countryOptions, setCountryOptions] = useState<Country[]>([]);
+  const [countryOptionsLoading, setCountryOptionsLoading] = useState(false);
+  const [createCountryInput, setCreateCountryInput] = useState('');
+  const [editCountryInput, setEditCountryInput] = useState('');
+  const [createProcedureOptions, setCreateProcedureOptions] = useState<Procedure[]>([]);
+  const [editProcedureOptions, setEditProcedureOptions] = useState<Procedure[]>([]);
+  const [createProcedureLoading, setCreateProcedureLoading] = useState(false);
+  const [editProcedureLoading, setEditProcedureLoading] = useState(false);
+  const [createProcedureInput, setCreateProcedureInput] = useState('');
+  const [editProcedureInput, setEditProcedureInput] = useState('');
   const [rowEdits, setRowEdits] = useState<Record<string, EditableRule>>({});
   const [dirtyRows, setDirtyRows] = useState<Record<string, boolean>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, RowValidation>>({});
@@ -252,10 +317,12 @@ export default function PricingRulesPage() {
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createCountryId, setCreateCountryId] = useState('');
+  const [createProcedureId, setCreateProcedureId] = useState('');
   const [createForm, setCreateForm] = useState<EditableRule>(() => makeDefaultRuleForm('Trademark'));
   const [createErrors, setCreateErrors] = useState<RowValidation>({});
   const [editingRule, setEditingRule] = useState<PricingRuleRow | null>(null);
   const [editCountryId, setEditCountryId] = useState('');
+  const [editProcedureId, setEditProcedureId] = useState('');
   const [editForm, setEditForm] = useState<EditableRule>(() => makeDefaultRuleForm('Trademark'));
   const [editErrors, setEditErrors] = useState<RowValidation>({});
   const [viewingRule, setViewingRule] = useState<PricingRuleRow | null>(null);
@@ -265,6 +332,10 @@ export default function PricingRulesPage() {
   const [error, setError] = useState('');
   const [hydrated, setHydrated] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const debouncedCreateCountryInput = useDebounce(createCountryInput, 250);
+  const debouncedEditCountryInput = useDebounce(editCountryInput, 250);
+  const debouncedCreateProcedureInput = useDebounce(createProcedureInput, 250);
+  const debouncedEditProcedureInput = useDebounce(editProcedureInput, 250);
 
   const addAudit = (action: string) => {
     setAuditLog((current) => [
@@ -345,33 +416,146 @@ export default function PricingRulesPage() {
   ]);
 
   useEffect(() => {
+    if (!createDialogOpen) return;
     let active = true;
 
-    const loadOptions = async () => {
+    const loadCountries = async () => {
+      setCountryOptionsLoading(true);
       try {
-        const [countriesResponse, procedureResponses] = await Promise.all([
-          countriesService.list({ page: 1, limit: 100 }),
-          Promise.all(SERVICES.map((category) => proceduresService.list({ category, page: 1, limit: 100 }))),
-        ]);
+        const response = await countriesService.list({
+          search: debouncedCreateCountryInput.trim() || undefined,
+          page: 1,
+          limit: 20,
+        });
 
         if (!active) return;
 
-        setCountries(countriesResponse.countries || []);
-        setProcedures(procedureResponses.flatMap((response) => response.procedures || []));
+        setCountryOptions((current) =>
+          uniqueById([
+            ...current.filter((country) => country._id === createCountryId || country._id === editCountryId),
+            ...(response.countries || []),
+          ])
+        );
       } catch (err) {
-        if (!active) return;
-        setCountries([]);
-        setProcedures([]);
-        setError(err instanceof Error ? err.message : 'Failed to load countries and procedures');
+        if (active) setError(err instanceof Error ? err.message : 'Failed to search countries');
+      } finally {
+        if (active) setCountryOptionsLoading(false);
       }
     };
 
-    loadOptions();
+    loadCountries();
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [createCountryId, createDialogOpen, debouncedCreateCountryInput, editCountryId]);
+
+  useEffect(() => {
+    if (!editingRule) return;
+    let active = true;
+
+    const loadCountries = async () => {
+      setCountryOptionsLoading(true);
+      try {
+        const response = await countriesService.list({
+          search: debouncedEditCountryInput.trim() || undefined,
+          page: 1,
+          limit: 20,
+        });
+
+        if (!active) return;
+
+        setCountryOptions((current) =>
+          uniqueById([
+            ...current.filter((country) => country._id === createCountryId || country._id === editCountryId),
+            ...(response.countries || []),
+          ])
+        );
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to search countries');
+      } finally {
+        if (active) setCountryOptionsLoading(false);
+      }
+    };
+
+    loadCountries();
+
+    return () => {
+      active = false;
+    };
+  }, [createCountryId, debouncedEditCountryInput, editCountryId, editingRule]);
+
+  useEffect(() => {
+    if (!createDialogOpen) return;
+    let active = true;
+
+    const loadProcedures = async () => {
+      setCreateProcedureLoading(true);
+      try {
+        const response = await proceduresService.list({
+          category: createForm.serviceCategory,
+          search: debouncedCreateProcedureInput.trim() || undefined,
+          page: 1,
+          limit: 20,
+        });
+
+        if (!active) return;
+
+        setCreateProcedureOptions((current) =>
+          uniqueById([
+            ...current.filter((procedure) => procedure._id === createProcedureId),
+            ...(response.procedures || []),
+          ])
+        );
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to search procedures');
+      } finally {
+        if (active) setCreateProcedureLoading(false);
+      }
+    };
+
+    loadProcedures();
+
+    return () => {
+      active = false;
+    };
+  }, [createDialogOpen, createForm.serviceCategory, createProcedureId, debouncedCreateProcedureInput]);
+
+  useEffect(() => {
+    if (!editingRule) return;
+    let active = true;
+
+    const loadProcedures = async () => {
+      setEditProcedureLoading(true);
+      try {
+        const response = await proceduresService.list({
+          category: editForm.serviceCategory,
+          search: debouncedEditProcedureInput.trim() || undefined,
+          page: 1,
+          limit: 20,
+        });
+
+        if (!active) return;
+
+        setEditProcedureOptions((current) =>
+          uniqueById([
+            ...current.filter((procedure) => procedure._id === editProcedureId),
+            ...(response.procedures || []),
+          ])
+        );
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to search procedures');
+      } finally {
+        if (active) setEditProcedureLoading(false);
+      }
+    };
+
+    loadProcedures();
+
+    return () => {
+      active = false;
+    };
+  }, [debouncedEditProcedureInput, editForm.serviceCategory, editProcedureId, editingRule]);
 
   useEffect(() => {
     let active = true;
@@ -511,6 +695,10 @@ export default function PricingRulesPage() {
   const openCreateDialog = () => {
     setCreateForm(makeDefaultRuleForm(selectedService));
     setCreateCountryId('');
+    setCreateCountryInput('');
+    setCreateProcedureId('');
+    setCreateProcedureInput('');
+    setCreateProcedureOptions([]);
     setCreateErrors({});
     setCreateDialogOpen(true);
     addAudit('Add Rule Modal Opened');
@@ -522,7 +710,11 @@ export default function PricingRulesPage() {
     if (!validation.isValid) return;
 
     try {
-      const created = (await pricingRulesService.create(validation.payload)) as PricingRuleRow;
+      const created = (await pricingRulesService.create({
+        ...validation.payload,
+        ...(createCountryId ? { countryId: createCountryId } : {}),
+        ...(createProcedureId ? { procedureId: createProcedureId } : {}),
+      })) as PricingRuleRow;
       if (created.serviceCategory === selectedService) {
         setPricingRules((current) => [created, ...current]);
         setRowEdits((current) => ({ ...current, [created._id]: toEditableRule(created) }));
@@ -532,6 +724,10 @@ export default function PricingRulesPage() {
       setCreateDialogOpen(false);
       setCreateForm(makeDefaultRuleForm(selectedService));
       setCreateCountryId('');
+      setCreateCountryInput('');
+      setCreateProcedureId('');
+      setCreateProcedureInput('');
+      setCreateProcedureOptions([]);
       setCreateErrors({});
       addAudit(`Row Added: ${created.countryName} / ${created.procedureName}`);
       showSuccessToast('Pricing rule added');
@@ -542,10 +738,51 @@ export default function PricingRulesPage() {
 
   const editRow = (rule: PricingRuleRow) => {
     const edit = getEdit(rule);
-    const country = countries.find((item) => item.name === edit.countryName || item.abbreviation === edit.countryAbbreviation);
+    const ruleCountry: Country | null = rule.country?._id
+      ? {
+          _id: rule.country._id,
+          name: rule.country.name || edit.countryName,
+          abbreviation: rule.country.abbreviation || edit.countryAbbreviation,
+          flagCode: rule.country.flagCode || (rule.country.abbreviation || edit.countryAbbreviation).toLowerCase(),
+          isActive: rule.country.isActive !== false,
+          createdAt: '',
+          updatedAt: '',
+        }
+      : null;
+    const country =
+      countryOptions.find((item) => item.name === edit.countryName || item.abbreviation === edit.countryAbbreviation) ||
+      ruleCountry;
+    const ruleProcedure: Procedure | null = rule.procedure?._id
+      ? {
+          _id: rule.procedure._id,
+          name: rule.procedure.name || edit.procedureName,
+          serviceId: '',
+          serviceName: rule.procedure.serviceName || edit.serviceCategory,
+          serviceCategory: (rule.procedure.serviceCategory || edit.serviceCategory) as ServiceKey,
+          isActive: rule.procedure.isActive !== false,
+          createdAt: '',
+          updatedAt: '',
+        }
+      : null;
+    const procedure =
+      ruleProcedure ||
+      editProcedureOptions.find(
+        (item) => item.name === edit.procedureName && item.serviceCategory === edit.serviceCategory
+      );
+
+    if (country) {
+      setCountryOptions((current) => uniqueById([country, ...current]));
+    }
+    if (procedure) {
+      setEditProcedureOptions((current) => uniqueById([procedure, ...current]));
+    }
+
     setEditingRule(rule);
     setEditForm(edit);
     setEditCountryId(country?._id || '');
+    setEditCountryInput(edit.countryName);
+    setEditProcedureId(procedure?._id || '');
+    setEditProcedureInput(edit.procedureName);
     setEditErrors({});
     addAudit(`Edit Modal Opened: ${rule.countryName || 'Pricing Rule'}`);
   };
@@ -557,7 +794,11 @@ export default function PricingRulesPage() {
     if (!validation.isValid) return;
 
     try {
-      const updated = await pricingRulesService.update(editingRule._id, validation.payload);
+      const updated = await pricingRulesService.update(editingRule._id, {
+        ...validation.payload,
+        ...(editCountryId ? { countryId: editCountryId } : {}),
+        ...(editProcedureId ? { procedureId: editProcedureId } : {}),
+      });
       const updatedRow = updated as PricingRuleRow;
       setPricingRules((current) =>
         current.map((item) => (item._id === editingRule._id ? { ...item, ...updatedRow } : item))
@@ -568,6 +809,10 @@ export default function PricingRulesPage() {
       setEditingRule(null);
       setEditErrors({});
       setEditCountryId('');
+      setEditCountryInput('');
+      setEditProcedureId('');
+      setEditProcedureInput('');
+      setEditProcedureOptions([]);
       addAudit(`Row Updated: ${updatedRow.countryName} / ${updatedRow.procedureName}`);
       showSuccessToast('Pricing rule updated');
     } catch (err) {
@@ -797,13 +1042,45 @@ export default function PricingRulesPage() {
     return <Typography title={label} sx={{ fontSize: 13, textAlign: 'right' }}>{formatMoney(value)}</Typography>;
   };
 
-  const filteredCreateProcedures = useMemo(
-    () => procedures.filter((procedure) => procedure.serviceCategory === createForm.serviceCategory),
-    [createForm.serviceCategory, procedures]
+  const createCountryValue = useMemo(
+    () =>
+      countryOptions.find((country) => country._id === createCountryId) ||
+      makeCountryValue(createForm.countryName, createForm.countryAbbreviation),
+    [countryOptions, createCountryId, createForm.countryAbbreviation, createForm.countryName]
   );
-  const filteredEditProcedures = useMemo(
-    () => procedures.filter((procedure) => procedure.serviceCategory === editForm.serviceCategory),
-    [editForm.serviceCategory, procedures]
+  const editCountryValue = useMemo(
+    () =>
+      countryOptions.find((country) => country._id === editCountryId) ||
+      makeCountryValue(editForm.countryName, editForm.countryAbbreviation),
+    [countryOptions, editCountryId, editForm.countryAbbreviation, editForm.countryName]
+  );
+  const createProcedureValue = useMemo(
+    () =>
+      createProcedureOptions.find((procedure) => procedure._id === createProcedureId) ||
+      makeProcedureValue(createForm.procedureName, createForm.serviceCategory),
+    [createForm.procedureName, createForm.serviceCategory, createProcedureId, createProcedureOptions]
+  );
+  const editProcedureValue = useMemo(
+    () =>
+      editProcedureOptions.find((procedure) => procedure._id === editProcedureId) ||
+      makeProcedureValue(editForm.procedureName, editForm.serviceCategory),
+    [editForm.procedureName, editForm.serviceCategory, editProcedureId, editProcedureOptions]
+  );
+  const createCountryOptions = useMemo(
+    () => uniqueById([...(createCountryValue ? [createCountryValue] : []), ...countryOptions]),
+    [countryOptions, createCountryValue]
+  );
+  const editCountryOptions = useMemo(
+    () => uniqueById([...(editCountryValue ? [editCountryValue] : []), ...countryOptions]),
+    [countryOptions, editCountryValue]
+  );
+  const createProcedureSearchOptions = useMemo(
+    () => uniqueById([...(createProcedureValue ? [createProcedureValue] : []), ...createProcedureOptions]),
+    [createProcedureOptions, createProcedureValue]
+  );
+  const editProcedureSearchOptions = useMemo(
+    () => uniqueById([...(editProcedureValue ? [editProcedureValue] : []), ...editProcedureOptions]),
+    [editProcedureOptions, editProcedureValue]
   );
   const viewingEdit = viewingRule ? getEdit(viewingRule) : null;
   const viewingTotal = viewingRule ? getRowTotal(viewingRule) : null;
@@ -1122,13 +1399,17 @@ export default function PricingRulesPage() {
               <Select
                 label="Service"
                 value={createForm.serviceCategory}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const serviceCategory = event.target.value as ServiceKey;
                   setCreateForm((current) => ({
                     ...current,
-                    serviceCategory: event.target.value as ServiceKey,
+                    serviceCategory,
                     procedureName: '',
-                  }))
-                }
+                  }));
+                  setCreateProcedureId('');
+                  setCreateProcedureInput('');
+                  setCreateProcedureOptions([]);
+                }}
               >
                 {SERVICES.map((service) => (
                   <MenuItem key={service} value={service}>{service}</MenuItem>
@@ -1146,54 +1427,102 @@ export default function PricingRulesPage() {
                 <MenuItem value="inactive">Inactive</MenuItem>
               </Select>
             </FormControl>
-            <FormControl fullWidth size="small" error={Boolean(createErrors.countryName)}>
-              <InputLabel>Country</InputLabel>
-              <Select
-                label="Country"
-                value={createCountryId}
-                onChange={(event) => {
-                  const country = countries.find((item) => item._id === event.target.value);
-                  setCreateCountryId(event.target.value);
+            <Autocomplete
+              size="small"
+              options={createCountryOptions}
+              value={createCountryValue}
+              inputValue={createCountryInput}
+              loading={countryOptionsLoading}
+              filterOptions={(options) => options}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionLabel={(option) =>
+                `${option.name}${option.abbreviation ? ` (${option.abbreviation})` : ''}`
+              }
+              onInputChange={(_event, value, reason) => {
+                setCreateCountryInput(value);
+                if (reason === 'input') {
+                  setCreateCountryId('');
                   setCreateForm((current) => ({
                     ...current,
-                    countryName: country?.name || '',
-                    countryAbbreviation: country?.abbreviation || '',
+                    countryName: '',
+                    countryAbbreviation: '',
                   }));
-                }}
-              >
-                {countries.map((country) => (
-                  <MenuItem key={country._id} value={country._id}>
-                    {country.name}
-                  </MenuItem>
-                ))}
-              </Select>
-              <FormHelperText>{createErrors.countryName || ' '}</FormHelperText>
-            </FormControl>
+                }
+              }}
+              onChange={(_event, value) => {
+                setCreateCountryId(value?._id || '');
+                setCreateCountryInput(value?.name || '');
+                setCreateForm((current) => ({
+                  ...current,
+                  countryName: value?.name || '',
+                  countryAbbreviation: value?.abbreviation || '',
+                }));
+                setCreateErrors((current) => ({
+                  ...current,
+                  countryName: undefined,
+                  countryAbbreviation: undefined,
+                }));
+                if (value) setCountryOptions((current) => uniqueById([value, ...current]));
+              }}
+              loadingText="Searching countries..."
+              noOptionsText="No countries found"
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Country"
+                  error={Boolean(createErrors.countryName)}
+                  helperText={createErrors.countryName || ' '}
+                />
+              )}
+            />
             <TextField
               size="small"
               label="Country Code"
               value={createForm.countryAbbreviation}
               error={Boolean(createErrors.countryAbbreviation)}
-              helperText={createErrors.countryAbbreviation}
+              helperText={createErrors.countryAbbreviation || ' '}
               disabled
             />
-            <FormControl fullWidth size="small" error={Boolean(createErrors.procedureName)} sx={{ gridColumn: { md: '1 / -1' } }}>
-              <InputLabel>Procedure</InputLabel>
-              <Select
-                label="Procedure"
-                value={createForm.procedureName}
-                onChange={(event) => setCreateForm((current) => ({ ...current, procedureName: event.target.value }))}
-              >
-                {filteredCreateProcedures.map((procedure) => (
-                  <MenuItem key={procedure._id} value={procedure.name}>
-                    {procedure.name}
-                  </MenuItem>
-                ))}
-              </Select>
-              <FormHelperText>
-                {createErrors.procedureName || `${filteredCreateProcedures.length} procedures for ${createForm.serviceCategory}`}
-              </FormHelperText>
-            </FormControl>
+            <Autocomplete
+              size="small"
+              sx={{ gridColumn: { md: '1 / -1' } }}
+              options={createProcedureSearchOptions}
+              value={createProcedureValue}
+              inputValue={createProcedureInput}
+              loading={createProcedureLoading}
+              filterOptions={(options) => options}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionLabel={(option) =>
+                `${option.name}${option.serviceCategory ? ` (${option.serviceCategory})` : ''}`
+              }
+              onInputChange={(_event, value, reason) => {
+                setCreateProcedureInput(value);
+                if (reason === 'input') {
+                  setCreateProcedureId('');
+                  setCreateForm((current) => ({ ...current, procedureName: '' }));
+                }
+              }}
+              onChange={(_event, value) => {
+                setCreateProcedureId(value?._id || '');
+                setCreateProcedureInput(value?.name || '');
+                setCreateForm((current) => ({
+                  ...current,
+                  procedureName: value?.name || '',
+                }));
+                setCreateErrors((current) => ({ ...current, procedureName: undefined }));
+                if (value) setCreateProcedureOptions((current) => uniqueById([value, ...current]));
+              }}
+              loadingText="Searching procedures..."
+              noOptionsText="No procedures found"
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Procedure"
+                  error={Boolean(createErrors.procedureName)}
+                  helperText={createErrors.procedureName || ' '}
+                />
+              )}
+            />
             <TextField
               size="small"
               type="number"
@@ -1302,13 +1631,17 @@ export default function PricingRulesPage() {
               <Select
                 label="Service"
                 value={editForm.serviceCategory}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const serviceCategory = event.target.value as ServiceKey;
                   setEditForm((current) => ({
                     ...current,
-                    serviceCategory: event.target.value as ServiceKey,
+                    serviceCategory,
                     procedureName: '',
-                  }))
-                }
+                  }));
+                  setEditProcedureId('');
+                  setEditProcedureInput('');
+                  setEditProcedureOptions([]);
+                }}
               >
                 {SERVICES.map((service) => (
                   <MenuItem key={service} value={service}>{service}</MenuItem>
@@ -1326,54 +1659,102 @@ export default function PricingRulesPage() {
                 <MenuItem value="inactive">Inactive</MenuItem>
               </Select>
             </FormControl>
-            <FormControl fullWidth size="small" error={Boolean(editErrors.countryName)}>
-              <InputLabel>Country</InputLabel>
-              <Select
-                label="Country"
-                value={editCountryId}
-                onChange={(event) => {
-                  const country = countries.find((item) => item._id === event.target.value);
-                  setEditCountryId(event.target.value);
+            <Autocomplete
+              size="small"
+              options={editCountryOptions}
+              value={editCountryValue}
+              inputValue={editCountryInput}
+              loading={countryOptionsLoading}
+              filterOptions={(options) => options}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionLabel={(option) =>
+                `${option.name}${option.abbreviation ? ` (${option.abbreviation})` : ''}`
+              }
+              onInputChange={(_event, value, reason) => {
+                setEditCountryInput(value);
+                if (reason === 'input') {
+                  setEditCountryId('');
                   setEditForm((current) => ({
                     ...current,
-                    countryName: country?.name || '',
-                    countryAbbreviation: country?.abbreviation || '',
+                    countryName: '',
+                    countryAbbreviation: '',
                   }));
-                }}
-              >
-                {countries.map((country) => (
-                  <MenuItem key={country._id} value={country._id}>
-                    {country.name}
-                  </MenuItem>
-                ))}
-              </Select>
-              <FormHelperText>{editErrors.countryName || ' '}</FormHelperText>
-            </FormControl>
+                }
+              }}
+              onChange={(_event, value) => {
+                setEditCountryId(value?._id || '');
+                setEditCountryInput(value?.name || '');
+                setEditForm((current) => ({
+                  ...current,
+                  countryName: value?.name || '',
+                  countryAbbreviation: value?.abbreviation || '',
+                }));
+                setEditErrors((current) => ({
+                  ...current,
+                  countryName: undefined,
+                  countryAbbreviation: undefined,
+                }));
+                if (value) setCountryOptions((current) => uniqueById([value, ...current]));
+              }}
+              loadingText="Searching countries..."
+              noOptionsText="No countries found"
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Country"
+                  error={Boolean(editErrors.countryName)}
+                  helperText={editErrors.countryName || ' '}
+                />
+              )}
+            />
             <TextField
               size="small"
               label="Country Code"
               value={editForm.countryAbbreviation}
               error={Boolean(editErrors.countryAbbreviation)}
-              helperText={editErrors.countryAbbreviation}
+              helperText={editErrors.countryAbbreviation || ' '}
               disabled
             />
-            <FormControl fullWidth size="small" error={Boolean(editErrors.procedureName)} sx={{ gridColumn: { md: '1 / -1' } }}>
-              <InputLabel>Procedure</InputLabel>
-              <Select
-                label="Procedure"
-                value={editForm.procedureName}
-                onChange={(event) => setEditForm((current) => ({ ...current, procedureName: event.target.value }))}
-              >
-                {filteredEditProcedures.map((procedure) => (
-                  <MenuItem key={procedure._id} value={procedure.name}>
-                    {procedure.name}
-                  </MenuItem>
-                ))}
-              </Select>
-              <FormHelperText>
-                {editErrors.procedureName || `${filteredEditProcedures.length} procedures for ${editForm.serviceCategory}`}
-              </FormHelperText>
-            </FormControl>
+            <Autocomplete
+              size="small"
+              sx={{ gridColumn: { md: '1 / -1' } }}
+              options={editProcedureSearchOptions}
+              value={editProcedureValue}
+              inputValue={editProcedureInput}
+              loading={editProcedureLoading}
+              filterOptions={(options) => options}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionLabel={(option) =>
+                `${option.name}${option.serviceCategory ? ` (${option.serviceCategory})` : ''}`
+              }
+              onInputChange={(_event, value, reason) => {
+                setEditProcedureInput(value);
+                if (reason === 'input') {
+                  setEditProcedureId('');
+                  setEditForm((current) => ({ ...current, procedureName: '' }));
+                }
+              }}
+              onChange={(_event, value) => {
+                setEditProcedureId(value?._id || '');
+                setEditProcedureInput(value?.name || '');
+                setEditForm((current) => ({
+                  ...current,
+                  procedureName: value?.name || '',
+                }));
+                setEditErrors((current) => ({ ...current, procedureName: undefined }));
+                if (value) setEditProcedureOptions((current) => uniqueById([value, ...current]));
+              }}
+              loadingText="Searching procedures..."
+              noOptionsText="No procedures found"
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Procedure"
+                  error={Boolean(editErrors.procedureName)}
+                  helperText={editErrors.procedureName || ' '}
+                />
+              )}
+            />
             <TextField
               size="small"
               type="number"

@@ -3,6 +3,7 @@ import connectDB from '@/lib/mongodb';
 import { getUserFromRequest } from '@/lib/auth';
 import type { JWTPayload } from '@/lib/auth';
 import FeeBuilderDraft from '@/models/FeeBuilderDraft';
+import User from '@/models/User';
 
 const SERVICES = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'] as const;
 const PRINT_ORIENTATIONS = ['portrait', 'landscape'] as const;
@@ -109,6 +110,56 @@ export async function POST(req: NextRequest) {
     const draft = await FeeBuilderDraft.create(buildDraftPayload(body, user));
 
     return NextResponse.json(draft, { status: 201 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Operation failed';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const user = getUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Forbidden: admin role required' }, { status: 403 });
+    }
+
+    const body = (await req.json().catch(() => ({}))) as DraftBody;
+    const adminPassword = cleanString(body.adminPassword);
+    if (!adminPassword) {
+      return NextResponse.json({ error: 'Admin password is required' }, { status: 400 });
+    }
+
+    await connectDB();
+
+    const adminUser = await User.findOne({
+      _id: user.userId,
+      role: 'admin',
+      isActive: true,
+      approvalStatus: 'approved',
+    }).select('+password');
+
+    if (!adminUser) {
+      return NextResponse.json({ error: 'Admin account not found or inactive' }, { status: 403 });
+    }
+
+    const passwordMatches = await adminUser.comparePassword(adminPassword);
+    if (!passwordMatches) {
+      return NextResponse.json({ error: 'Invalid admin password' }, { status: 401 });
+    }
+
+    const result = await FeeBuilderDraft.updateMany(
+      { isActive: true },
+      { $set: { isActive: false } }
+    );
+
+    return NextResponse.json({
+      message: 'All fee-builder drafts deleted successfully',
+      deletedCount: result.modifiedCount || 0,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });

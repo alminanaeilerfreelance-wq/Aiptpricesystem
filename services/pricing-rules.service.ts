@@ -12,6 +12,20 @@ export interface PricingRule {
   procedureName: string;
   countryName: string;
   countryAbbreviation: string;
+  country?: {
+    _id?: string;
+    name: string;
+    abbreviation: string;
+    flagCode?: string;
+    isActive?: boolean;
+  } | null;
+  procedure?: {
+    _id?: string;
+    name: string;
+    serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+    serviceName?: string;
+    isActive?: boolean;
+  } | null;
   officialFee: number;
   attorneyFee: number;
   classFee: number;
@@ -28,6 +42,8 @@ export interface CreatePricingRuleDto {
   minServiceValue?: number;
   maxServiceValue?: number;
   serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  countryId?: string;
+  procedureId?: string;
   procedureName?: string;
   countryName?: string;
   countryAbbreviation?: string;

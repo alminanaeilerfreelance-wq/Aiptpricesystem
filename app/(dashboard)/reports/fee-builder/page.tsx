@@ -38,6 +38,7 @@ import {
 } from '@mui/material';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
+import { useAuth } from '@/hooks/useAuth';
 import { PricingRule, pricingRulesService } from '@/services/pricing-rules.service';
 import { Country, countriesService } from '@/services/countries.service';
 import { Continent, continentsService } from '@/services/continents.service';
@@ -63,14 +64,16 @@ type ColumnKey = FeeBuilderColumnKey;
 type PrintOrientation = FeeBuilderPrintOrientation;
 type PaperFormat = FeeBuilderPaperFormat;
 
-interface PricingRuleRow extends PricingRule {
+type PricingRuleRow = Omit<PricingRule, 'country'> & {
   status?: string;
   country?: {
+    _id?: string;
     flagCode?: string;
     abbreviation?: string;
     name?: string;
+    isActive?: boolean;
   } | null;
-}
+};
 
 type FeeDraftValues = FeeBuilderDraftValues;
 
@@ -161,6 +164,7 @@ const escapeHtml = (value: unknown) =>
     .replace(/'/g, '&#39;');
 
 export default function FeeReportBuilderPage() {
+  const { user } = useAuth();
   const searchParams = useSearchParams();
   const requestedDraftId = searchParams.get('draftId') || '';
   const startNewDraft = searchParams.get('newDraft') === '1';
@@ -213,6 +217,10 @@ export default function FeeReportBuilderPage() {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveDraftName, setSaveDraftName] = useState('');
   const [saveDraftDate, setSaveDraftDate] = useState(getDateInputValue);
+  const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
+  const [deleteAllPassword, setDeleteAllPassword] = useState('');
+  const [deleteAllSaving, setDeleteAllSaving] = useState(false);
+  const [deleteAllError, setDeleteAllError] = useState('');
   const [advancedAnchor, setAdvancedAnchor] = useState<HTMLElement | null>(null);
   const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(false);
@@ -222,6 +230,7 @@ export default function FeeReportBuilderPage() {
   const autoSaveTimersRef = useRef<Record<string, number>>({});
   const columnResizeRef = useRef<{ procedure: string; startX: number; startWidth: number } | null>(null);
   const rowResizeRef = useRef<{ rowKey: string; startY: number; startHeight: number } | null>(null);
+  const isAdmin = user?.role === 'admin';
 
   const addAudit = (action: string) => {
     setAuditLog((current) => [
@@ -963,6 +972,44 @@ export default function FeeReportBuilderPage() {
       showSuccessToast('Draft deleted');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete draft');
+    }
+  };
+
+  const openDeleteAllDraftsDialog = () => {
+    setDeleteAllPassword('');
+    setDeleteAllError('');
+    setDeleteAllDialogOpen(true);
+  };
+
+  const closeDeleteAllDraftsDialog = () => {
+    if (deleteAllSaving) return;
+    setDeleteAllDialogOpen(false);
+    setDeleteAllPassword('');
+    setDeleteAllError('');
+  };
+
+  const deleteAllDrafts = async () => {
+    const password = deleteAllPassword.trim();
+    if (!password) {
+      setDeleteAllError('Enter the admin password to delete all drafts.');
+      return;
+    }
+
+    try {
+      setDeleteAllSaving(true);
+      setDeleteAllError('');
+      const result = await feeBuilderDraftsService.deleteAll(password);
+      setDrafts([]);
+      setActiveDraftId('');
+      setDraftName('');
+      addAudit(`All Drafts Deleted: ${result.deletedCount} draft${result.deletedCount === 1 ? '' : 's'}`);
+      showSuccessToast(`Deleted ${result.deletedCount} fee-builder draft${result.deletedCount === 1 ? '' : 's'}.`);
+      setDeleteAllDialogOpen(false);
+      setDeleteAllPassword('');
+    } catch (err: any) {
+      setDeleteAllError(err?.response?.data?.error || err?.message || 'Failed to delete all drafts.');
+    } finally {
+      setDeleteAllSaving(false);
     }
   };
 
@@ -2367,6 +2414,49 @@ export default function FeeReportBuilderPage() {
         </DialogActions>
       </Dialog>
 
+      <Dialog open={deleteAllDialogOpen} onClose={closeDeleteAllDraftsDialog} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Delete All Fee Builder Drafts</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Alert severity="warning">
+              This will delete every saved fee-builder draft. Admin password confirmation is required.
+            </Alert>
+            {deleteAllError && (
+              <Alert severity="error" onClose={() => setDeleteAllError('')}>
+                {deleteAllError}
+              </Alert>
+            )}
+            <TextField
+              autoFocus
+              label="Admin Password"
+              type="password"
+              value={deleteAllPassword}
+              onChange={(event) => setDeleteAllPassword(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  deleteAllDrafts();
+                }
+              }}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={closeDeleteAllDraftsDialog} disabled={deleteAllSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={deleteAllDrafts}
+            disabled={deleteAllSaving}
+          >
+            {deleteAllSaving ? 'Deleting...' : 'Delete All Drafts'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={selectionDialogOpen} onClose={() => setSelectionDialogOpen(false)} fullWidth maxWidth="lg">
         <DialogTitle sx={{ fontWeight: 900 }}>Add Fees to Quotation</DialogTitle>
         <DialogContent dividers>
@@ -2628,7 +2718,20 @@ export default function FeeReportBuilderPage() {
 
           <Divider sx={{ my: 1.5 }} />
 
-          <Typography sx={{ fontWeight: 900, mb: 1 }}>Drafts</Typography>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Typography sx={{ fontWeight: 900 }}>Drafts</Typography>
+            {isAdmin && (
+              <Button
+                size="small"
+                color="error"
+                variant="outlined"
+                disabled={drafts.length === 0}
+                onClick={openDeleteAllDraftsDialog}
+              >
+                Delete All
+              </Button>
+            )}
+          </Stack>
           <FormControl fullWidth size="small" sx={{ mb: 1 }}>
             <InputLabel>Draft Continent</InputLabel>
             <Select

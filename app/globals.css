@@ -80,6 +80,58 @@
   }
 }
 
+.requirement-cart-toolbar {
+  border: 1px solid #d1d5db !important;
+  border-bottom: 0 !important;
+  border-radius: 8px 8px 0 0 !important;
+  background: #f8fafc !important;
+  padding: 8px !important;
+}
+
+.requirement-cart-toolbar .requirement-cart-table-tools button {
+  width: auto !important;
+  min-width: 0 !important;
+  height: 26px !important;
+  padding: 0 8px !important;
+  color: #334155 !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+}
+
+.requirement-cart-editor .ql-container {
+  border-radius: 0 0 8px 8px;
+  min-height: 220px;
+}
+
+.requirement-cart-editor .ql-editor {
+  min-height: 220px;
+}
+
+.requirement-cart-editor .ql-editor table,
+.invoice-requirement-description table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  table-layout: fixed;
+}
+
+.requirement-cart-editor .ql-editor td,
+.requirement-cart-editor .ql-editor th,
+.invoice-requirement-description td,
+.invoice-requirement-description th {
+  border: 1px solid #cbd5e1;
+  padding: 6px 8px;
+  vertical-align: top;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.requirement-cart-editor .ql-editor th,
+.invoice-requirement-description th {
+  background: #f1f5f9;
+  font-weight: 700;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

@@ -33,4 +33,11 @@ export const feeBuilderDraftsService = {
   async delete(id: string): Promise<void> {
     await apiClient.delete(`/api/fee-builder-drafts/${id}`);
   },
+
+  async deleteAll(adminPassword: string): Promise<{ deletedCount: number; message?: string }> {
+    const response = await apiClient.delete<{ deletedCount: number; message?: string }>('/api/fee-builder-drafts', {
+      data: { adminPassword },
+    });
+    return response.data;
+  },
 };

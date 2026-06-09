@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
 import PricingRule from '@/models/PricingRule';
 import Country from '@/models/Country';
+import Procedure from '@/models/Procedure';
 import Service from '@/models/Service';
 import { getUserFromRequest } from '@/lib/auth';
+import { buildPricingRulePayload, enrichPricingRuleObject } from '@/lib/pricing-rule-payload';
 
 export async function GET(req: NextRequest) {
   try {
@@ -91,10 +93,18 @@ export async function GET(req: NextRequest) {
     const serviceCategories = Array.from(
       new Set(pricingRules.map((rule) => rule.serviceCategory))
     ).filter(Boolean);
+    const procedureNames = Array.from(
+      new Set(pricingRules.map((rule) => rule.procedureName))
+    ).filter(Boolean);
 
-    const [countriesData, servicesData] = await Promise.all([
+    const [countriesData, servicesData, proceduresData] = await Promise.all([
       Country.find({ abbreviation: { $in: countryAbbreviations } }).lean(),
       Service.find({ category: { $in: serviceCategories } }).lean(),
+      Procedure.find({
+        isActive: true,
+        serviceCategory: { $in: serviceCategories },
+        name: { $in: procedureNames },
+      }).lean(),
     ]);
 
     const countryMap = countriesData.reduce<Record<string, any>>((acc, countryData) => {
@@ -106,11 +116,18 @@ export async function GET(req: NextRequest) {
       acc[serviceData.category] = serviceData;
       return acc;
     }, {});
+    const procedureMap = proceduresData.reduce<Record<string, any>>((acc, procedureData) => {
+      acc[`${procedureData.serviceCategory}::${String(procedureData.name || '').toLowerCase()}`] = procedureData;
+      return acc;
+    }, {});
 
     const pricingRulesWithDetails = pricingRules.map((rule) => {
       const ruleObject = rule.toObject();
       const countryDetail = countryMap[String(ruleObject.countryAbbreviation || '').toUpperCase()] || null;
       const serviceDetail = serviceMap[ruleObject.serviceCategory] || null;
+      const procedureDetail =
+        procedureMap[`${ruleObject.serviceCategory}::${String(ruleObject.procedureName || '').toLowerCase()}`] ||
+        null;
       return {
         ...ruleObject,
         status: ruleObject.isActive ? 'Active' : 'Inactive',
@@ -130,6 +147,15 @@ export async function GET(req: NextRequest) {
               category: serviceDetail.category,
               basePrice: serviceDetail.basePrice,
               isActive: serviceDetail.isActive,
+            }
+          : null,
+        procedure: procedureDetail
+          ? {
+              _id: procedureDetail._id,
+              name: procedureDetail.name,
+              serviceCategory: procedureDetail.serviceCategory,
+              serviceName: procedureDetail.serviceName,
+              isActive: procedureDetail.isActive,
             }
           : null,
       };
@@ -153,10 +179,16 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    const body = await req.json();
-    const pricingRule = await PricingRule.create(body);
+    const body = (await req.json()) as Record<string, unknown>;
+    const payload = await buildPricingRulePayload(body);
+    if ('error' in payload) {
+      return NextResponse.json({ error: payload.error }, { status: 400 });
+    }
 
-    return NextResponse.json(pricingRule, { status: 201 });
+    const pricingRule = await PricingRule.create(payload.data);
+    const pricingRuleWithDetails = await enrichPricingRuleObject(pricingRule.toObject());
+
+    return NextResponse.json(pricingRuleWithDetails, { status: 201 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Operation failed';
     return NextResponse.json({ error: message }, { status: 500 });

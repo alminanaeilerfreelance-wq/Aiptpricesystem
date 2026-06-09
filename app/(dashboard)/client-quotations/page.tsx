@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamicImport from 'next/dynamic';
 import {
   Alert,
@@ -101,6 +101,14 @@ interface RequirementEditorData {
   requirements: string;
 }
 
+type RequirementAutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+interface RequirementAutosaveEntry {
+  status: RequirementAutosaveStatus;
+  message?: string;
+  savedAt?: string;
+}
+
 interface InvoiceServiceTableColors {
   headerBg: string;
   headerText: string;
@@ -142,15 +150,95 @@ const defaultRequirementEditorData: RequirementEditorData = {
   requirements: '',
 };
 
+const REQUIREMENT_AUTOSAVE_DELAY_MS = 1200;
+
 const requirementEditorModules = {
+  table: true,
   toolbar: [
-    [{ header: [1, 2, false] }],
+    [{ header: [1, 2, 3, false] }],
     ['bold', 'italic', 'underline'],
     ['link', 'blockquote', 'code-block'],
     [{ list: 'ordered' }, { list: 'bullet' }],
     ['clean'],
   ],
 };
+
+const requirementTableToolbarHandlers = {
+  insertTable(this: any) {
+    this.quill.getModule('table')?.insertTable(3, 3);
+  },
+  insertRowAbove(this: any) {
+    this.quill.getModule('table')?.insertRowAbove();
+  },
+  insertRowBelow(this: any) {
+    this.quill.getModule('table')?.insertRowBelow();
+  },
+  insertColumnLeft(this: any) {
+    this.quill.getModule('table')?.insertColumnLeft();
+  },
+  insertColumnRight(this: any) {
+    this.quill.getModule('table')?.insertColumnRight();
+  },
+  deleteRow(this: any) {
+    this.quill.getModule('table')?.deleteRow();
+  },
+  deleteColumn(this: any) {
+    this.quill.getModule('table')?.deleteColumn();
+  },
+  deleteTable(this: any) {
+    this.quill.getModule('table')?.deleteTable();
+  },
+};
+
+const requirementCartEditorModulesCache = new Map<string, any>();
+
+const getRequirementCartToolbarId = (requirementId: string) => `requirement-cart-toolbar-${requirementId}`;
+
+const getRequirementCartEditorModules = (requirementId: string): any => {
+  const toolbarSelector = `#${getRequirementCartToolbarId(requirementId)}`;
+  const cached = requirementCartEditorModulesCache.get(toolbarSelector);
+  if (cached) return cached;
+
+  const modules = {
+    table: true,
+    toolbar: {
+      container: toolbarSelector,
+      handlers: requirementTableToolbarHandlers,
+    },
+  };
+  requirementCartEditorModulesCache.set(toolbarSelector, modules);
+  return modules;
+};
+
+const RequirementCartToolbar = ({ toolbarId }: { toolbarId: string }) => (
+  <Box id={toolbarId} className="requirement-cart-toolbar">
+    <span className="ql-formats">
+      <select className="ql-header" defaultValue="" aria-label="Heading">
+        <option value="1">Heading 1</option>
+        <option value="2">Heading 2</option>
+        <option value="3">Heading 3</option>
+        <option value="">Normal</option>
+      </select>
+      <button type="button" className="ql-bold" aria-label="Bold" />
+      <button type="button" className="ql-italic" aria-label="Italic" />
+      <button type="button" className="ql-underline" aria-label="Underline" />
+      <button type="button" className="ql-link" aria-label="Link" />
+      <button type="button" className="ql-list" value="ordered" aria-label="Numbered list" />
+      <button type="button" className="ql-list" value="bullet" aria-label="Bullet list" />
+    </span>
+    <span className="ql-formats requirement-cart-table-tools">
+      <button type="button" className="ql-insertTable" aria-label="Insert table">Table</button>
+      <button type="button" className="ql-insertRowAbove" aria-label="Insert row above">Row Up</button>
+      <button type="button" className="ql-insertRowBelow" aria-label="Insert row below">Row Down</button>
+      <button type="button" className="ql-insertColumnLeft" aria-label="Insert column left">Col Left</button>
+      <button type="button" className="ql-insertColumnRight" aria-label="Insert column right">Col Right</button>
+      <button type="button" className="ql-deleteRow" aria-label="Delete row">Del Row</button>
+      <button type="button" className="ql-deleteColumn" aria-label="Delete column">Del Col</button>
+      <button type="button" className="ql-deleteTable" aria-label="Delete table">Del Table</button>
+      <button type="button" className="ql-clean" aria-label="Clear formatting" />
+    </span>
+  </Box>
+);
 
 const defaultInvoiceServiceTableColors: InvoiceServiceTableColors = {
   headerBg: '#EEF2FF',
@@ -677,6 +765,8 @@ export default function ClientQuotationsPage() {
   const [requirementEditorLoading, setRequirementEditorLoading] = useState(false);
   const [requirementEditorSaving, setRequirementEditorSaving] = useState(false);
   const [requirementEditorError, setRequirementEditorError] = useState('');
+  const [requirementAutosaveState, setRequirementAutosaveState] = useState<Record<string, RequirementAutosaveEntry>>({});
+  const requirementAutosaveTimersRef = useRef<Record<string, number>>({});
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(defaultServiceDraft);
   const [serviceCountrySelections, setServiceCountrySelections] = useState<string[]>([]);
   const [services, setServices] = useState<ClientQuotationServiceItem[]>([]);
@@ -734,6 +824,135 @@ export default function ClientQuotationsPage() {
     if (typeof details === 'string' && details.trim()) return details.trim();
     return err?.response?.data?.error || err?.message || fallback;
   }, []);
+
+  const clearRequirementAutosaveTimers = useCallback(() => {
+    Object.values(requirementAutosaveTimersRef.current).forEach((timerId) => {
+      window.clearTimeout(timerId);
+    });
+    requirementAutosaveTimersRef.current = {};
+  }, []);
+
+  const updateRequirementItem = useCallback((requirementId: string, patch: Partial<RequirementOption>) => {
+    setRequirementsState((prev) => ({
+      ...prev,
+      items: prev.items.map((item) =>
+        item._id === requirementId ? { ...item, ...patch } : item
+      ),
+    }));
+  }, []);
+
+  const saveRequirementDraftNow = useCallback(async (requirement: RequirementOption) => {
+    if (
+      !requirement.countryId ||
+      !requirement.serviceCategory ||
+      !String(requirement.title || '').trim() ||
+      !stripHtml(requirement.requirements)
+    ) {
+      throw new Error('Title and requirement details are required before autosave.');
+    }
+
+    const response = await requirementsService.update(requirement._id, {
+      country: requirement.countryId || '',
+      serviceCategory: requirement.serviceCategory as ServiceCategory,
+      title: String(requirement.title || '').trim(),
+      requirements: requirement.requirements,
+    });
+    const updatedRequirement = response.data;
+    updateRequirementItem(requirement._id, {
+      countryId: updatedRequirement.country?._id || requirement.countryId,
+      countryName: updatedRequirement.country?.name || requirement.countryName,
+      serviceCategory: updatedRequirement.serviceCategory || requirement.serviceCategory,
+      title: updatedRequirement.title || '',
+      requirements: updatedRequirement.requirements || '',
+    });
+    setRequirementAutosaveState((prev) => ({
+      ...prev,
+      [requirement._id]: {
+        status: 'saved',
+        message: 'Autosaved',
+        savedAt: new Date().toISOString(),
+      },
+    }));
+  }, [updateRequirementItem]);
+
+  const scheduleRequirementAutosave = useCallback((requirement: RequirementOption) => {
+    const requirementId = requirement._id;
+    const existingTimer = requirementAutosaveTimersRef.current[requirementId];
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+    }
+
+    if (
+      !requirement.countryId ||
+      !requirement.serviceCategory ||
+      !String(requirement.title || '').trim() ||
+      !stripHtml(requirement.requirements)
+    ) {
+      setRequirementAutosaveState((prev) => ({
+        ...prev,
+        [requirementId]: {
+          status: 'error',
+          message: 'Title and requirement details are required before autosave.',
+        },
+      }));
+      return;
+    }
+
+    setRequirementAutosaveState((prev) => ({
+      ...prev,
+      [requirementId]: { status: 'saving', message: 'Autosaving...' },
+    }));
+
+    requirementAutosaveTimersRef.current[requirementId] = window.setTimeout(async () => {
+      try {
+        await saveRequirementDraftNow(requirement);
+      } catch (err: any) {
+        setRequirementAutosaveState((prev) => ({
+          ...prev,
+          [requirementId]: {
+            status: 'error',
+            message: err?.response?.data?.error || err?.message || 'Autosave failed.',
+          },
+        }));
+      } finally {
+        delete requirementAutosaveTimersRef.current[requirementId];
+      }
+    }, REQUIREMENT_AUTOSAVE_DELAY_MS);
+  }, [saveRequirementDraftNow]);
+
+  const flushSelectedRequirementAutosaves = useCallback(async () => {
+    const selectedIds = new Set(selectedRequirementIds);
+    const requirementsToSave = requirementsState.items.filter((item) => selectedIds.has(item._id));
+
+    for (const requirement of requirementsToSave) {
+      const existingTimer = requirementAutosaveTimersRef.current[requirement._id];
+      if (existingTimer) {
+        window.clearTimeout(existingTimer);
+        delete requirementAutosaveTimersRef.current[requirement._id];
+      }
+      setRequirementAutosaveState((prev) => ({
+        ...prev,
+        [requirement._id]: { status: 'saving', message: 'Saving before quotation...' },
+      }));
+      await saveRequirementDraftNow(requirement);
+    }
+  }, [requirementsState.items, saveRequirementDraftNow, selectedRequirementIds]);
+
+  const handleRequirementCartChange = useCallback((
+    requirementId: string,
+    patch: Partial<Pick<RequirementOption, 'title' | 'requirements'>>
+  ) => {
+    const currentRequirement = requirementsState.items.find((item) => item._id === requirementId);
+    if (!currentRequirement) return;
+
+    const nextRequirement = { ...currentRequirement, ...patch };
+    updateRequirementItem(requirementId, patch);
+    scheduleRequirementAutosave(nextRequirement);
+  }, [requirementsState.items, scheduleRequirementAutosave, updateRequirementItem]);
+
+  useEffect(() => () => {
+    clearRequirementAutosaveTimers();
+  }, [clearRequirementAutosaveTimers]);
 
   const updateInvoiceServiceTableColor = (key: keyof InvoiceServiceTableColors, value: string) => {
     setInvoiceServiceTableColors((prev) => ({ ...prev, [key]: value }));
@@ -1537,6 +1756,9 @@ export default function ClientQuotationsPage() {
               .requirement-description p { margin: 0 0 7px; }
               .requirement-description p:last-child { margin-bottom: 0; }
               .requirement-description ul, .requirement-description ol { margin: 4px 0 4px 18px; padding: 0; }
+              .requirement-description table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 8px 0; }
+              .requirement-description td, .requirement-description th { border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, '#D1D5DB')}; padding: 6px 8px; vertical-align: top; word-break: normal; overflow-wrap: break-word; }
+              .requirement-description th { background: ${normalizeHexColor(invoiceServiceTableColors.subHeaderBg, '#F8FAFC')}; font-weight: 700; }
               .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
               .footer { margin-top: 22px; color: #64748b; font-size: 11px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
             </style>
@@ -1817,6 +2039,8 @@ export default function ClientQuotationsPage() {
     setRequirementEditorLoading(false);
     setRequirementEditorSaving(false);
     setRequirementEditorError('');
+    clearRequirementAutosaveTimers();
+    setRequirementAutosaveState({});
     setServiceDraft(defaultServiceDraft);
     setServiceCountrySelections([]);
     setServices([]);
@@ -1970,6 +2194,16 @@ export default function ClientQuotationsPage() {
   };
 
   const handleRemoveRequirementFromCart = (requirementId: string) => {
+    const existingTimer = requirementAutosaveTimersRef.current[requirementId];
+    if (existingTimer) {
+      window.clearTimeout(existingTimer);
+      delete requirementAutosaveTimersRef.current[requirementId];
+    }
+    setRequirementAutosaveState((prev) => {
+      const next = { ...prev };
+      delete next[requirementId];
+      return next;
+    });
     setSelectedRequirementIds((prev) => prev.filter((id) => id !== requirementId));
     setRequirementDraftIds((prev) => prev.filter((id) => id !== requirementId));
   };
@@ -2113,6 +2347,12 @@ export default function ClientQuotationsPage() {
       notifyValidationError('Select at least one requirement title.');
       return;
     }
+    try {
+      await flushSelectedRequirementAutosaves();
+    } catch (err: any) {
+      notifyApiError(err?.response?.data?.error || err?.message || 'Failed to autosave requirement details.');
+      return;
+    }
     if (services.length === 0) {
       notifyValidationError('Add at least one service row.');
       return;
@@ -2179,6 +2419,8 @@ export default function ClientQuotationsPage() {
 
     const fetchRequirements = async () => {
       if (!selectedInquiry) {
+        clearRequirementAutosaveTimers();
+        setRequirementAutosaveState({});
         setRequirementsState({
           loading: false,
           error: '',
@@ -2195,6 +2437,8 @@ export default function ClientQuotationsPage() {
       const selectedCountryOptions = getInquiryCountryOptions(selectedInquiry);
       const countryNames = selectedCountryOptions.map((country) => country.name).filter(Boolean).join(', ');
       const selectedServiceCategory = ((selectedInquiry.serviceId as any)?.category || '') as string;
+      clearRequirementAutosaveTimers();
+      setRequirementAutosaveState({});
       setRequirementsState({
         loading: true,
         error: '',
@@ -2266,7 +2510,7 @@ export default function ClientQuotationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedInquiry]);
+  }, [clearRequirementAutosaveTimers, selectedInquiry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2471,6 +2715,23 @@ export default function ClientQuotationsPage() {
             '.client-quotation-invoice-print .invoice-requirement-description ul, .client-quotation-invoice-print .invoice-requirement-description ol': {
               margin: '4px 0 4px 18px !important',
               padding: '0 !important',
+            },
+            '.client-quotation-invoice-print .invoice-requirement-description table': {
+              width: '100% !important',
+              borderCollapse: 'collapse !important',
+              tableLayout: 'fixed',
+              margin: '8px 0 !important',
+            },
+            '.client-quotation-invoice-print .invoice-requirement-description td, .client-quotation-invoice-print .invoice-requirement-description th': {
+              border: `1px solid ${invoiceServiceTableColors.borderColor} !important`,
+              padding: '6px 8px !important',
+              verticalAlign: 'top',
+              wordBreak: 'normal',
+              overflowWrap: 'break-word',
+            },
+            '.client-quotation-invoice-print .invoice-requirement-description th': {
+              backgroundColor: `${invoiceServiceTableColors.subHeaderBg} !important`,
+              fontWeight: 700,
             },
             '.client-quotation-invoice-print .invoice-money-cell': {
               whiteSpace: 'nowrap',
@@ -2687,63 +2948,79 @@ export default function ClientQuotationsPage() {
                               </Typography>
                             ) : (
                               <Stack spacing={1.5}>
-                                {selectedRequirements.map((requirement) => (
-                                  <Box
-                                    key={requirement._id}
-                                    sx={{
-                                      border: '1px solid',
-                                      borderColor: 'divider',
-                                      borderRadius: 1.5,
-                                      p: 1.5,
-                                      bgcolor: 'background.paper',
-                                    }}
-                                  >
-                                    <Stack
-                                      direction={{ xs: 'column', sm: 'row' }}
-                                      spacing={1}
-                                      sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' } }}
-                                    >
-                                      <Box>
-                                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                                          {getRequirementOptionLabel(requirement)}
-                                        </Typography>
-                                        <Typography variant="caption" color="text.secondary">
-                                          Country: {requirement.countryName || '-'}
-                                        </Typography>
-                                      </Box>
-                                      <Stack direction="row" spacing={1}>
-                                        <Tooltip title="Edit requirement details">
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => handleEditRequirementInCart(requirement)}
-                                            sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', '&:hover': { bgcolor: 'primary.dark' } }}
-                                          >
-                                            <NoteIcon />
-                                          </IconButton>
-                                        </Tooltip>
-                                        <Tooltip title="Delete requirement from cart">
-                                          <IconButton
-                                            size="small"
-                                            onClick={() => handleRemoveRequirementFromCart(requirement._id)}
-                                            sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}
-                                          >
-                                            <TrashIcon />
-                                          </IconButton>
-                                        </Tooltip>
-                                      </Stack>
-                                    </Stack>
+                                {selectedRequirements.map((requirement) => {
+                                  const autosave = requirementAutosaveState[requirement._id];
+                                  const toolbarId = getRequirementCartToolbarId(requirement._id);
+                                  const autosaveColor =
+                                    autosave?.status === 'error'
+                                      ? 'error.main'
+                                      : autosave?.status === 'saved'
+                                        ? 'success.main'
+                                        : 'text.secondary';
+
+                                  return (
                                     <Box
+                                      key={requirement._id}
                                       sx={{
-                                        mt: 1,
-                                        '& p': { m: 0, mb: 1 },
-                                        '& p:last-of-type': { mb: 0 },
+                                        border: '1px solid',
+                                        borderColor: autosave?.status === 'error' ? 'error.light' : 'divider',
+                                        borderRadius: 1.5,
+                                        p: 1.5,
+                                        bgcolor: 'background.paper',
                                       }}
-                                      dangerouslySetInnerHTML={{
-                                        __html: sanitizeHtml(requirement.requirements || ''),
-                                      }}
-                                    />
-                                  </Box>
-                                ))}
+                                    >
+                                      <Stack
+                                        direction={{ xs: 'column', sm: 'row' }}
+                                        spacing={1}
+                                        sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, mb: 1.5 }}
+                                      >
+                                        <Box>
+                                          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                                            Requirement Cart Editor
+                                          </Typography>
+                                          <Typography variant="caption" color="text.secondary">
+                                            Country: {requirement.countryName || '-'}
+                                          </Typography>
+                                        </Box>
+                                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                          <Typography variant="caption" sx={{ color: autosaveColor, fontWeight: 700 }}>
+                                            {autosave?.message || 'Autosave ready'}
+                                          </Typography>
+                                          <Tooltip title="Delete requirement from cart">
+                                            <IconButton
+                                              size="small"
+                                              onClick={() => handleRemoveRequirementFromCart(requirement._id)}
+                                              sx={{ bgcolor: 'error.main', color: 'error.contrastText', '&:hover': { bgcolor: 'error.dark' } }}
+                                            >
+                                              <TrashIcon />
+                                            </IconButton>
+                                          </Tooltip>
+                                        </Stack>
+                                      </Stack>
+                                      <TextField
+                                        label="Requirement Title"
+                                        value={requirement.title}
+                                        onChange={(event) =>
+                                          handleRequirementCartChange(requirement._id, { title: event.target.value })
+                                        }
+                                        fullWidth
+                                        size="small"
+                                        sx={{ mb: 1.5 }}
+                                      />
+                                      <RequirementCartToolbar toolbarId={toolbarId} />
+                                      <Box className="requirement-cart-editor">
+                                        <ReactQuill
+                                          value={requirement.requirements || ''}
+                                          onChange={(content) =>
+                                            handleRequirementCartChange(requirement._id, { requirements: content })
+                                          }
+                                          theme="snow"
+                                          modules={getRequirementCartEditorModules(requirement._id)}
+                                        />
+                                      </Box>
+                                    </Box>
+                                  );
+                                })}
                               </Stack>
                             )}
                           </Grid>

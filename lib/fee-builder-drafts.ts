@@ -47,7 +47,7 @@ export interface FeeBuilderDraft {
   selectedRuleIds?: string[];
   columnOrder?: string[];
   columnWidths?: Record<string, number>;
-  rowHeights?: Record<string, number>;
+  rowHeights?: Record<string, number>
   hiddenRowKeys?: string[];
   hiddenProcedureColumns?: string[];
 }

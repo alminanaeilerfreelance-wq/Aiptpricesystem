@@ -30,6 +30,7 @@ export interface FeeBuilderDraft {
   rowOrder: string[];
   columnVisibility: Record<FeeBuilderColumnKey, boolean>;
   fontFamily: string;
+  fontSize: number;
   rowHeight: number;
   columnWidth: number;
   flagWidth: number;

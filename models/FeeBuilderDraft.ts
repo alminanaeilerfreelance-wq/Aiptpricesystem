@@ -18,6 +18,7 @@ export interface IFeeBuilderDraft extends Document {
   columnWidths: Record<string, number>;
   rowHeights: Record<string, number>;
   fontFamily: string;
+  fontSize: number;
   rowHeight: number;
   columnWidth: number;
   flagWidth: number;
@@ -62,6 +63,7 @@ const feeBuilderDraftSchema = new mongoose.Schema<IFeeBuilderDraft>(
     columnWidths: { type: mongoose.Schema.Types.Mixed, default: mixedDefault },
     rowHeights: { type: mongoose.Schema.Types.Mixed, default: mixedDefault },
     fontFamily: { type: String, default: 'Calibri' },
+    fontSize: { type: Number, default: 12 },
     rowHeight: { type: Number, default: 22 },
     columnWidth: { type: Number, default: 72 },
     flagWidth: { type: Number, default: 26 },

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -92,6 +92,8 @@ export default function AssocitePage() {
   const debouncedSearch = useDebounce(search, 400);
   const [statusFilter, setStatusFilter] = useState<AssociteStatus | ''>('');
   const [countryFilter, setCountryFilter] = useState('');
+  const hasLoadedRef = useRef(false);
+  const lastLoadedPageRef = useRef(page);
   const [continentFilter, setContinentFilter] = useState('');
 
   const [error, setError] = useState('');
@@ -122,9 +124,10 @@ export default function AssocitePage() {
       const nextStatus = params?.nextStatus ?? statusFilter;
       const nextCountry = params?.nextCountry ?? countryFilter;
       const nextContinent = params?.nextContinent ?? continentFilter;
+      const shouldShowLoader = !hasLoadedRef.current || nextPage !== lastLoadedPageRef.current;
 
       try {
-        setLoading(true);
+        if (shouldShowLoader) setLoading(true);
         setError('');
         const response = await associteService.list({
           page: nextPage,
@@ -142,7 +145,9 @@ export default function AssocitePage() {
         setItems([]);
         setTotal(0);
       } finally {
-        setLoading(false);
+        if (shouldShowLoader) setLoading(false);
+        hasLoadedRef.current = true;
+        lastLoadedPageRef.current = nextPage;
       }
     },
     [page, limit, debouncedSearch, statusFilter, countryFilter, continentFilter]

@@ -153,7 +153,7 @@ export default function MuiDataTable<RowType>({
   }, [columns, firstSortableColumn, internalSortBy]);
 
   const applyClientSearch = !onSearchTermChange;
-  const effectiveSearch = onSearchTermChange ? searchTerm : internalSearch;
+  const effectiveSearch = searchTerm || internalSearch;
   const effectiveSortBy = sortBy ?? internalSortBy;
   const effectiveSortOrder = sortOrder ?? internalSortOrder;
 

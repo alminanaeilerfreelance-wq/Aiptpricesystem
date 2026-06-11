@@ -2831,6 +2831,10 @@ export default function ClientQuotationsPage() {
                         : [];
                       const nextIsInternational =
                         getInquiryReferenceSuffix(value?.referenceNo) === 'INT' || nextInquiryCountries.length > 1;
+                      const nextClientId = typeof value?.clientId === 'object'
+                        ? value.clientId?._id || ''
+                        : String(value?.clientId || '');
+                      setSelectedClientId(nextClientId);
                       setSelectedInquiryId(value?._id || '');
                       setSelectedRequirementIds([]);
                       setSelectedRequirementCountryId('');

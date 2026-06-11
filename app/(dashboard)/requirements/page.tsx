@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import dynamicImport from 'next/dynamic';
 import {
   Alert,
@@ -115,6 +115,8 @@ export default function RequirementsPage() {
   const [sortBy, setSortBy] = useState<'createdAt' | 'country'>('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [error, setError] = useState('');
+  const hasLoadedRef = useRef(false);
+  const lastLoadedPageRef = useRef(page);
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -130,8 +132,9 @@ export default function RequirementsPage() {
     const nextPage = params?.nextPage ?? page;
     const nextSearch = params?.nextSearch ?? debouncedSearch;
     const nextCountry = params?.nextCountry ?? countryFilter;
+    const shouldShowLoader = !hasLoadedRef.current || nextPage !== lastLoadedPageRef.current;
     try {
-      setLoading(true);
+      if (shouldShowLoader) setLoading(true);
       setError('');
       const response = await requirementsService.list({
         page: nextPage,
@@ -148,17 +151,15 @@ export default function RequirementsPage() {
       setRequirements([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (shouldShowLoader) setLoading(false);
+      hasLoadedRef.current = true;
+      lastLoadedPageRef.current = nextPage;
     }
   }, [countryFilter, debouncedSearch, limit, page, sortBy, sortOrder]);
 
   useEffect(() => {
     fetchRequirements({ nextPage: page, nextSearch: debouncedSearch, nextCountry: countryFilter });
   }, [countryFilter, debouncedSearch, fetchRequirements, page, sortBy, sortOrder]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch]);
 
   useEffect(() => {
     const loadCountries = async () => {
@@ -681,7 +682,7 @@ export default function RequirementsPage() {
         editingId={editingId}
       />
 
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="1200" fullWidth>
         <DialogTitle>View Requirement</DialogTitle>
         <DialogContent>
           {viewingRequirement && (

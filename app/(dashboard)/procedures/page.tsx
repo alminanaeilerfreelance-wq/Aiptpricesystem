@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -78,6 +78,8 @@ export default function ProceduresPage() {
     name: '',
     serviceId: '',
   });
+  const hasLoadedRef = useRef(false);
+  const lastLoadedPageRef = useRef(page);
   const [services, setServices] = useState<ServiceOption[]>([]);
 
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -96,22 +98,26 @@ export default function ProceduresPage() {
     }) => {
       const nextPage = params?.nextPage ?? page;
       const nextSearch = params?.nextSearch ?? debouncedSearch;
+      const shouldShowLoader = !hasLoadedRef.current || nextPage !== lastLoadedPageRef.current;
       try {
-        setLoading(true);
+        if (shouldShowLoader) setLoading(true);
         setError('');
         const response = await proceduresService.list({
           page: nextPage,
           limit,
           search: nextSearch || undefined,
         });
-        setProcedures(Array.isArray(response?.procedures) ? response.procedures : []);
+        const loadedProcedures = Array.isArray(response?.procedures) ? response.procedures : [];
+        setProcedures(loadedProcedures);
         setTotal(response?.total || 0);
       } catch (err: any) {
         setError(err.message || 'Failed to fetch procedures');
         setProcedures([]);
         setTotal(0);
       } finally {
-        setLoading(false);
+        if (shouldShowLoader) setLoading(false);
+        hasLoadedRef.current = true;
+        lastLoadedPageRef.current = nextPage;
       }
     },
     [debouncedSearch, limit, page]

@@ -108,6 +108,7 @@ const DEFAULT_COLUMN_WIDTH = 72;
 const DEFAULT_FLAG_WIDTH = 26;
 const DEFAULT_FLAG_HEIGHT = 16;
 const DEFAULT_FONT_COLOR = '#111827';
+const DEFAULT_FONT_SIZE = 12;
 const DEFAULT_HIGHLIGHT_COLOR = '#FFF2CC';
 const PAPER_FORMATS: PaperFormat[] = ['A4', 'A3', 'Letter'];
 const PRINT_ORIENTATIONS: PrintOrientation[] = ['landscape', 'portrait'];
@@ -195,6 +196,7 @@ export default function FeeReportBuilderPage() {
   const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
   const [columnVisibility, setColumnVisibility] = useState<Record<ColumnKey, boolean>>(DEFAULT_COLUMNS);
   const [fontFamily, setFontFamily] = useState('Calibri');
+  const [fontSize, setFontSize] = useState(DEFAULT_FONT_SIZE);
   const [rowHeight, setRowHeight] = useState(DEFAULT_ROW_HEIGHT);
   const [columnWidth, setColumnWidth] = useState(DEFAULT_COLUMN_WIDTH);
   const [flagWidth, setFlagWidth] = useState(DEFAULT_FLAG_WIDTH);
@@ -208,7 +210,7 @@ export default function FeeReportBuilderPage() {
   const [drafts, setDrafts] = useState<FeeBuilderDraft[]>([]);
   const [activeDraftId, setActiveDraftId] = useState('');
   const [draftName, setDraftName] = useState('');
-  const [draftDate, setDraftDate] = useState(getDateInputValue);
+  const [draftDate, setDraftDate] = useState('');
   const [auditLog, setAuditLog] = useState<AuditEntry[]>([]);
   const [selectionDialogOpen, setSelectionDialogOpen] = useState(false);
   const [selectionCountry, setSelectionCountry] = useState('');
@@ -216,7 +218,7 @@ export default function FeeReportBuilderPage() {
   const [selectionDraftIds, setSelectionDraftIds] = useState<string[]>([]);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveDraftName, setSaveDraftName] = useState('');
-  const [saveDraftDate, setSaveDraftDate] = useState(getDateInputValue);
+  const [saveDraftDate, setSaveDraftDate] = useState('');
   const [deleteAllDialogOpen, setDeleteAllDialogOpen] = useState(false);
   const [deleteAllPassword, setDeleteAllPassword] = useState('');
   const [deleteAllSaving, setDeleteAllSaving] = useState(false);
@@ -227,6 +229,12 @@ export default function FeeReportBuilderPage() {
   const [error, setError] = useState('');
   const [hydrated, setHydrated] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const dateValue = getDateInputValue();
+    setDraftDate(dateValue);
+    setSaveDraftDate(dateValue);
+  }, []);
   const autoSaveTimersRef = useRef<Record<string, number>>({});
   const columnResizeRef = useRef<{ procedure: string; startX: number; startWidth: number } | null>(null);
   const rowResizeRef = useRef<{ rowKey: string; startY: number; startHeight: number } | null>(null);
@@ -264,6 +272,7 @@ export default function FeeReportBuilderPage() {
     rowHeights,
     columnVisibility,
     fontFamily,
+    fontSize,
     rowHeight,
     columnWidth,
     flagWidth,
@@ -295,6 +304,7 @@ export default function FeeReportBuilderPage() {
     setRowHeights(draft.rowHeights || {});
     setColumnVisibility({ ...DEFAULT_COLUMNS, ...(draft.columnVisibility || {}) });
     setFontFamily(draft.fontFamily || 'Calibri');
+    setFontSize(draft.fontSize || DEFAULT_FONT_SIZE);
     setRowHeight(draft.rowHeight || DEFAULT_ROW_HEIGHT);
     setColumnWidth(draft.columnWidth || DEFAULT_COLUMN_WIDTH);
     setFlagWidth(draft.flagWidth || DEFAULT_FLAG_WIDTH);
@@ -331,6 +341,7 @@ export default function FeeReportBuilderPage() {
     setRowHeights({});
     setColumnVisibility({ ...DEFAULT_COLUMNS });
     setFontFamily('Calibri');
+    setFontSize(DEFAULT_FONT_SIZE);
     setRowHeight(DEFAULT_ROW_HEIGHT);
     setColumnWidth(DEFAULT_COLUMN_WIDTH);
     setFlagWidth(DEFAULT_FLAG_WIDTH);
@@ -1163,6 +1174,19 @@ export default function FeeReportBuilderPage() {
     showSuccessToast('Styled Excel exported');
   };
 
+  const exportWord = () => {
+    const html = buildStyledTableHtml();
+    const blob = new Blob([html], { type: 'application/msword;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pricing-rules-${selectedService.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.doc`;
+    link.click();
+    URL.revokeObjectURL(url);
+    addAudit('Styled Word Export Generated');
+    showSuccessToast('Styled Word exported');
+  };
+
   const openPrintView = () => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
@@ -1471,7 +1495,7 @@ export default function FeeReportBuilderPage() {
         text-align: center;
         vertical-align: middle;
         white-space: nowrap;
-        font-size: 12px;
+        font-size: ${fontSize}px;
       }
       th {
         font-weight: 900;
@@ -1479,7 +1503,7 @@ export default function FeeReportBuilderPage() {
       .main-header {
         background: ${excelHeaderColor};
         height: 31px;
-        font-size: 13px;
+        font-size: ${fontSize}px;
       }
       .country-header {
         height: 74px;
@@ -1487,7 +1511,7 @@ export default function FeeReportBuilderPage() {
       .sub-header {
         background: ${excelSubHeaderColor};
         height: 43px;
-        font-size: 12px;
+        font-size: ${fontSize}px;
       }
       .row-number,
       .country-cell,
@@ -1673,6 +1697,24 @@ export default function FeeReportBuilderPage() {
                 </Select>
               </FormControl>
               <TextField
+                fullWidth
+                size="small"
+                type="color"
+                label="Font Color"
+                value={fontColor}
+                onChange={(event) => setFontColor(event.target.value)}
+                sx={{ width: 120 }}
+              />
+              <TextField
+                size="small"
+                type="number"
+                label="Font Size"
+                value={fontSize}
+                slotProps={{ input: { inputProps: { min: 8, max: 32, step: 1 } } }}
+                onChange={(event) => setFontSize(Math.max(8, Math.min(32, Number(event.target.value) || DEFAULT_FONT_SIZE)))}
+                sx={{ width: 120 }}
+              />
+              <TextField
                 size="small"
                 type="number"
                 label="Row Height"
@@ -1833,6 +1875,7 @@ export default function FeeReportBuilderPage() {
                 '& th': {
                   color: fontColor,
                   fontFamily,
+                  fontSize,
                   fontWeight: 900,
                   border: '1px solid #111827',
                   lineHeight: 1.05,
@@ -1843,6 +1886,7 @@ export default function FeeReportBuilderPage() {
                 },
                 '& td': {
                   fontFamily,
+                  fontSize,
                   color: fontColor,
                   border: '1px solid #1F2937',
                   py: 0,
@@ -2611,8 +2655,10 @@ export default function FeeReportBuilderPage() {
 
       <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
         <MenuItem onClick={() => { setExportAnchor(null); exportExcel(); }}>Styled Excel (.xls)</MenuItem>
+        <MenuItem onClick={() => { setExportAnchor(null); exportWord(); }}>Styled Word (.doc)</MenuItem>
         <MenuItem onClick={() => { setExportAnchor(null); exportCsv(); }}>CSV (.csv)</MenuItem>
         <MenuItem onClick={() => { setExportAnchor(null); exportDraftJson(); }}>Draft JSON</MenuItem>
+        <MenuItem onClick={() => { setExportAnchor(null); openPrintView(); }}>Print / PDF</MenuItem>
       </Menu>
 
       <Menu
@@ -2671,6 +2717,17 @@ export default function FeeReportBuilderPage() {
               value={fontColor}
               onChange={(event) => setFontColor(event.target.value)}
             />
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              label="Font Size"
+              value={fontSize}
+              slotProps={{ input: { inputProps: { min: 8, max: 32, step: 1 } } }}
+              onChange={(event) => setFontSize(Math.max(8, Math.min(32, Number(event.target.value) || DEFAULT_FONT_SIZE)))}
+            />
+          </Stack>
+          <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
             <TextField
               fullWidth
               size="small"

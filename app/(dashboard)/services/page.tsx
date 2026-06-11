@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -78,6 +78,8 @@ export default function ServicesPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [error, setError] = useState('');
+  const hasLoadedRef = useRef(false);
+  const lastLoadedPageRef = useRef(page);
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -97,8 +99,9 @@ export default function ServicesPage() {
     const nextPage = params?.nextPage ?? page;
     const nextSearch = params?.nextSearch ?? debouncedSearch;
     const nextCategory = params?.nextCategory ?? categoryFilter;
+    const shouldShowLoader = !hasLoadedRef.current || nextPage !== lastLoadedPageRef.current;
     try {
-      setLoading(true);
+      if (shouldShowLoader) setLoading(true);
       setError('');
       const response = await servicesService.list({
         page: nextPage,
@@ -113,7 +116,9 @@ export default function ServicesPage() {
       setServices([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (shouldShowLoader) setLoading(false);
+      hasLoadedRef.current = true;
+      lastLoadedPageRef.current = nextPage;
     }
   }, [categoryFilter, debouncedSearch, limit, page]);
 

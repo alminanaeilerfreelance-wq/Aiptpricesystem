@@ -312,6 +312,7 @@ export default function FeeBuilderDraftsPage() {
       columnOrder: Array.from(new Set(previewRows.map((rule) => rule.procedureName).filter(Boolean))),
       columnVisibility: DEFAULT_COLUMN_VISIBILITY,
       fontFamily: 'Calibri',
+      fontSize: 12,
       rowHeight: 22,
       columnWidth: 72,
       flagWidth: 26,

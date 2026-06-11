@@ -63,6 +63,7 @@ const buildDraftPayload = (body: DraftBody, user: JWTPayload) => {
     columnWidths: cleanObject(body.columnWidths),
     rowHeights: cleanObject(body.rowHeights),
     fontFamily: cleanString(body.fontFamily) || 'Calibri',
+    fontSize: cleanNumber(body.fontSize, 12),
     rowHeight: cleanNumber(body.rowHeight, 22),
     columnWidth: cleanNumber(body.columnWidth, 72),
     flagWidth: cleanNumber(body.flagWidth, 26),

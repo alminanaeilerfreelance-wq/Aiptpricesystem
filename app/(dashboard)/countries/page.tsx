@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -61,6 +61,9 @@ export default function CountriesPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
 
+  const hasLoadedRef = useRef(false);
+  const lastLoadedPageRef = useRef(page);
+
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -82,8 +85,9 @@ export default function CountriesPage() {
     async (params?: { nextPage?: number; nextSearch?: string }) => {
       const nextPage = params?.nextPage ?? page;
       const nextSearch = params?.nextSearch ?? debouncedSearch;
+      const shouldShowLoader = !hasLoadedRef.current || nextPage !== lastLoadedPageRef.current;
       try {
-        setLoading(true);
+        if (shouldShowLoader) setLoading(true);
         setError('');
         const response = await countriesService.list({
           page: nextPage,
@@ -97,7 +101,9 @@ export default function CountriesPage() {
         setCountries([]);
         setTotal(0);
       } finally {
-        setLoading(false);
+        if (shouldShowLoader) setLoading(false);
+        hasLoadedRef.current = true;
+        lastLoadedPageRef.current = nextPage;
       }
     },
     [debouncedSearch, limit, page]

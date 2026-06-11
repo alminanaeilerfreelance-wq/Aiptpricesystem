@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -75,6 +75,9 @@ export default function ClientsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<ClientForm>(defaultForm);
 
+  const hasLoadedRef = useRef(false);
+  const lastLoadedPageRef = useRef(page);
+
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingItem, setViewingItem] = useState<Client | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -87,8 +90,9 @@ export default function ClientsPage() {
   const fetchItems = useCallback(async (params?: { nextPage?: number; nextSearch?: string }) => {
     const nextPage = params?.nextPage ?? page;
     const nextSearch = params?.nextSearch ?? debouncedSearch;
+    const shouldShowLoader = !hasLoadedRef.current || nextPage !== lastLoadedPageRef.current;
     try {
-      setLoading(true);
+      if (shouldShowLoader) setLoading(true);
       setError('');
       const response = await clientsService.list({
         page: nextPage,
@@ -102,7 +106,9 @@ export default function ClientsPage() {
       setItems([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (shouldShowLoader) setLoading(false);
+      hasLoadedRef.current = true;
+      lastLoadedPageRef.current = nextPage;
     }
   }, [debouncedSearch, limit, page]);
 

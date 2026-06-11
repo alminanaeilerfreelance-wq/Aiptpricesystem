@@ -682,7 +682,7 @@ export default function RequirementsPage() {
         editingId={editingId}
       />
 
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="1200" fullWidth>
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="lg" fullWidth>
         <DialogTitle>View Requirement</DialogTitle>
         <DialogContent>
           {viewingRequirement && (

@@ -184,6 +184,7 @@ export default function FeeReportBuilderPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [editedFees, setEditedFees] = useState<Record<string, FeeDraftValues>>({});
+  const [missingFeeDrafts, setMissingFeeDrafts] = useState<Record<string, FeeDraftValues>>({});
   const [dirtyRows, setDirtyRows] = useState<Record<string, boolean>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, RowValidation>>({});
   const [rowOrder, setRowOrder] = useState<string[]>([]);
@@ -769,9 +770,28 @@ export default function FeeReportBuilderPage() {
   const getFeeValue = (rule: PricingRuleRow, field: FeeField) =>
     editedFees[rule._id]?.[field] ?? String(rule[field] ?? 0);
 
+  const makeMissingFeeKey = (countryRow: CountryFeeRow, procedure: string) =>
+    [
+      'new',
+      selectedService,
+      countryRow.countryName,
+      countryRow.countryAbbreviation,
+      procedure,
+    ].map((part) => String(part || '').trim().toLowerCase()).join('::');
+
+  const getMissingFeeValue = (countryRow: CountryFeeRow, procedure: string, field: FeeField) =>
+    missingFeeDrafts[makeMissingFeeKey(countryRow, procedure)]?.[field] ?? '0';
+
   const getRowTotal = (rule: PricingRuleRow) => {
     const officeFee = normalizeNumberInput(getFeeValue(rule, 'officialFee'));
     const attorneyFee = normalizeNumberInput(getFeeValue(rule, 'attorneyFee'));
+    if (officeFee === null || attorneyFee === null || officeFee < 0 || attorneyFee < 0) return null;
+    return officeFee + attorneyFee;
+  };
+
+  const getMissingRowTotal = (countryRow: CountryFeeRow, procedure: string) => {
+    const officeFee = normalizeNumberInput(getMissingFeeValue(countryRow, procedure, 'officialFee'));
+    const attorneyFee = normalizeNumberInput(getMissingFeeValue(countryRow, procedure, 'attorneyFee'));
     if (officeFee === null || attorneyFee === null || officeFee < 0 || attorneyFee < 0) return null;
     return officeFee + attorneyFee;
   };
@@ -864,6 +884,80 @@ export default function FeeReportBuilderPage() {
 
   const saveRow = (rule: PricingRuleRow) =>
     saveRuleFees(rule, getFeeValue(rule, 'officialFee'), getFeeValue(rule, 'attorneyFee'));
+
+  const saveMissingRuleFees = async (
+    countryRow: CountryFeeRow,
+    procedure: string,
+    officialValue: string,
+    attorneyValue: string,
+    options: { quiet?: boolean } = {}
+  ) => {
+    const draftKey = makeMissingFeeKey(countryRow, procedure);
+    clearAutoSaveTimer(draftKey);
+    const validation = validateFeeValues(draftKey, officialValue, attorneyValue);
+    if (!validation.isValid) return;
+
+    try {
+      const created = await pricingRulesService.create({
+        serviceCategory: selectedService,
+        countryId: countryRow.flagRule.country?._id,
+        countryName: countryRow.countryName,
+        countryAbbreviation: countryRow.countryAbbreviation,
+        procedureName: procedure,
+        officialFee: validation.officialFee,
+        attorneyFee: validation.attorneyFee,
+        classFee: 0,
+        isActive: true,
+      });
+      setPricingRules((current) => {
+        const existingIndex = current.findIndex((item) =>
+          item.serviceCategory === created.serviceCategory &&
+          item.countryName.trim().toLowerCase() === created.countryName.trim().toLowerCase() &&
+          item.procedureName.trim().toLowerCase() === created.procedureName.trim().toLowerCase()
+        );
+        if (existingIndex >= 0) {
+          return current.map((item, index) => (index === existingIndex ? ({ ...item, ...created } as PricingRuleRow) : item));
+        }
+        return [...current, created as PricingRuleRow];
+      });
+      setEditedFees((current) => ({
+        ...current,
+        [created._id]: {
+          officialFee: String(validation.officialFee),
+          attorneyFee: String(validation.attorneyFee),
+        },
+      }));
+      setMissingFeeDrafts((current) => {
+        const next = { ...current };
+        delete next[draftKey];
+        return next;
+      });
+      setDirtyRows((current) => ({ ...current, [draftKey]: false }));
+      setRowErrors((current) => ({ ...current, [draftKey]: {} }));
+      addAudit(`Row Created: ${countryRow.countryName} / ${procedure}`);
+      if (!options.quiet) showSuccessToast('Missing fee row created');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create pricing rule');
+    }
+  };
+
+  const updateMissingFee = (countryRow: CountryFeeRow, procedure: string, field: FeeField, value: string) => {
+    const draftKey = makeMissingFeeKey(countryRow, procedure);
+    const nextFees = {
+      officialFee: field === 'officialFee' ? value : getMissingFeeValue(countryRow, procedure, 'officialFee'),
+      attorneyFee: field === 'attorneyFee' ? value : getMissingFeeValue(countryRow, procedure, 'attorneyFee'),
+    };
+    setMissingFeeDrafts((current) => ({
+      ...current,
+      [draftKey]: nextFees,
+    }));
+    setDirtyRows((current) => ({ ...current, [draftKey]: true }));
+    setRowErrors((current) => ({ ...current, [draftKey]: { ...current[draftKey], [field]: undefined } }));
+    clearAutoSaveTimer(draftKey);
+    autoSaveTimersRef.current[draftKey] = window.setTimeout(() => {
+      saveMissingRuleFees(countryRow, procedure, nextFees.officialFee, nextFees.attorneyFee, { quiet: true });
+    }, 900);
+  };
 
   const openSelectionDialog = () => {
     setSelectionDraftIds(selectedRuleIds);
@@ -1378,9 +1472,10 @@ export default function FeeReportBuilderPage() {
               .map((procedure) => {
                 const rule = countryRow.rulesByProcedure[procedure];
                 const total = rule ? getRowTotal(rule) : null;
-                const official = rule ? escapeHtml(getFeeValue(rule, 'officialFee')) : 'N/A';
-                const attorney = rule ? escapeHtml(getFeeValue(rule, 'attorneyFee')) : 'N/A';
-                const totalText = rule ? (total === null ? '-' : formatMoney(total)) : 'N/A';
+                const official = escapeHtml(rule ? getFeeValue(rule, 'officialFee') : getMissingFeeValue(countryRow, procedure, 'officialFee'));
+                const attorney = escapeHtml(rule ? getFeeValue(rule, 'attorneyFee') : getMissingFeeValue(countryRow, procedure, 'attorneyFee'));
+                const missingTotal = rule ? null : getMissingRowTotal(countryRow, procedure);
+                const totalText = rule ? (total === null ? '-' : formatMoney(total)) : (missingTotal === null ? '-' : formatMoney(missingTotal));
                 const procedureWidth = getProcedureColumnWidth(procedure);
 
                 return `
@@ -2198,7 +2293,9 @@ export default function FeeReportBuilderPage() {
                         procedureColumns.map((procedure) => {
                           const rule = countryRow.rulesByProcedure[procedure];
                           const total = rule ? getRowTotal(rule) : null;
-                          const errors = rule ? rowErrors[rule._id] || {} : {};
+                          const draftKey = rule ? rule._id : makeMissingFeeKey(countryRow, procedure);
+                          const errors = rowErrors[draftKey] || {};
+                          const missingTotal = rule ? null : getMissingRowTotal(countryRow, procedure);
                           const procedureWidth = getProcedureColumnWidth(procedure);
 
                           return (
@@ -2240,7 +2337,37 @@ export default function FeeReportBuilderPage() {
                                       }}
                                     />
                                   ) : (
-                                    <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'inherit' }}>N/A</Typography>
+                                    <Box
+                                      component="input"
+                                      value={getMissingFeeValue(countryRow, procedure, 'officialFee')}
+                                      onChange={(event) => updateMissingFee(countryRow, procedure, 'officialFee', event.target.value)}
+                                      onBlur={(event) => {
+                                        saveMissingRuleFees(
+                                          countryRow,
+                                          procedure,
+                                          event.target.value,
+                                          getMissingFeeValue(countryRow, procedure, 'attorneyFee')
+                                        );
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') event.currentTarget.blur();
+                                      }}
+                                      title={errors.officialFee || 'Official Fees'}
+                                      inputMode="decimal"
+                                      style={{
+                                        width: '100%',
+                                        height: Math.max(18, currentRowHeight - 2),
+                                        border: errors.officialFee ? '1px solid #DC2626' : '0',
+                                        outline: 'none',
+                                        background: 'transparent',
+                                        color: fontColor,
+                                        fontFamily,
+                                        fontSize: 12,
+                                        fontWeight: 800,
+                                        padding: 0,
+                                        textAlign: 'center',
+                                      }}
+                                    />
                                   )}
                                 </TableCell>
                               )}
@@ -2281,14 +2408,44 @@ export default function FeeReportBuilderPage() {
                                       }}
                                     />
                                   ) : (
-                                    <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'inherit' }}>N/A</Typography>
+                                    <Box
+                                      component="input"
+                                      value={getMissingFeeValue(countryRow, procedure, 'attorneyFee')}
+                                      onChange={(event) => updateMissingFee(countryRow, procedure, 'attorneyFee', event.target.value)}
+                                      onBlur={(event) => {
+                                        saveMissingRuleFees(
+                                          countryRow,
+                                          procedure,
+                                          getMissingFeeValue(countryRow, procedure, 'officialFee'),
+                                          event.target.value
+                                        );
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter') event.currentTarget.blur();
+                                      }}
+                                      title={errors.attorneyFee || 'Attorney Fees'}
+                                      inputMode="decimal"
+                                      style={{
+                                        width: '100%',
+                                        height: Math.max(18, currentRowHeight - 2),
+                                        border: errors.attorneyFee ? '1px solid #DC2626' : '0',
+                                        outline: 'none',
+                                        background: 'transparent',
+                                        color: fontColor,
+                                        fontFamily,
+                                        fontSize: 12,
+                                        fontWeight: 800,
+                                        padding: 0,
+                                        textAlign: 'center',
+                                      }}
+                                    />
                                   )}
                                 </TableCell>
                               )}
                               {columnVisibility.total && (
                                 <TableCell sx={{ width: procedureWidth, px: 0.25, textAlign: 'center', bgcolor: `${highlightColor} !important`, borderRight: '2px solid #111827' }}>
                                   <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
-                                    {rule ? (total === null ? '-' : formatMoney(total)) : 'N/A'}
+                                    {rule ? (total === null ? '-' : formatMoney(total)) : (missingTotal === null ? '-' : formatMoney(missingTotal))}
                                   </Typography>
                                 </TableCell>
                               )}

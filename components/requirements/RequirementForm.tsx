@@ -27,7 +27,7 @@ import requirementsService from '@/services/requirements.service';
 interface RequirementFormProps {
   open: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (mode: 'create' | 'update') => void;
   editingId?: string | null;
 }
 
@@ -65,6 +65,70 @@ const INITIAL_FORM_DATA: {
 
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
 
+const requirementTableToolbarHandlers = {
+  insertTable(this: any) {
+    this.quill.getModule('table')?.insertTable(3, 3);
+  },
+  insertRowAbove(this: any) {
+    this.quill.getModule('table')?.insertRowAbove();
+  },
+  insertRowBelow(this: any) {
+    this.quill.getModule('table')?.insertRowBelow();
+  },
+  insertColumnLeft(this: any) {
+    this.quill.getModule('table')?.insertColumnLeft();
+  },
+  insertColumnRight(this: any) {
+    this.quill.getModule('table')?.insertColumnRight();
+  },
+  deleteRow(this: any) {
+    this.quill.getModule('table')?.deleteRow();
+  },
+  deleteColumn(this: any) {
+    this.quill.getModule('table')?.deleteColumn();
+  },
+  deleteTable(this: any) {
+    this.quill.getModule('table')?.deleteTable();
+  },
+};
+
+const requirementFormEditorModules = {
+  table: true,
+  toolbar: {
+    container: '#requirement-form-toolbar',
+    handlers: requirementTableToolbarHandlers,
+  },
+};
+
+const RequirementFormToolbar = () => (
+  <Box id="requirement-form-toolbar" className="requirement-cart-toolbar">
+    <span className="ql-formats">
+      <select className="ql-header" defaultValue="" aria-label="Heading">
+        <option value="1">Heading 1</option>
+        <option value="2">Heading 2</option>
+        <option value="">Normal</option>
+      </select>
+      <button type="button" className="ql-bold" aria-label="Bold" />
+      <button type="button" className="ql-italic" aria-label="Italic" />
+      <button type="button" className="ql-underline" aria-label="Underline" />
+      <button type="button" className="ql-link" aria-label="Link" />
+      <button type="button" className="ql-list" value="ordered" aria-label="Numbered list" />
+      <button type="button" className="ql-list" value="bullet" aria-label="Bullet list" />
+    </span>
+    <span className="ql-formats requirement-cart-table-tools">
+      <button type="button" className="ql-insertTable" aria-label="Insert table">Table</button>
+      <button type="button" className="ql-insertRowAbove" aria-label="Insert row above">Row Up</button>
+      <button type="button" className="ql-insertRowBelow" aria-label="Insert row below">Row Down</button>
+      <button type="button" className="ql-insertColumnLeft" aria-label="Insert column left">Col Left</button>
+      <button type="button" className="ql-insertColumnRight" aria-label="Insert column right">Col Right</button>
+      <button type="button" className="ql-deleteRow" aria-label="Delete row">Del Row</button>
+      <button type="button" className="ql-deleteColumn" aria-label="Delete column">Del Col</button>
+      <button type="button" className="ql-deleteTable" aria-label="Delete table">Del Table</button>
+      <button type="button" className="ql-clean" aria-label="Clear formatting" />
+    </span>
+  </Box>
+);
+
 const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSuccess, editingId }) => {
   const isEditMode = Boolean(editingId);
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
@@ -76,26 +140,36 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
 
   // Fetch countries on mount
   useEffect(() => {
+    let active = true;
+
     const fetchCountries = async () => {
       try {
         setCountriesLoading(true);
         const allCountries = await countriesService.listAll();
+        if (!active) return;
         setCountries(allCountries);
       } catch (err) {
+        if (!active) return;
         console.error('Failed to fetch countries:', err);
         setError('Failed to fetch countries');
       } finally {
-        setCountriesLoading(false);
+        if (active) setCountriesLoading(false);
       }
     };
 
     if (open) {
       fetchCountries();
     }
+
+    return () => {
+      active = false;
+    };
   }, [open]);
 
   // Fetch requirement data if editing
   useEffect(() => {
+    let active = true;
+
     const fetchRequirement = async () => {
       if (!editingId) return;
 
@@ -104,6 +178,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         setError('');
         setLoading(true);
         const response = await requirementsService.getById(editingId);
+        if (!active) return;
         setFormData({
           country: response.data.country._id,
           serviceCategory: response.data.serviceCategory || '',
@@ -112,10 +187,11 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         });
         setError('');
       } catch (err) {
+        if (!active) return;
         console.error('Failed to fetch requirement:', err);
         setError('Failed to fetch requirement');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
@@ -124,7 +200,12 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
     } else if (open && !editingId) {
       setFormData(INITIAL_FORM_DATA);
       setError('');
+      setLoading(false);
     }
+
+    return () => {
+      active = false;
+    };
   }, [open, editingId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -156,7 +237,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         await requirementsService.create(payload);
       }
 
-      onSuccess();
+      onSuccess(isEditMode ? 'update' : 'create');
       handleClose();
     } catch (err: any) {
       console.error('Failed to save requirement:', err);
@@ -173,10 +254,12 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>{isEditMode ? 'Edit / Update Requirement' : 'Add Requirement'}</DialogTitle>
+    <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth>
+      <DialogTitle sx={{ fontWeight: 900 }}>
+        {isEditMode ? 'Edit / Update Requirement' : 'Add Requirement'}
+      </DialogTitle>
       <form onSubmit={handleSubmit}>
-        <DialogContent>
+        <DialogContent sx={{ bgcolor: '#F8FAFC' }}>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
@@ -230,21 +313,16 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
               <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
                 Requirements *
               </label>
-              <ReactQuill
-                value={formData.requirements}
-                onChange={(content) => setFormData({ ...formData, requirements: content })}
-                theme="snow"
-                readOnly={loading}
-                modules={{
-                  toolbar: [
-                    [{ header: [1, 2, false] }],
-                    ['bold', 'italic', 'underline'],
-                    ['link', 'blockquote', 'code-block'],
-                    [{ list: 'ordered' }, { list: 'bullet' }],
-                    ['clean'],
-                  ],
-                }}
-              />
+              <Box className="requirement-cart-editor" sx={{ bgcolor: '#FFFFFF' }}>
+                <RequirementFormToolbar />
+                <ReactQuill
+                  value={formData.requirements}
+                  onChange={(content) => setFormData({ ...formData, requirements: content })}
+                  theme="snow"
+                  readOnly={loading}
+                  modules={requirementFormEditorModules}
+                />
+              </Box>
             </Box>
           </Box>
         </DialogContent>

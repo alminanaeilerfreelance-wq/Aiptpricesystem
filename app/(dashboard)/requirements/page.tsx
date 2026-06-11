@@ -218,7 +218,7 @@ export default function RequirementsPage() {
     }
   };
 
-  const handleFormSuccess = async () => {
+  const handleFormSuccess = async (mode: 'create' | 'update') => {
     setOpenForm(false);
     setEditingId(null);
     setError('');
@@ -227,7 +227,7 @@ export default function RequirementsPage() {
     } else {
       await fetchRequirements({ nextPage: 1 });
     }
-    showSuccessToast(editingId ? 'Requirement updated successfully' : 'Requirement created successfully');
+    showSuccessToast(mode === 'update' ? 'Requirement updated successfully' : 'Requirement created successfully');
   };
 
   const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -673,6 +673,7 @@ export default function RequirementsPage() {
       )}
 
       <RequirementForm
+        key={editingId || 'new-requirement'}
         open={openForm}
         onClose={() => {
           setOpenForm(false);

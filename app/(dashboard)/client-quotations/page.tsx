@@ -1374,7 +1374,7 @@ export default function ClientQuotationsPage() {
 
       doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(10);
-      doc.text('BILL TO', margin + 18, 162);
+      doc.text('CLIENT DETAILS', margin + 18, 162);
       doc.text('PROJECT DETAILS', pageWidth / 2 + 12, 162);
       doc.setFont(REPORT_PDF_FONT, 'normal');
       doc.setFontSize(9);
@@ -1400,7 +1400,60 @@ export default function ClientQuotationsPage() {
         180
       );
 
-      const serviceSectionY = 248;
+      const requirementRows = getRequirementDisplayRows(quotation);
+      const requirementSectionY = 248;
+      doc.setFillColor(255, 255, 255);
+      doc.roundedRect(margin, requirementSectionY, pageWidth - margin * 2, 44, 8, 8, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.roundedRect(margin, requirementSectionY, pageWidth - margin * 2, 44, 8, 8, 'S');
+      doc.setFillColor(...hexToRgbTuple(invoiceServiceTableColors.headerBg));
+      doc.roundedRect(margin, requirementSectionY, 5, 44, 3, 3, 'F');
+      doc.setTextColor(15, 23, 42);
+      doc.setFont(REPORT_PDF_FONT, 'bold');
+      doc.setFontSize(13);
+      doc.text('Requirement Details', margin + 16, requirementSectionY + 18);
+      doc.setFont(REPORT_PDF_FONT, 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text('Description only, as selected from the requirement record.', margin + 16, requirementSectionY + 32);
+
+      autoTable.default(doc, {
+        startY: requirementSectionY + 56,
+        head: [['Description']],
+        body: requirementRows.length > 0
+          ? requirementRows.map((requirement) => [requirement.requirementsText])
+          : [['No requirement details available.']],
+        theme: 'grid',
+        styles: {
+          font: REPORT_PDF_FONT,
+          fontSize: 8.5,
+          cellPadding: 7,
+          lineColor: hexToRgbTuple(invoiceServiceTableColors.borderColor),
+          lineWidth: 0.4,
+          overflow: 'linebreak',
+          valign: 'top',
+        },
+        headStyles: {
+          fontStyle: 'bold',
+        },
+        columnStyles: {
+          0: { cellWidth: pageWidth - margin * 2 },
+        },
+        didParseCell: (data: any) => {
+          const isHeader = data.section === 'head';
+          const { backgroundColor, textColor } = getInvoiceExportCellColors(
+            isHeader ? 'requirement-header-description' : `requirement-row-${data.row.index}-description`,
+            isHeader ? invoiceServiceTableColors.headerBg : invoiceServiceTableColors.rowBg,
+            isHeader ? invoiceServiceTableColors.headerText : invoiceServiceTableColors.procedureColText,
+            invoiceCellColors
+          );
+          data.cell.styles.fillColor = hexToRgbTuple(backgroundColor);
+          data.cell.styles.textColor = hexToRgbTuple(textColor);
+        },
+        margin: { left: margin, right: margin },
+      });
+
+      const serviceSectionY = ((doc as any).lastAutoTable?.finalY || requirementSectionY + 108) + 22;
       doc.setFillColor(255, 255, 255);
       doc.roundedRect(margin, serviceSectionY, pageWidth - margin * 2, 44, 8, 8, 'F');
       doc.setDrawColor(226, 232, 240);
@@ -1559,47 +1612,8 @@ export default function ClientQuotationsPage() {
         margin: { left: margin, right: margin },
       });
 
-      const afterServicesY = ((doc as any).lastAutoTable?.finalY || 330) + 18;
-      doc.setTextColor(15, 23, 42);
-      doc.setFont(REPORT_PDF_FONT, 'bold');
-      doc.setFontSize(12);
-      doc.text('Requirement Details', margin, afterServicesY);
-      const requirementRows = getRequirementDisplayRows(quotation);
-      autoTable.default(doc, {
-        startY: afterServicesY + 12,
-        head: [['Title', 'Country', 'Description']],
-        body: requirementRows.length > 0
-          ? requirementRows.map((requirement) => [
-              requirement.title,
-              requirement.countryName,
-              requirement.requirementsText,
-            ])
-          : [['-', countryNames || '-', 'No requirement details available.']],
-        theme: 'grid',
-        styles: {
-          font: REPORT_PDF_FONT,
-          fontSize: 8.5,
-          cellPadding: 6,
-          lineColor: borderRgb,
-          lineWidth: 0.4,
-          overflow: 'linebreak',
-          valign: 'top',
-        },
-        headStyles: {
-          fillColor: hexToRgbTuple(invoiceServiceTableColors.headerBg),
-          textColor: hexToRgbTuple(invoiceServiceTableColors.headerText),
-          fontStyle: 'bold',
-        },
-        columnStyles: {
-          0: { cellWidth: 120 },
-          1: { cellWidth: 100 },
-          2: { cellWidth: pageWidth - margin * 2 - 220 },
-        },
-        margin: { left: margin, right: margin },
-      });
-
-      const afterRequirementY = ((doc as any).lastAutoTable?.finalY || afterServicesY) + 24;
-      const termsY = Math.max(afterRequirementY, pageHeight - 130);
+      const afterServicesY = ((doc as any).lastAutoTable?.finalY || serviceSectionY) + 24;
+      const termsY = Math.max(afterServicesY, pageHeight - 130);
       doc.setTextColor(71, 85, 105);
       doc.setFont(REPORT_PDF_FONT, 'bold');
       doc.setFontSize(9);
@@ -1707,14 +1721,10 @@ export default function ClientQuotationsPage() {
       const requirementRowsHtml = requirementRows.length > 0
         ? requirementRows.map((requirement, index) => `
             <tr>
-              <td style="${wordCellStyle(`requirement-row-${index}-title`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${escapeHtml(requirement.title || '-')}</td>
-              <td style="${wordCellStyle(`requirement-row-${index}-country`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(requirement.countryName || '-')}</td>
               <td class="requirement-description" style="${wordCellStyle(`requirement-row-${index}-description`, invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">${requirement.requirementsHtml || 'No requirement details available.'}</td>
             </tr>
           `).join('')
         : `<tr>
-            <td style="${wordCellStyle('requirement-row-title', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">-</td>
-            <td style="${wordCellStyle('requirement-row-country', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.countryColText)}">${escapeHtml(countryNames || '-')}</td>
             <td class="requirement-description" style="${wordCellStyle('requirement-row-description', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">No requirement details available.</td>
           </tr>`;
       const html = `
@@ -1783,7 +1793,7 @@ export default function ClientQuotationsPage() {
                 <tr>
                   <td>
                     <div class="panel">
-                      <h2>Bill To</h2>
+                      <h2>Client Details</h2>
                       <p><strong>${escapeHtml(quotation.clientSnapshot?.name || 'Client')}</strong></p>
                       <p>${escapeHtml(quotation.clientSnapshot?.email || '-')}</p>
                       <p>${escapeHtml(quotation.clientSnapshot?.phone || '-')}</p>
@@ -1801,6 +1811,20 @@ export default function ClientQuotationsPage() {
                     </div>
                   </td>
                 </tr>
+              </table>
+              <h2 class="section-title" style="margin:18px 0 8px;">Requirement Details</h2>
+              <table class="service-table">
+                <colgroup>
+                  <col style="width:100%;" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style="${wordCellStyle('requirement-header-description', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Description</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${requirementRowsHtml}
+                </tbody>
               </table>
               <table class="service-heading">
                 <tr>
@@ -1842,24 +1866,6 @@ export default function ClientQuotationsPage() {
                     <td style="${wordCellStyle('grand-vat', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalVatFees || 0)}</strong></td>
                     <td style="${wordCellStyle('grand-total', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.grandTotal || 0)}</strong></td>
                   </tr>
-                </tbody>
-              </table>
-              <h2 class="section-title" style="margin:18px 0 8px;">Requirement Details</h2>
-              <table class="service-table">
-                <colgroup>
-                  <col style="width:24%;" />
-                  <col style="width:20%;" />
-                  <col style="width:56%;" />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th style="${wordCellStyle('requirement-header-title', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Title</th>
-                    <th style="${wordCellStyle('requirement-header-country', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Country</th>
-                    <th style="${wordCellStyle('requirement-header-description', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText)}">Description</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${requirementRowsHtml}
                 </tbody>
               </table>
               <div class="footer">
@@ -3855,6 +3861,105 @@ export default function ClientQuotationsPage() {
                 </Grid>
               </Grid>
 
+              <Card className="invoice-requirements-card" variant="outlined" sx={{ mb: 2, borderRadius: 3, borderColor: '#DDE7F3' }}>
+                <CardContent>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
+                    Requirement Details
+                  </Typography>
+                  <TableContainer
+                    sx={{
+                      border: '1px solid',
+                      borderColor: invoiceServiceTableColors.borderColor,
+                      borderRadius: 2,
+                      bgcolor: '#FFFFFF',
+                    }}
+                  >
+                    <Table className="invoice-requirements-table" size="small" sx={{ tableLayout: 'fixed' }}>
+                      <colgroup>
+                        <col style={{ width: '100%' }} />
+                      </colgroup>
+                      <TableHead sx={{ bgcolor: invoiceServiceTableColors.headerBg }}>
+                        <TableRow>
+                          <TableCell
+                            onClick={(event) =>
+                              openInvoiceCellPicker(
+                                event,
+                                'requirement-header-description',
+                                'Requirement Header: Description',
+                                invoiceServiceTableColors.headerBg
+                              )
+                            }
+                            sx={{
+                              fontWeight: 800,
+                              ...getInvoiceCellSx(
+                                'requirement-header-description',
+                                invoiceServiceTableColors.headerBg,
+                                invoiceServiceTableColors.headerText
+                              ),
+                            }}
+                          >
+                            Description
+                          </TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {getRequirementDisplayRows(viewingItem).length > 0 ? (
+                          getRequirementDisplayRows(viewingItem).map((requirement, index) => (
+                            <TableRow key={`${requirement.countryName}-${requirement.title}-${index}`}>
+                              <TableCell
+                                onClick={(event) =>
+                                  openInvoiceCellPicker(
+                                    event,
+                                    `requirement-row-${index}-description`,
+                                    `Requirement ${index + 1}: Description`,
+                                    invoiceServiceTableColors.rowBg
+                                  )
+                                }
+                                sx={{
+                                  verticalAlign: 'top',
+                                  ...getInvoiceCellSx(
+                                    `requirement-row-${index}-description`,
+                                    invoiceServiceTableColors.rowBg,
+                                    invoiceServiceTableColors.procedureColText
+                                  ),
+                                }}
+                              >
+                                <Box
+                                  className="invoice-requirement-description"
+                                  sx={{
+                                    '& p': { m: 0, mb: 1 },
+                                    '& p:last-of-type': { mb: 0 },
+                                  }}
+                                  dangerouslySetInnerHTML={{
+                                    __html: requirement.requirementsHtml,
+                                  }}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              sx={{
+                                ...getInvoiceCellSx(
+                                  'requirement-row-description',
+                                  invoiceServiceTableColors.rowBg,
+                                  invoiceServiceTableColors.procedureColText
+                                ),
+                              }}
+                            >
+                              <Typography variant="body2" color="text.secondary">
+                                No requirement details available.
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </CardContent>
+              </Card>
+
               <Card
                 className="invoice-service-card"
                 variant="outlined"
@@ -4625,78 +4730,6 @@ export default function ClientQuotationsPage() {
                 </CardContent>
               </Card>
 
-              <Card className="invoice-requirements-card" variant="outlined" sx={{ mt: 2, borderRadius: 3, borderColor: '#DDE7F3' }}>
-                <CardContent>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800, mb: 1.25 }}>
-                    Requirement Details
-                  </Typography>
-                  <TableContainer
-                    sx={{
-                      border: '1px solid',
-                      borderColor: invoiceServiceTableColors.borderColor,
-                      borderRadius: 2,
-                      bgcolor: '#FFFFFF',
-                    }}
-                  >
-                    <Table className="invoice-requirements-table" size="small" sx={{ tableLayout: 'fixed' }}>
-                      <colgroup>
-                        <col style={{ width: '24%' }} />
-                        <col style={{ width: '20%' }} />
-                        <col style={{ width: '56%' }} />
-                      </colgroup>
-                      <TableHead sx={{ bgcolor: invoiceServiceTableColors.headerBg }}>
-                        <TableRow>
-                          <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
-                            Title
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
-                            Country
-                          </TableCell>
-                          <TableCell sx={{ fontWeight: 800, color: invoiceServiceTableColors.headerText }}>
-                            Description
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {getRequirementDisplayRows(viewingItem).length > 0 ? (
-                          getRequirementDisplayRows(viewingItem).map((requirement, index) => (
-                            <TableRow key={`${requirement.countryName}-${requirement.title}-${index}`}>
-                              <TableCell sx={{ color: invoiceServiceTableColors.procedureColText, fontWeight: 700, verticalAlign: 'top' }}>
-                                {requirement.title || '-'}
-                              </TableCell>
-                              <TableCell sx={{ color: invoiceServiceTableColors.countryColText, verticalAlign: 'top' }}>
-                                {requirement.countryName || '-'}
-                              </TableCell>
-                              <TableCell sx={{ color: invoiceServiceTableColors.procedureColText, verticalAlign: 'top' }}>
-                                <Box
-                                  className="invoice-requirement-description"
-                                  sx={{
-                                    '& p': { m: 0, mb: 1 },
-                                    '& p:last-of-type': { mb: 0 },
-                                  }}
-                                  dangerouslySetInnerHTML={{
-                                    __html: requirement.requirementsHtml,
-                                  }}
-                                />
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        ) : (
-                          <TableRow>
-                            <TableCell>-</TableCell>
-                            <TableCell>{getRequirementCountryName(viewingItem) || '-'}</TableCell>
-                            <TableCell>
-                              <Typography variant="body2" color="text.secondary">
-                                No requirement details available.
-                              </Typography>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                </CardContent>
-              </Card>
             </Box>
           )}
         </DialogContent>

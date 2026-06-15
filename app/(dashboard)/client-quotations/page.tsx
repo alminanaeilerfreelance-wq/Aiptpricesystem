@@ -679,6 +679,22 @@ const getInvoiceVatHeaderLabel = (quotation: ClientQuotation | null | undefined)
   return hasSingleDeclaredVat ? `VAT (${formatVatPercentLabel(declaredVat)}%)` : 'VAT (Mixed)';
 };
 
+const getReportFeeCountryHeaderLabel = (quotation: ClientQuotation | null | undefined): string => {
+  const countries = Array.from(
+    new Set(
+      [
+        ...(quotation?.services || []).map((service) => getServiceCountryName(service, quotation)),
+        ...(quotation?.inquirySnapshot?.countryNames || []),
+        getRequirementCountryName(quotation),
+      ]
+        .map((country) => String(country || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  return countries.length > 0 ? `"${countries.join(', ')}"` : '';
+};
+
 const shouldShowReportVatColumn = (quotation: ClientQuotation | null | undefined): boolean =>
   Boolean(
     quotation &&
@@ -721,6 +737,7 @@ const getReportFeeColumnWeight = (columnKey: ReportServiceColumnKey): number => 
 };
 
 const getReportFeeTableColumns = (quotation: ClientQuotation | null | undefined): ReportFeeColumn[] => {
+  const countryLabel = getReportFeeCountryHeaderLabel(quotation);
   const columns: ReportFeeColumn[] = [
     {
       key: 'country',
@@ -730,6 +747,7 @@ const getReportFeeTableColumns = (quotation: ClientQuotation | null | undefined)
     {
       key: 'procedure',
       label: 'Procedure',
+      subtitle: countryLabel || undefined,
       weight: getReportFeeColumnWeight('procedure'),
     },
     {
@@ -783,7 +801,7 @@ const getReportFeeColumnDefaultBg = (
 ): string => {
   switch (columnKey) {
     case 'procedure':
-      return '#FFFFFF';
+      return role === 'header' ? REPORT_LEGAL_HEADER_GRAY : '#FFFFFF';
     case 'official':
       return REPORT_LEGAL_LIGHT_BLUE;
     case 'attorney':
@@ -794,7 +812,7 @@ const getReportFeeColumnDefaultBg = (
     case 'discount':
       return REPORT_LEGAL_LIGHT_BLUE;
     case 'country':
-      return '#FFFFFF';
+      return role === 'header' ? REPORT_LEGAL_HEADER_GRAY : '#FFFFFF';
     case 'service':
       return REPORT_LEGAL_HEADER_GRAY;
     default:

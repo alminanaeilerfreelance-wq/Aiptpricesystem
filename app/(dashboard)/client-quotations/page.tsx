@@ -240,34 +240,38 @@ const RequirementCartToolbar = ({ toolbarId }: { toolbarId: string }) => (
   </Box>
 );
 
-const REPORT_TEAL = '#17A2B8';
-const REPORT_TEAL_LIGHT = '#E8F7FA';
-const REPORT_TEAL_DARK = '#0E7180';
+const REPORT_LEGAL_BORDER = '#111111';
+const REPORT_LEGAL_HEADER_GRAY = '#F2F2F2';
+const REPORT_LEGAL_LIGHT_BLUE = '#DCECF2';
+const REPORT_LEGAL_MEDIUM_BLUE = '#C5DFE8';
+const REPORT_LEGAL_TEXT = '#111111';
+const REPORT_TEAL = REPORT_LEGAL_MEDIUM_BLUE;
+const REPORT_TEAL_LIGHT = REPORT_LEGAL_LIGHT_BLUE;
+const REPORT_TEAL_DARK = REPORT_LEGAL_TEXT;
 
 const defaultInvoiceServiceTableColors: InvoiceServiceTableColors = {
-  headerBg: REPORT_TEAL,
-  headerText: '#FFFFFF',
-  subHeaderBg: REPORT_TEAL_LIGHT,
-  subHeaderText: REPORT_TEAL_DARK,
-  borderColor: REPORT_TEAL,
+  headerBg: REPORT_LEGAL_HEADER_GRAY,
+  headerText: REPORT_LEGAL_TEXT,
+  subHeaderBg: REPORT_LEGAL_LIGHT_BLUE,
+  subHeaderText: REPORT_LEGAL_TEXT,
+  borderColor: REPORT_LEGAL_BORDER,
   rowBg: '#FFFFFF',
-  altRowBg: '#F3FBFC',
-  rowText: '#111827',
-  countryColText: '#111827',
-  totalRowBg: REPORT_TEAL_LIGHT,
-  totalRowText: REPORT_TEAL_DARK,
-  serviceColText: '#111827',
-  procedureColText: '#111827',
-  officialColText: '#0F172A',
-  attorneyColText: '#0F172A',
-  discountColText: '#0F172A',
-  vatColText: '#0F172A',
-  totalColText: '#0F172A',
+  altRowBg: '#FFFFFF',
+  rowText: REPORT_LEGAL_TEXT,
+  countryColText: REPORT_LEGAL_TEXT,
+  totalRowBg: '#FFFFFF',
+  totalRowText: REPORT_LEGAL_TEXT,
+  serviceColText: REPORT_LEGAL_TEXT,
+  procedureColText: REPORT_LEGAL_TEXT,
+  officialColText: REPORT_LEGAL_TEXT,
+  attorneyColText: REPORT_LEGAL_TEXT,
+  discountColText: REPORT_LEGAL_TEXT,
+  vatColText: REPORT_LEGAL_TEXT,
+  totalColText: REPORT_LEGAL_TEXT,
 };
 
-const INVOICE_TABLE_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceTableColors.v2';
-const INVOICE_CELL_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceCellColors.v2';
-const CLIENT_QUOTATION_REPORT_TITLE = 'INVOICE';
+const INVOICE_TABLE_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceTableColors.v3';
+const INVOICE_CELL_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceCellColors.v3';
 const REPORT_PDF_FONT = 'times';
 const REPORT_CSS_FONT_STACK = '"Times New Roman", Times, serif';
 const REPORT_INK = '#111111';
@@ -276,9 +280,18 @@ const REPORT_DARK_NAVY = REPORT_INK;
 const REPORT_GOLD = REPORT_INK;
 const REPORT_BORDER = REPORT_INK;
 const REPORT_MUTED = '#475569';
-const REPORT_CURRENCY = 'SAR';
-const REPORT_SERVICE_COLUMNS = ['country', 'service', 'procedure', 'official', 'attorney', 'vat', 'discount', 'total'] as const;
-type ReportServiceColumnKey = (typeof REPORT_SERVICE_COLUMNS)[number];
+const REPORT_FEE_CURRENCY_LABEL = 'US$';
+const REPORT_FEE_SUBTITLE = '"per mark per class"';
+const REPORT_SERVICE_COLUMNS = ['procedure', 'official', 'attorney', 'vat', 'discount', 'total'] as const;
+type ReportServiceColumnKey = 'country' | 'service' | (typeof REPORT_SERVICE_COLUMNS)[number];
+type ReportFeeColumnRole = 'header' | 'body' | 'total';
+
+interface ReportFeeColumn {
+  key: ReportServiceColumnKey;
+  label: string;
+  subtitle?: string;
+  weight: number;
+}
 
 const toCurrency = (value: number) => value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const valueOrDash = (value: unknown): string => {
@@ -474,19 +487,11 @@ const getReportCompanyLines = (company: CompanyDetail | null | undefined): strin
   const lines = [
     valueOrDash(company?.companyName || 'IP LAW FIRM'),
     company?.address ? String(company.address).trim() : '',
-    company?.countryName ? String(company.countryName).trim() : '',
     company?.contact ? `Phone: ${String(company.contact).trim()}` : '',
-    company?.email ? `Email: ${String(company.email).trim()}` : '',
-    company?.serviceCategory ? `Service: ${String(company.serviceCategory).trim()}` : '',
+    company?.email ? String(company.email).trim() : '',
   ];
   return lines.filter((line) => line && line !== '-');
 };
-
-const getReportInvoiceMetaRows = (quotation: ClientQuotation): Array<[string, string]> => [
-  ['Invoice Number', valueOrDash(quotation.quotationNo || quotation._id)],
-  ['Invoice Date', formatReportDate(quotation.createdAt)],
-  ['Currency', REPORT_CURRENCY],
-];
 
 const getReportProjectDetails = (quotation: ClientQuotation): Array<[string, string]> => [
   ['Inquiry Number', valueOrDash(quotation.inquirySnapshot?.referenceNo || quotation.inquiryProjects?.join(', '))],
@@ -495,46 +500,6 @@ const getReportProjectDetails = (quotation: ClientQuotation): Array<[string, str
   ['Country', valueOrDash(quotation.inquirySnapshot?.countryNames?.join(', '))],
   ['Status', valueOrDash(quotation.status || 'Submitted')],
 ];
-
-const getServiceClassText = (service: ClientQuotationServiceItem, serviceCategory: string): string => {
-  if (serviceCategory !== 'Trademark') return '';
-  const classCount = Math.max(1, Number(service.numberOfClasses || 1));
-  if (service.classType === 'multi') {
-    return `Multi Class (${classCount} classes)`;
-  }
-  return 'Single Class';
-};
-
-const getServiceProcedureClassText = (service: ClientQuotationServiceItem, serviceCategory: string): string => {
-  const classText = getServiceClassText(service, serviceCategory);
-  return classText ? `${service.procedureName || '-'}\n${classText}` : service.procedureName || '-';
-};
-
-const getServiceColumnDefaultTextColor = (
-  columnKey: ReportServiceColumnKey,
-  tableColors: InvoiceServiceTableColors
-): string => {
-  switch (columnKey) {
-    case 'country':
-      return tableColors.countryColText;
-    case 'service':
-      return tableColors.serviceColText;
-    case 'procedure':
-      return tableColors.procedureColText;
-    case 'official':
-      return tableColors.officialColText;
-    case 'attorney':
-      return tableColors.attorneyColText;
-    case 'vat':
-      return tableColors.vatColText;
-    case 'discount':
-      return tableColors.discountColText;
-    case 'total':
-      return tableColors.totalColText;
-    default:
-      return tableColors.rowText;
-  }
-};
 
 const EyeIcon = () => (
   <SvgIcon fontSize="small" viewBox="0 0 24 24">
@@ -712,6 +677,192 @@ const getInvoiceVatHeaderLabel = (quotation: ClientQuotation | null | undefined)
   );
 
   return hasSingleDeclaredVat ? `VAT (${formatVatPercentLabel(declaredVat)}%)` : 'VAT (Mixed)';
+};
+
+const getReportFeeCountryHeaderLabel = (quotation: ClientQuotation | null | undefined): string => {
+  const countries = Array.from(
+    new Set(
+      [
+        ...(quotation?.services || []).map((service) => getServiceCountryName(service, quotation)),
+        ...(quotation?.inquirySnapshot?.countryNames || []),
+        getRequirementCountryName(quotation),
+      ]
+        .map((country) => String(country || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  return countries.length > 0 ? `"${countries.join(', ')}"` : '';
+};
+
+const shouldShowReportVatColumn = (quotation: ClientQuotation | null | undefined): boolean =>
+  Boolean(
+    quotation &&
+      (
+        Number(quotation.totalVatFees || 0) > 0 ||
+        (quotation.services || []).some((service) =>
+          Number(service.vatFee || 0) > 0 || getServiceVatAmount(service) > 0
+        )
+      )
+  );
+
+const shouldShowReportDiscountColumn = (quotation: ClientQuotation | null | undefined): boolean =>
+  Boolean(
+    quotation &&
+      (
+        Number(quotation.totalDiscount || 0) > 0 ||
+        (quotation.services || []).some((service) => getServiceDiscountAmount(service) > 0)
+      )
+  );
+
+const shouldShowReportFeeGrandTotalRow = (quotation: ClientQuotation | null | undefined): boolean =>
+  (quotation?.services || []).length > 1;
+
+const getReportFeeColumnWeight = (columnKey: ReportServiceColumnKey): number => {
+  switch (columnKey) {
+    case 'procedure':
+      return 2.25;
+    case 'vat':
+    case 'discount':
+      return 0.95;
+    case 'official':
+    case 'attorney':
+    case 'total':
+      return 1.25;
+    default:
+      return 1;
+  }
+};
+
+const getReportFeeTableColumns = (quotation: ClientQuotation | null | undefined): ReportFeeColumn[] => {
+  const countryLabel = getReportFeeCountryHeaderLabel(quotation);
+  const columns: ReportFeeColumn[] = [
+    {
+      key: 'procedure',
+      label: 'Procedure',
+      subtitle: countryLabel || undefined,
+      weight: getReportFeeColumnWeight('procedure'),
+    },
+    {
+      key: 'official',
+      label: 'Official Fees',
+      subtitle: REPORT_FEE_SUBTITLE,
+      weight: getReportFeeColumnWeight('official'),
+    },
+    {
+      key: 'attorney',
+      label: 'Attorney Fees',
+      subtitle: REPORT_FEE_SUBTITLE,
+      weight: getReportFeeColumnWeight('attorney'),
+    },
+  ];
+
+  if (shouldShowReportVatColumn(quotation)) {
+    columns.push({
+      key: 'vat',
+      label: getInvoiceVatHeaderLabel(quotation),
+      weight: getReportFeeColumnWeight('vat'),
+    });
+  }
+
+  if (shouldShowReportDiscountColumn(quotation)) {
+    columns.push({
+      key: 'discount',
+      label: 'Discount',
+      weight: getReportFeeColumnWeight('discount'),
+    });
+  }
+
+  columns.push({
+    key: 'total',
+    label: `TOTAL (${REPORT_FEE_CURRENCY_LABEL})`,
+    subtitle: REPORT_FEE_SUBTITLE,
+    weight: getReportFeeColumnWeight('total'),
+  });
+
+  return columns;
+};
+
+const getReportFeeColumnWidthPercent = (columns: ReportFeeColumn[], column: ReportFeeColumn): string => {
+  const totalWeight = columns.reduce((sum, item) => sum + item.weight, 0);
+  return `${(column.weight / totalWeight) * 100}%`;
+};
+
+const getReportFeeColumnDefaultBg = (
+  columnKey: ReportServiceColumnKey,
+  role: ReportFeeColumnRole = 'body'
+): string => {
+  switch (columnKey) {
+    case 'procedure':
+      return role === 'header' ? REPORT_LEGAL_HEADER_GRAY : '#FFFFFF';
+    case 'official':
+      return REPORT_LEGAL_LIGHT_BLUE;
+    case 'attorney':
+      return REPORT_LEGAL_MEDIUM_BLUE;
+    case 'total':
+      return REPORT_LEGAL_LIGHT_BLUE;
+    case 'vat':
+    case 'discount':
+    case 'country':
+    case 'service':
+      return REPORT_LEGAL_HEADER_GRAY;
+    default:
+      return '#FFFFFF';
+  }
+};
+
+const getReportFeeColumnDefaultText = (_columnKey: ReportServiceColumnKey): string => REPORT_LEGAL_TEXT;
+
+const getReportServiceProcedureText = (service: ClientQuotationServiceItem): string =>
+  valueOrDash(service.procedureName);
+
+const getReportFeeCellText = (
+  service: ClientQuotationServiceItem,
+  quotation: ClientQuotation,
+  columnKey: ReportServiceColumnKey
+): string => {
+  switch (columnKey) {
+    case 'procedure':
+      return getReportServiceProcedureText(service);
+    case 'official':
+      return toCurrency(Number(service.totalOfficialFees ?? service.officialFee ?? 0));
+    case 'attorney':
+      return toCurrency(Number(service.attorneyFee ?? 0));
+    case 'vat':
+      return toCurrency(getServiceVatAmount(service));
+    case 'discount':
+      return toCurrency(getServiceDiscountAmount(service));
+    case 'total':
+      return toCurrency(Number(service.grandTotal ?? service.totalAmount ?? 0));
+    case 'country':
+      return getServiceCountryName(service, quotation) || '-';
+    case 'service':
+      return valueOrDash(quotation.serviceCategory || quotation.inquirySnapshot?.serviceCategory);
+    default:
+      return '-';
+  }
+};
+
+const getReportFeeGrandTotalText = (
+  quotation: ClientQuotation,
+  columnKey: ReportServiceColumnKey
+): string => {
+  switch (columnKey) {
+    case 'procedure':
+      return `TOTAL AMOUNT (${REPORT_FEE_CURRENCY_LABEL})`;
+    case 'official':
+      return toCurrency(Number(quotation.totalOfficialFees || 0));
+    case 'attorney':
+      return toCurrency(Number(quotation.totalAttorneyFees || 0));
+    case 'vat':
+      return toCurrency(Number(quotation.totalVatFees || 0));
+    case 'discount':
+      return toCurrency(Number(quotation.totalDiscount || 0));
+    case 'total':
+      return toCurrency(Number(quotation.grandTotal || 0));
+    default:
+      return '';
+  }
 };
 
 const getRequirementCountryName = (quotation: ClientQuotation | null | undefined): string =>
@@ -1067,10 +1218,6 @@ export default function ClientQuotationsPage() {
   useEffect(() => () => {
     clearRequirementAutosaveTimers();
   }, [clearRequirementAutosaveTimers]);
-
-  const updateInvoiceServiceTableColor = (key: keyof InvoiceServiceTableColors, value: string) => {
-    setInvoiceServiceTableColors((prev) => ({ ...prev, [key]: value }));
-  };
 
   const getContrastTextColor = (hexColor: string): string => {
     return getReadableTextColor(hexColor);
@@ -1433,12 +1580,10 @@ export default function ClientQuotationsPage() {
       }
       const company = getCompanyDetailForQuotation(quotation, companyDetails);
       const companyLines = getReportCompanyLines(company);
-      const invoiceMetaRows = getReportInvoiceMetaRows(quotation);
-      const serviceCategory = quotation.serviceCategory || quotation.inquirySnapshot?.serviceCategory || '-';
-      const countryNames = quotation.inquirySnapshot?.countryNames?.join(', ') || '-';
-      const vatHeaderLabel = getInvoiceVatHeaderLabel(quotation);
       const projectRows = getReportProjectDetails(quotation);
       const requirementRows = getRequirementDisplayRows(quotation);
+      const feeColumns = getReportFeeTableColumns(quotation);
+      const showGrandTotalRow = shouldShowReportFeeGrandTotalRow(quotation);
 
       const drawDecorativeChrome = () => {
         doc.setFillColor(...hexToRgbTuple(REPORT_DARK_NAVY));
@@ -1511,36 +1656,24 @@ export default function ClientQuotationsPage() {
         doc.setFont(REPORT_PDF_FONT, 'italic');
         doc.setFontSize(8.5);
         doc.setTextColor(...hexToRgbTuple(REPORT_INK));
-        doc.text('This is a computer-generated invoice and does not require a signature.', pageWidth / 2, footerY + 46, { align: 'center' });
+        doc.text('This is a computer-generated report and does not require a signature.', pageWidth / 2, footerY + 46, { align: 'center' });
       };
 
       const drawInvoiceHeader = () => {
         const topY = 62;
-        const companyX = margin + 2;
-        const invoiceRightX = pageWidth - margin - 2;
         doc.setFont(REPORT_PDF_FONT, 'bold');
-        doc.setFontSize(12);
+        doc.setFontSize(13);
         doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.text(companyLines[0] || 'IP LAW FIRM', companyX, topY);
+        doc.text(companyLines[0] || 'IP LAW FIRM', pageWidth / 2, topY, { align: 'center' });
         doc.setFont(REPORT_PDF_FONT, 'normal');
         doc.setFontSize(9.2);
         doc.setTextColor(...hexToRgbTuple(REPORT_INK));
         let companyLineY = topY + 18;
         companyLines.slice(1, 7).forEach((line) => {
-          const visibleLines = doc.splitTextToSize(line, 230).slice(0, 2);
-          doc.text(visibleLines, companyX, companyLineY);
+          const visibleLines = doc.splitTextToSize(line, 330).slice(0, 2);
+          doc.text(visibleLines, pageWidth / 2, companyLineY, { align: 'center' });
           companyLineY += Math.max(1, visibleLines.length) * 11;
         });
-
-        doc.setFont(REPORT_PDF_FONT, 'bold');
-        doc.setFontSize(34);
-        doc.setTextColor(...hexToRgbTuple(REPORT_INK));
-        doc.text(CLIENT_QUOTATION_REPORT_TITLE, invoiceRightX, topY + 18, { align: 'right' });
-        doc.setDrawColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.setLineWidth(1);
-        doc.line(invoiceRightX - 172, topY + 34, invoiceRightX, topY + 34);
-        doc.setFillColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.circle(invoiceRightX, topY + 34, 2, 'F');
 
         return Math.max(companyLineY + 22, topY + 74);
       };
@@ -1550,17 +1683,7 @@ export default function ClientQuotationsPage() {
 
       const panelTop = summaryTop;
       const panelWidth = pageWidth - margin * 2;
-      const summaryGap = 14;
-      const invoicePanelWidth = 205;
-      const projectPanelWidth = panelWidth - invoicePanelWidth - summaryGap;
-      const projectHeight = drawDetailPanel(margin, panelTop, projectPanelWidth, 'Project Details', projectRows);
-      const invoiceHeight = drawDetailPanel(
-        margin + projectPanelWidth + summaryGap,
-        panelTop,
-        invoicePanelWidth,
-        'Invoice Details',
-        invoiceMetaRows
-      );
+      const projectHeight = drawDetailPanel(margin, panelTop, panelWidth, 'Project Details', projectRows);
 
       const contentTop = 58;
       const contentBottom = pageHeight - 102;
@@ -1581,7 +1704,7 @@ export default function ClientQuotationsPage() {
         return y + 52;
       };
 
-      let cursorY = panelTop + Math.max(projectHeight, invoiceHeight) + 26;
+      let cursorY = panelTop + projectHeight + 26;
       cursorY = ensurePdfRoom(cursorY, 78);
       cursorY = drawRequirementHeader(cursorY);
       doc.setFont(REPORT_PDF_FONT, 'normal');
@@ -1609,48 +1732,43 @@ export default function ClientQuotationsPage() {
       let serviceTop = cursorY + 18;
       serviceTop = ensurePdfRoom(serviceTop, 80);
 
-      const serviceRows = (quotation.services || []).map((service) => {
-        return [
-          getServiceCountryName(service, quotation) || countryNames,
-          String(serviceCategory),
-          getServiceProcedureClassText(service, String(serviceCategory)),
-          toCurrency(service.totalOfficialFees || service.officialFee || 0),
-          toCurrency(service.attorneyFee || 0),
-          toCurrency(getServiceVatAmount(service)),
-          toCurrency(getServiceDiscountAmount(service)),
-          toCurrency(service.grandTotal || 0),
-        ];
-      });
-      const serviceBodyRows = serviceRows.length > 0 ? serviceRows : [['No service details available.', '-', '-', '-', '-', '-', '-', '-']];
-      const borderRgb = hexToRgbTuple(invoiceServiceTableColors.borderColor);
+      const serviceRows = (quotation.services || []).map((service) =>
+        feeColumns.map((column) => getReportFeeCellText(service, quotation, column.key))
+      );
+      const serviceBodyRows: any[] = serviceRows.length > 0
+        ? [...serviceRows]
+        : [[{ content: 'No service details available.', colSpan: feeColumns.length, styles: { halign: 'center' } }]];
+      if (showGrandTotalRow) {
+        serviceBodyRows.push(feeColumns.map((column) => getReportFeeGrandTotalText(quotation, column.key)));
+      }
+      const borderRgb = hexToRgbTuple(invoiceServiceTableColors.borderColor || REPORT_LEGAL_BORDER);
+      const availableTableWidth = pageWidth - margin * 2;
+      const totalColumnWeight = feeColumns.reduce((sum, column) => sum + column.weight, 0);
+      const pdfColumnStyles = feeColumns.reduce<Record<number, any>>((styles, column, index) => {
+        styles[index] = {
+          cellWidth: availableTableWidth * (column.weight / totalColumnWeight),
+          halign: 'center',
+          valign: 'middle',
+        };
+        return styles;
+      }, {});
       const applyPdfCellColors = (data: any) => {
-        const columnKey = REPORT_SERVICE_COLUMNS[data.column.index] || 'procedure';
+        const column = feeColumns[data.column.index] || feeColumns[0];
+        const columnKey = column?.key || 'procedure';
         let cellKey = '';
-        let defaultBg = invoiceServiceTableColors.rowBg;
-        let defaultText = invoiceServiceTableColors.rowText;
+        let defaultBg = getReportFeeColumnDefaultBg(columnKey, 'body');
+        let defaultText = getReportFeeColumnDefaultText(columnKey);
 
         if (data.section === 'head') {
-          if (data.row.index === 0) {
-            cellKey = `header-${columnKey}`;
-            defaultBg = invoiceServiceTableColors.headerBg;
-            defaultText = invoiceServiceTableColors.headerText;
-          } else {
-            cellKey = `subheader-${columnKey}`;
-            defaultBg = invoiceServiceTableColors.subHeaderBg;
-            defaultText = invoiceServiceTableColors.subHeaderText;
-          }
+          cellKey = `header-${columnKey}`;
+          defaultBg = getReportFeeColumnDefaultBg(columnKey, 'header');
         } else {
-          const isGrandTotalRow = data.row.index === serviceBodyRows.length;
+          const isGrandTotalRow = showGrandTotalRow && data.row.index === serviceRows.length;
           if (isGrandTotalRow) {
             cellKey = `grand-${columnKey}`;
-            defaultBg = invoiceServiceTableColors.totalRowBg;
-            defaultText = invoiceServiceTableColors.totalRowText;
+            defaultBg = getReportFeeColumnDefaultBg(columnKey, 'total');
           } else {
             cellKey = `row-${data.row.index}-${columnKey}`;
-            defaultBg = data.row.index % 2 === 0
-              ? invoiceServiceTableColors.rowBg
-              : invoiceServiceTableColors.altRowBg;
-            defaultText = getServiceColumnDefaultTextColor(columnKey, invoiceServiceTableColors);
           }
         }
 
@@ -1666,56 +1784,71 @@ export default function ClientQuotationsPage() {
 
       autoTable.default(doc, {
         startY: serviceTop,
-        head: [
-          ['Country', 'Service', 'Procedure / Class', 'Official Fees\n(SAR)', 'Attorney Fees\n(SAR)', vatHeaderLabel, 'Discount\n(SAR)', 'Total\n(SAR)'],
-        ],
-        body: [
-          ...serviceBodyRows,
-          [
-            { content: 'TOTAL AMOUNT (SAR)', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } },
-            toCurrency(quotation.totalOfficialFees || 0),
-            toCurrency(quotation.totalAttorneyFees || 0),
-            toCurrency(quotation.totalVatFees || 0),
-            toCurrency(quotation.totalDiscount || 0),
-            toCurrency(quotation.grandTotal || 0),
-          ],
-        ],
+        head: [feeColumns.map((column) => column.label)],
+        body: serviceBodyRows,
         theme: 'grid',
         styles: {
           font: REPORT_PDF_FONT,
-          fontSize: 7.7,
-          cellPadding: { top: 8, right: 5, bottom: 8, left: 5 },
+          fontSize: 10,
+          cellPadding: { top: 10, right: 7, bottom: 10, left: 7 },
           lineColor: borderRgb,
-          lineWidth: 0.35,
+          lineWidth: 0.6,
           overflow: 'linebreak',
           valign: 'middle',
+          halign: 'center',
+          textColor: hexToRgbTuple(REPORT_LEGAL_TEXT),
         },
         headStyles: {
           fontStyle: 'bold',
-          fontSize: 7.6,
+          fontSize: 10.5,
           halign: 'center',
+          minCellHeight: 45,
         },
-        columnStyles: {
-          0: { cellWidth: 62, halign: 'center' },
-          1: { cellWidth: 62, halign: 'center' },
-          2: { cellWidth: 112, halign: 'center' },
-          3: { halign: 'right', cellWidth: 65 },
-          4: { halign: 'right', cellWidth: 65 },
-          5: { halign: 'right', cellWidth: 52 },
-          6: { halign: 'right', cellWidth: 56 },
-          7: { halign: 'right', cellWidth: 65 },
-        },
+        columnStyles: pdfColumnStyles,
         didParseCell: (data: any) => {
           applyPdfCellColors(data);
-          if (data.section === 'body' && data.column.index === 2) {
+          if (data.section === 'head') {
+            data.cell.text = [''];
+          }
+          const column = feeColumns[data.column.index];
+          if (data.section === 'body' && column?.key === 'procedure') {
             data.cell.styles.fontStyle = 'bold';
           }
-          if (data.section === 'body' && data.column.index === 7) {
+          if (data.section === 'body' && column?.key === 'total') {
             data.cell.styles.fontStyle = 'bold';
           }
-          if (data.section === 'body' && data.row.index === serviceBodyRows.length) {
+          if (data.section === 'body' && showGrandTotalRow && data.row.index === serviceRows.length) {
             data.cell.styles.fontStyle = 'bold';
-            data.cell.styles.fontSize = 8.2;
+            data.cell.styles.fontSize = 10.2;
+          }
+        },
+        didDrawCell: (data: any) => {
+          if (data.section !== 'head') return;
+          const column = feeColumns[data.column.index];
+          if (!column) return;
+          const centerX = data.cell.x + data.cell.width / 2;
+          const labelLines = doc.splitTextToSize(column.label, data.cell.width - 12);
+          const subtitleLines = column.subtitle ? doc.splitTextToSize(column.subtitle, data.cell.width - 12) : [];
+          const lineHeight = 10;
+          const blockHeight = labelLines.length * lineHeight + (subtitleLines.length ? subtitleLines.length * 9 + 2 : 0);
+          let textY = data.cell.y + (data.cell.height - blockHeight) / 2 + 8;
+
+          doc.setTextColor(...hexToRgbTuple(REPORT_LEGAL_TEXT));
+          doc.setFont(REPORT_PDF_FONT, 'bold');
+          doc.setFontSize(10.5);
+          labelLines.forEach((line: string) => {
+            doc.text(line, centerX, textY, { align: 'center' });
+            textY += lineHeight;
+          });
+
+          if (subtitleLines.length > 0) {
+            doc.setFont(REPORT_PDF_FONT, 'italic');
+            doc.setFontSize(8.6);
+            textY += 1;
+            subtitleLines.forEach((line: string) => {
+              doc.text(line, centerX, textY, { align: 'center' });
+              textY += 9;
+            });
           }
         },
         margin: { left: margin, right: margin, top: 52, bottom: 102 },
@@ -1748,20 +1881,22 @@ export default function ClientQuotationsPage() {
       }
       const company = getCompanyDetailForQuotation(quotation, companyDetails);
       const companyLines = getReportCompanyLines(company);
-      const invoiceMetaRows = getReportInvoiceMetaRows(quotation);
-      const serviceCategory = quotation.serviceCategory || quotation.inquirySnapshot?.serviceCategory || '-';
-      const countryNames = quotation.inquirySnapshot?.countryNames?.join(', ') || '-';
-      const vatHeaderLabel = getInvoiceVatHeaderLabel(quotation);
       const projectRows = getReportProjectDetails(quotation);
       const requirementRows = getRequirementDisplayRows(quotation);
-      const wordCellStyle = (cellKey: string, defaultBg: string, defaultText: string, align: 'left' | 'right' | 'center' = 'left') => {
+      const feeColumns = getReportFeeTableColumns(quotation);
+      const showGrandTotalRow = shouldShowReportFeeGrandTotalRow(quotation);
+      const wordCellStyle = (
+        cellKey: string,
+        columnKey: ReportServiceColumnKey,
+        role: ReportFeeColumnRole = 'body'
+      ) => {
         const { backgroundColor, textColor } = getInvoiceExportCellColors(
           cellKey,
-          defaultBg,
-          defaultText,
+          getReportFeeColumnDefaultBg(columnKey, role),
+          getReportFeeColumnDefaultText(columnKey),
           invoiceCellColors
         );
-        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, '#D1D5DB')};padding:9px 8px;text-align:${align};vertical-align:middle;font-size:10.5px;line-height:1.35;`;
+        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)};padding:12px 10px;text-align:center;vertical-align:middle;font-family:${REPORT_CSS_FONT_STACK};font-size:${role === 'header' ? '16px' : '14px'};line-height:1.25;`;
       };
       const detailRowsHtml = (rows: Array<[string, string]>) => rows.map(([label, value]) => `
         <tr>
@@ -1779,36 +1914,42 @@ export default function ClientQuotationsPage() {
         : '<div class="requirement-description">No requirement details available.</div>';
       const referenceServiceHeaderHtml = `
         <tr>
-          <th style="${wordCellStyle('header-country', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'center')}">Country</th>
-          <th style="${wordCellStyle('header-service', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'center')}">Service</th>
-          <th style="${wordCellStyle('header-procedure', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'center')}">Procedure / Class</th>
-          <th style="${wordCellStyle('header-official', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Official Fees</th>
-          <th style="${wordCellStyle('header-attorney', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Attorney Fees</th>
-          <th style="${wordCellStyle('header-vat', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">${escapeHtml(vatHeaderLabel)}</th>
-          <th style="${wordCellStyle('header-discount', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Discount</th>
-          <th style="${wordCellStyle('header-total', invoiceServiceTableColors.headerBg, invoiceServiceTableColors.headerText, 'right')}">Total</th>
+          ${feeColumns.map((column) => `
+            <th style="${wordCellStyle(`header-${column.key}`, column.key, 'header')}">
+              <div class="fee-header-title">${escapeHtml(column.label)}</div>
+              ${column.subtitle ? `<div class="fee-header-subtitle">${escapeHtml(column.subtitle)}</div>` : ''}
+            </th>
+          `).join('')}
         </tr>
       `;
       const referenceServicesHtml = (quotation.services || [])
         .map((service, index) => {
-          const procedureClass = escapeHtml(getServiceProcedureClassText(service, String(serviceCategory))).replace(/\n/g, '<br/>');
-          const baseRowBg = index % 2 === 0
-            ? invoiceServiceTableColors.rowBg
-            : invoiceServiceTableColors.altRowBg;
           return `
             <tr>
-              <td style="${wordCellStyle(`row-${index}-country`, baseRowBg, invoiceServiceTableColors.countryColText, 'center')}">${escapeHtml(getServiceCountryName(service, quotation) || countryNames)}</td>
-              <td style="${wordCellStyle(`row-${index}-service`, baseRowBg, invoiceServiceTableColors.serviceColText, 'center')}">${escapeHtml(String(serviceCategory))}</td>
-              <td style="${wordCellStyle(`row-${index}-procedure`, baseRowBg, invoiceServiceTableColors.procedureColText, 'center')}"><span class="procedure-main">${procedureClass}</span></td>
-              <td class="money" style="${wordCellStyle(`row-${index}-official`, baseRowBg, invoiceServiceTableColors.officialColText, 'right')}">${toCurrency(service.totalOfficialFees || service.officialFee || 0)}</td>
-              <td class="money" style="${wordCellStyle(`row-${index}-attorney`, baseRowBg, invoiceServiceTableColors.attorneyColText, 'right')}">${toCurrency(service.attorneyFee || 0)}</td>
-              <td class="money" style="${wordCellStyle(`row-${index}-vat`, baseRowBg, invoiceServiceTableColors.vatColText, 'right')}">${toCurrency(getServiceVatAmount(service))}</td>
-              <td class="money" style="${wordCellStyle(`row-${index}-discount`, baseRowBg, invoiceServiceTableColors.discountColText, 'right')}">${toCurrency(getServiceDiscountAmount(service))}</td>
-              <td class="money" style="${wordCellStyle(`row-${index}-total`, baseRowBg, invoiceServiceTableColors.totalColText, 'right')}"><strong>${toCurrency(service.grandTotal || 0)}</strong></td>
+              ${feeColumns.map((column) => {
+                const value = escapeHtml(getReportFeeCellText(service, quotation, column.key)).replace(/\n/g, '<br/>');
+                const isStrong = column.key === 'procedure' || column.key === 'total';
+                return `
+                  <td class="${column.key === 'procedure' ? 'procedure-main' : 'money'}" style="${wordCellStyle(`row-${index}-${column.key}`, column.key, 'body')}">
+                    ${isStrong ? `<strong>${value}</strong>` : value}
+                  </td>
+                `;
+              }).join('')}
             </tr>
           `;
         })
         .join('');
+      const grandTotalRowHtml = showGrandTotalRow
+        ? `
+          <tr>
+            ${feeColumns.map((column) => `
+              <td class="${column.key === 'procedure' ? 'procedure-main' : 'money'}" style="${wordCellStyle(`grand-${column.key}`, column.key, 'total')}">
+                <strong>${escapeHtml(getReportFeeGrandTotalText(quotation, column.key))}</strong>
+              </td>
+            `).join('')}
+          </tr>
+        `
+        : '';
       const html = `
         <!doctype html>
         <html>
@@ -1817,24 +1958,17 @@ export default function ClientQuotationsPage() {
             <title>${escapeHtml(invoiceNo)} Report</title>
             <style>
               @page { size: A4 portrait; margin: 12mm; }
-	              body { font-family: ${REPORT_CSS_FONT_STACK}; color: #0f172a; margin: 0; background: #fff; }
+	              body { font-family: ${REPORT_CSS_FONT_STACK}; color: ${REPORT_LEGAL_TEXT}; margin: 0; background: #fff; }
 	              .top-band { height: 32px; background: ${REPORT_DARK_NAVY}; border-bottom: 2px solid ${REPORT_GOLD}; margin: -12mm -12mm 28px; }
 	              .bottom-band { height: 18px; background: ${REPORT_DARK_NAVY}; border-top: 2px solid ${REPORT_GOLD}; margin: 20px -12mm -12mm; }
 	              .page { width: 100%; }
 	              .layout-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 	              .layout-table td { vertical-align: top; }
-	              .invoice-header { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 18px; }
-	              .invoice-header td { vertical-align: top; }
-	              .company-block { color: ${REPORT_INK}; font-size: 12px; line-height: 1.45; text-align: left; }
+	              .invoice-header { width: 100%; margin-bottom: 18px; text-align: center; }
+	              .company-block { color: ${REPORT_INK}; font-size: 12px; line-height: 1.45; text-align: center; max-width: 520px; margin: 0 auto; }
 	              .company-name-line { color: ${REPORT_NAVY}; font-size: 16px; font-weight: 800; margin-bottom: 4px; }
 	              .company-line { margin-bottom: 2px; }
-	              .invoice-title-cell { text-align: right; }
-	              .report-title { color: ${REPORT_INK}; font-size: 34px; font-weight: 800; letter-spacing: .02em; }
-	              .invoice-title-line { width: 170px; border-top: 1px solid ${REPORT_NAVY}; margin: 8px 0 0 auto; }
-	              .invoice-title-dot { width: 5px; height: 5px; border-radius: 50%; background: ${REPORT_NAVY}; margin: -3px 0 0 auto; }
-	              .summary-layout { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; margin-bottom: 14px; }
-	              .summary-layout td { vertical-align: top; }
-	              .gap-cell { width: 14px; }
+	              .summary-layout { width: 100%; margin-bottom: 14px; }
               .info-panel { padding: 0; background: #fff; }
               .section-box { border: 1px solid ${REPORT_BORDER}; border-radius: 8px; padding: 10px; background: #fff; }
               .panel-title { color: ${REPORT_NAVY}; padding: 0 0 7px; font-size: 14px; font-weight: 800; text-transform: uppercase; }
@@ -1848,9 +1982,11 @@ export default function ClientQuotationsPage() {
               .section-title { color: ${REPORT_NAVY}; font-size: 17px; font-weight: 800; text-transform: uppercase; margin: 0; }
               .title-underline { width: 46px; border-top: 2px solid ${REPORT_GOLD}; margin: 5px 0 12px; }
               .section-note { margin: 4px 0 12px; color: #111827; font-size: 10.5px; }
-              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 0; font-size: 10px; page-break-inside: avoid; border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, '#D1D5DB')}; }
-              .service-table th { font-weight: 800; letter-spacing: .01em; }
+              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 0; font-size: 14px; page-break-inside: avoid; border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)}; background: #fff; }
+              .service-table th { font-weight: 800; letter-spacing: 0; }
               .service-table td, .service-table th { word-break: normal; overflow-wrap: break-word; }
+              .fee-header-title { font-weight: 800; }
+              .fee-header-subtitle { font-style: italic; font-size: 13px; font-weight: 400; margin-top: 2px; }
               .procedure-main { font-weight: 800; color: inherit; }
               .requirement-heading { color: ${REPORT_NAVY}; font-size: 13px; font-weight: 800; margin: 12px 0 8px; }
               .requirement-description { color: #111827; font-size: 10.5px; line-height: 1.45; overflow-wrap: anywhere; word-break: normal; }
@@ -1871,34 +2007,15 @@ export default function ClientQuotationsPage() {
 	          <body>
 	            <div class="top-band"></div>
 	            <div class="page">
-	              <table class="invoice-header">
-	                <tr>
-	                  <td style="width:48%;">
-	                    <div class="company-block">${companyLinesHtml}</div>
-	                  </td>
-	                  <td class="invoice-title-cell" style="width:52%;">
-	                    <div class="report-title">${CLIENT_QUOTATION_REPORT_TITLE}</div>
-	                    <div class="invoice-title-line"><div class="invoice-title-dot"></div></div>
-	                  </td>
-	                </tr>
-	              </table>
-	              <table class="summary-layout">
-	                <tr>
-	                  <td style="width:62%;">
-	                    <div class="info-panel">
-	                      <div class="panel-title">Project Details</div>
-	                      <table class="detail-table">${detailRowsHtml(projectRows)}</table>
-	                    </div>
-	                  </td>
-	                  <td class="gap-cell"></td>
-	                  <td style="width:38%;">
-	                    <div class="info-panel">
-	                      <div class="panel-title">Invoice Details</div>
-	                      <table class="detail-table">${detailRowsHtml(invoiceMetaRows)}</table>
-	                    </div>
-	                  </td>
-	                </tr>
-	              </table>
+	              <div class="invoice-header">
+	                <div class="company-block">${companyLinesHtml}</div>
+	              </div>
+	              <div class="summary-layout">
+	                <div class="info-panel">
+	                  <div class="panel-title">Project Details</div>
+	                  <table class="detail-table">${detailRowsHtml(projectRows)}</table>
+	                </div>
+	              </div>
               <div class="requirement-flow-section">
                 <h2 class="section-title">Requirement Details</h2>
                 <div class="title-underline"></div>
@@ -1907,33 +2024,19 @@ export default function ClientQuotationsPage() {
               </div>
               <table class="service-table">
                   <colgroup>
-                    <col style="width:11%;" />
-                    <col style="width:12%;" />
-                    <col style="width:18%;" />
-                    <col style="width:13%;" />
-                    <col style="width:13%;" />
-                    <col style="width:11%;" />
-                    <col style="width:11%;" />
-                    <col style="width:11%;" />
+                    ${feeColumns.map((column) => `<col style="width:${getReportFeeColumnWidthPercent(feeColumns, column)};" />`).join('')}
                   </colgroup>
                   <thead>${referenceServiceHeaderHtml}</thead>
                   <tbody>
-                    ${referenceServicesHtml || `<tr><td colspan="8" style="${wordCellStyle('row-0-procedure', invoiceServiceTableColors.rowBg, invoiceServiceTableColors.procedureColText)}">No service details available.</td></tr>`}
-                    <tr>
-                      <td colspan="3" style="${wordCellStyle('grand-country', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'center')}"><strong>TOTAL AMOUNT (SAR)</strong></td>
-                      <td style="${wordCellStyle('grand-official', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalOfficialFees || 0)}</strong></td>
-                      <td style="${wordCellStyle('grand-attorney', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalAttorneyFees || 0)}</strong></td>
-                      <td style="${wordCellStyle('grand-vat', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalVatFees || 0)}</strong></td>
-                      <td style="${wordCellStyle('grand-discount', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.totalDiscount || 0)}</strong></td>
-                      <td style="${wordCellStyle('grand-total', invoiceServiceTableColors.totalRowBg, invoiceServiceTableColors.totalRowText, 'right')}"><strong>${toCurrency(quotation.grandTotal || 0)}</strong></td>
-                    </tr>
+                    ${referenceServicesHtml || `<tr><td colspan="${feeColumns.length}" style="${wordCellStyle('row-0-procedure', 'procedure', 'body')}">No service details available.</td></tr>`}
+                    ${grandTotalRowHtml}
                   </tbody>
                 </table>
 	              <div class="footer">
 	                <div class="footer-line"></div>
 	                <div class="footer-dot"></div>
 	                <div class="footer-thanks">Thank you for your business!</div>
-	                <div class="footer-note">This is a computer-generated invoice and does not require a signature.</div>
+	                <div class="footer-note">This is a computer-generated report and does not require a signature.</div>
 	              </div>
             </div>
             <div class="bottom-band"></div>
@@ -2694,12 +2797,10 @@ export default function ClientQuotationsPage() {
     [invoiceCompanyDetails, viewingItem]
   );
   const viewingCompanyLines = getReportCompanyLines(selectedInvoiceCompanyDetail);
-  const viewingInvoiceMetaRows = viewingItem ? getReportInvoiceMetaRows(viewingItem) : [];
   const viewingProjectRows = viewingItem ? getReportProjectDetails(viewingItem) : [];
   const viewingRequirementRows = viewingItem ? getRequirementDisplayRows(viewingItem) : [];
-  const viewingServiceCategory = viewingItem
-    ? String(viewingItem.serviceCategory || viewingItem.inquirySnapshot?.serviceCategory || '-')
-    : '-';
+  const viewingFeeColumns = viewingItem ? getReportFeeTableColumns(viewingItem) : [];
+  const showViewingGrandTotalRow = viewingItem ? shouldShowReportFeeGrandTotalRow(viewingItem) : false;
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -2835,12 +2936,23 @@ export default function ClientQuotationsPage() {
               borderLeft: `5px solid ${invoiceServiceTableColors.headerBg} !important`,
             },
             '.client-quotation-invoice-print .invoice-service-table th': {
-              fontSize: '10px !important',
-              textTransform: 'uppercase',
-              letterSpacing: '0.02em',
+              border: `1px solid ${invoiceServiceTableColors.borderColor} !important`,
+              fontSize: '16px !important',
+              textTransform: 'none',
+              letterSpacing: '0',
+              textAlign: 'center',
+              verticalAlign: 'middle',
             },
             '.client-quotation-invoice-print .invoice-service-table td': {
-              fontSize: '10.5px !important',
+              border: `1px solid ${invoiceServiceTableColors.borderColor} !important`,
+              fontSize: '14px !important',
+              textAlign: 'center',
+              verticalAlign: 'middle',
+            },
+            '.client-quotation-invoice-print .invoice-service-table .fee-header-subtitle': {
+              fontSize: '13px !important',
+              fontStyle: 'italic',
+              fontWeight: 400,
             },
             '.client-quotation-invoice-print .invoice-requirements-section': {
               breakInside: 'auto !important',
@@ -3835,14 +3947,11 @@ export default function ClientQuotationsPage() {
 	              <Box className="invoice-report-header">
 	                <Box
 	                  sx={{
-	                    display: 'grid',
-	                    gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-	                    gap: { xs: 2, md: 3 },
-	                    alignItems: 'start',
+	                    textAlign: 'center',
 	                    mb: 2.5,
 	                  }}
 	                >
-	                  <Box sx={{ color: REPORT_INK, fontSize: 14, lineHeight: 1.55, textAlign: 'left' }}>
+	                  <Box sx={{ color: REPORT_INK, fontSize: 14, lineHeight: 1.55, maxWidth: 620, mx: 'auto' }}>
 	                    {viewingCompanyLines.map((line, index) => (
 	                      <Typography
 	                        key={`${line}-${index}`}
@@ -3859,19 +3968,11 @@ export default function ClientQuotationsPage() {
 	                      </Typography>
 	                    ))}
 	                  </Box>
-	                  <Box sx={{ textAlign: { xs: 'left', md: 'right' }, pt: { md: 0.5 } }}>
-	                    <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontSize: { xs: 36, md: 46 }, fontWeight: 900, lineHeight: 1 }}>
-	                      {CLIENT_QUOTATION_REPORT_TITLE}
-	                    </Typography>
-	                    <Box sx={{ width: { xs: 170, md: 210 }, borderTop: `2px solid ${REPORT_NAVY}`, ml: { xs: 0, md: 'auto' }, mt: 1.5, position: 'relative' }}>
-	                      <Box sx={{ position: 'absolute', right: -3, top: -4, width: 7, height: 7, borderRadius: '50%', bgcolor: REPORT_NAVY }} />
-	                    </Box>
-	                  </Box>
 	                </Box>
 	              </Box>
 
               <Grid container spacing={2} sx={{ mb: 2 }}>
-                <Grid size={{ xs: 12, md: 7 }}>
+                <Grid size={{ xs: 12 }}>
                   <Box className="invoice-detail-block" sx={{ height: '100%' }}>
                       <Box className="invoice-detail-panel-title">
                         PROJECT DETAILS
@@ -3879,25 +3980,6 @@ export default function ClientQuotationsPage() {
                       <Table size="small" className="invoice-detail-table">
                         <TableBody>
                           {viewingProjectRows.map(([label, value]) => (
-                            <TableRow key={label}>
-                              <TableCell sx={{ width: '44%', color: REPORT_NAVY, fontWeight: 900 }}>
-                                {label}
-                              </TableCell>
-                              <TableCell>{value}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                  </Box>
-                </Grid>
-                <Grid size={{ xs: 12, md: 5 }}>
-                  <Box className="invoice-detail-block" sx={{ height: '100%' }}>
-                      <Box className="invoice-detail-panel-title">
-                        INVOICE DETAILS
-                      </Box>
-                      <Table size="small" className="invoice-detail-table">
-                        <TableBody>
-                          {viewingInvoiceMetaRows.map(([label, value]) => (
                             <TableRow key={label}>
                               <TableCell sx={{ width: '44%', color: REPORT_NAVY, fontWeight: 900 }}>
                                 {label}
@@ -4060,8 +4142,8 @@ export default function ClientQuotationsPage() {
                     sx={{
                       border: '1px solid',
                       borderColor: invoiceServiceTableColors.borderColor,
-                      borderRadius: 2,
-                      boxShadow: '0 10px 24px rgba(15, 23, 42, 0.06)',
+                      borderRadius: 0,
+                      boxShadow: 'none',
                     }}
                   >
                     <Table
@@ -4071,506 +4153,156 @@ export default function ClientQuotationsPage() {
                         tableLayout: 'fixed',
                         '& .MuiTableCell-root': {
                           borderColor: invoiceServiceTableColors.borderColor,
-                          fontSize: 12,
+                          fontFamily: REPORT_CSS_FONT_STACK,
+                          fontSize: 14,
                           lineHeight: 1.25,
+                          textAlign: 'center',
+                          verticalAlign: 'middle',
                         },
                         '& thead .MuiTableCell-root': {
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.02em',
-                          fontSize: 11,
+                          letterSpacing: 0,
+                          fontSize: 16,
+                          fontWeight: 900,
                         },
-                        '& tbody .MuiTableCell-root:nth-of-type(n+4)': {
+                        '& .fee-header-title': {
+                          fontWeight: 900,
+                        },
+                        '& .fee-header-subtitle': {
+                          display: 'block',
+                          fontStyle: 'italic',
+                          fontWeight: 400,
+                          fontSize: 13,
+                          mt: 0.25,
+                        },
+                        '& tbody .MuiTableCell-root:not(:first-of-type)': {
                           fontVariantNumeric: 'tabular-nums',
                           whiteSpace: 'nowrap',
                         },
                       }}
                     >
                       <colgroup>
-                        <col style={{ width: '11%' }} />
-                        <col style={{ width: '12%' }} />
-                        <col style={{ width: '18%' }} />
-                        <col style={{ width: '13%' }} />
-                        <col style={{ width: '13%' }} />
-                        <col style={{ width: '11%' }} />
-                        <col style={{ width: '11%' }} />
-                        <col style={{ width: '11%' }} />
+                        {viewingFeeColumns.map((column) => (
+                          <col key={column.key} style={{ width: getReportFeeColumnWidthPercent(viewingFeeColumns, column) }} />
+                        ))}
                       </colgroup>
-                      <TableHead sx={{ bgcolor: invoiceServiceTableColors.headerBg }}>
+                      <TableHead>
                         <TableRow>
-                          <TableCell
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'header-country',
-                                'Header: Country',
-                                invoiceServiceTableColors.headerBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'header-country',
-                                invoiceServiceTableColors.headerBg,
-                                invoiceServiceTableColors.headerText
-                              ),
-                            }}
-                          >
-                            Country
-                          </TableCell>
-                          <TableCell
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'header-service',
-                                'Header: Service',
-                                invoiceServiceTableColors.headerBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'header-service',
-                                invoiceServiceTableColors.headerBg,
-                                invoiceServiceTableColors.headerText
-                              ),
-                            }}
-                          >
-                            Service
-                          </TableCell>
-                          <TableCell
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'header-procedure',
-                                'Header: Procedure / Class',
-                                invoiceServiceTableColors.headerBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'header-procedure',
-                                invoiceServiceTableColors.headerBg,
-                                invoiceServiceTableColors.headerText
-                              ),
-                            }}
-                          >
-                            Procedure / Class
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'header-official',
-                                'Header: Official Fees',
-                                invoiceServiceTableColors.headerBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'header-official',
-                                invoiceServiceTableColors.headerBg,
-                                invoiceServiceTableColors.headerText
-                              ),
-                            }}
-                          >
-                            Official Fees
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'header-attorney',
-                                'Header: Attorney Fees',
-                                invoiceServiceTableColors.headerBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'header-attorney',
-                                invoiceServiceTableColors.headerBg,
-                                invoiceServiceTableColors.headerText
-                              ),
-                            }}
-                          >
-                            Attorney Fees
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'header-vat',
-                                'Header: VAT',
-                                invoiceServiceTableColors.headerBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'header-vat',
-                                invoiceServiceTableColors.headerBg,
-                                invoiceServiceTableColors.headerText
-                              ),
-                            }}
-                          >
-                            {getInvoiceVatHeaderLabel(viewingItem)}
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'header-discount',
-                                'Header: Discount',
-                                invoiceServiceTableColors.headerBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'header-discount',
-                                invoiceServiceTableColors.headerBg,
-                                invoiceServiceTableColors.headerText
-                              ),
-                            }}
-                          >
-                            Discount
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'header-total',
-                                'Header: Total',
-                                invoiceServiceTableColors.headerBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'header-total',
-                                invoiceServiceTableColors.headerBg,
-                                invoiceServiceTableColors.headerText
-                              ),
-                            }}
-                          >
-                            Total
-                          </TableCell>
+                          {viewingFeeColumns.map((column) => {
+                            const defaultBg = getReportFeeColumnDefaultBg(column.key, 'header');
+                            const defaultText = getReportFeeColumnDefaultText(column.key);
+                            return (
+                              <TableCell
+                                key={`header-${column.key}`}
+                                align="center"
+                                onClick={(event) =>
+                                  openInvoiceCellPicker(
+                                    event,
+                                    `header-${column.key}`,
+                                    `Header: ${column.label}`,
+                                    defaultBg
+                                  )
+                                }
+                                sx={{
+                                  p: 1.5,
+                                  ...getInvoiceCellSx(`header-${column.key}`, defaultBg, defaultText),
+                                }}
+                              >
+                                <Box component="span" className="fee-header-title">
+                                  {column.label}
+                                </Box>
+                                {column.subtitle && (
+                                  <Box component="span" className="fee-header-subtitle">
+                                    {column.subtitle}
+                                  </Box>
+                                )}
+                              </TableCell>
+                            );
+                          })}
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {(viewingItem.services || []).map((service, index) => {
-                          const procedureClassLines = getServiceProcedureClassText(service, viewingServiceCategory).split('\n');
-                          const baseRowBg =
-                            index % 2 === 0
-                              ? invoiceServiceTableColors.rowBg
-                              : invoiceServiceTableColors.altRowBg;
-
-                          return (
+                        {(viewingItem.services || []).length > 0 ? (
+                          (viewingItem.services || []).map((service, index) => (
                             <TableRow key={`${service.procedureName}-${index}`}>
-                              <TableCell
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `row-${index}-country`,
-                                    `Row ${index + 1}: Country`,
-                                    baseRowBg
-                                  )
-                                }
-                                sx={{
-                                  ...getInvoiceCellSx(
-                                    `row-${index}-country`,
-                                    baseRowBg,
-                                    invoiceServiceTableColors.countryColText
-                                  ),
-                                }}
-                              >
-                                {getServiceCountryName(service, viewingItem) || '-'}
-                              </TableCell>
-                              <TableCell
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `row-${index}-service`,
-                                    `Row ${index + 1}: Service`,
-                                    baseRowBg
-                                  )
-                                }
-                                sx={{
-                                  ...getInvoiceCellSx(
-                                    `row-${index}-service`,
-                                    baseRowBg,
-                                    invoiceServiceTableColors.serviceColText
-                                  ),
-                                }}
-                              >
-                                {viewingServiceCategory}
-                              </TableCell>
-                              <TableCell
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `row-${index}-procedure`,
-                                    `Row ${index + 1}: Procedure Name`,
-                                    baseRowBg
-                                  )
-                                }
-                                sx={{
-                                  ...getInvoiceCellSx(
-                                    `row-${index}-procedure`,
-                                    baseRowBg,
-                                    invoiceServiceTableColors.procedureColText
-                                  ),
-                                }}
-                              >
-                                {procedureClassLines.map((line, lineIndex) => (
-                                  <Typography
-                                    key={`${line}-${lineIndex}`}
-                                    variant={lineIndex === 0 ? 'body2' : 'caption'}
-                                    sx={{ fontWeight: lineIndex === 0 ? 700 : 500, color: 'inherit', display: 'block', opacity: lineIndex === 0 ? 1 : 0.85 }}
+                              {viewingFeeColumns.map((column) => {
+                                const cellKey = `row-${index}-${column.key}`;
+                                const defaultBg = getReportFeeColumnDefaultBg(column.key, 'body');
+                                const defaultText = getReportFeeColumnDefaultText(column.key);
+                                const isStrong = column.key === 'procedure' || column.key === 'total';
+
+                                return (
+                                  <TableCell
+                                    key={cellKey}
+                                    align="center"
+                                    onClick={(event) =>
+                                      openInvoiceCellPicker(
+                                        event,
+                                        cellKey,
+                                        `Row ${index + 1}: ${column.label}`,
+                                        defaultBg
+                                      )
+                                    }
+                                    sx={{
+                                      p: 1.5,
+                                      fontWeight: isStrong ? 900 : 500,
+                                      ...getInvoiceCellSx(cellKey, defaultBg, defaultText),
+                                    }}
                                   >
-                                    {line}
-                                  </Typography>
-                                ))}
-                              </TableCell>
-                              <TableCell
-                                align="right"
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `row-${index}-official`,
-                                    `Row ${index + 1}: Official Fees`,
-                                    baseRowBg
-                                  )
-                                }
-                                sx={{
-                                  ...getInvoiceCellSx(
-                                    `row-${index}-official`,
-                                    baseRowBg,
-                                    invoiceServiceTableColors.officialColText
-                                  ),
-                                }}
-                              >
-                                {toCurrency(service.totalOfficialFees || service.officialFee || 0)}
-                              </TableCell>
-                              <TableCell
-                                align="right"
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `row-${index}-attorney`,
-                                    `Row ${index + 1}: Attorney Fees`,
-                                    baseRowBg
-                                  )
-                                }
-                                sx={{
-                                  ...getInvoiceCellSx(
-                                    `row-${index}-attorney`,
-                                    baseRowBg,
-                                    invoiceServiceTableColors.attorneyColText
-                                  ),
-                                }}
-                              >
-                                {toCurrency(service.attorneyFee || 0)}
-                              </TableCell>
-                              <TableCell
-                                align="right"
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `row-${index}-vat`,
-                                    `Row ${index + 1}: VAT`,
-                                    baseRowBg
-                                  )
-                                }
-                                sx={{
-                                  ...getInvoiceCellSx(
-                                    `row-${index}-vat`,
-                                    baseRowBg,
-                                    invoiceServiceTableColors.vatColText
-                                  ),
-                                }}
-                              >
-                                {toCurrency(getServiceVatAmount(service))}
-                              </TableCell>
-                              <TableCell
-                                align="right"
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `row-${index}-discount`,
-                                    `Row ${index + 1}: Discount`,
-                                    baseRowBg
-                                  )
-                                }
-                                sx={{
-                                  ...getInvoiceCellSx(
-                                    `row-${index}-discount`,
-                                    baseRowBg,
-                                    invoiceServiceTableColors.discountColText
-                                  ),
-                                }}
-                              >
-                                {toCurrency(getServiceDiscountAmount(service))}
-                              </TableCell>
-                              <TableCell
-                                align="right"
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `row-${index}-total`,
-                                    `Row ${index + 1}: Total`,
-                                    baseRowBg
-                                  )
-                                }
-                                sx={{
-                                  ...getInvoiceCellSx(
-                                    `row-${index}-total`,
-                                    baseRowBg,
-                                    invoiceServiceTableColors.totalColText
-                                  ),
-                                }}
-                              >
-                                {toCurrency(service.grandTotal || 0)}
-                              </TableCell>
+                                    {getReportFeeCellText(service, viewingItem, column.key)}
+                                  </TableCell>
+                                );
+                              })}
                             </TableRow>
-                          );
-                        })}
-                        <TableRow sx={{ bgcolor: invoiceServiceTableColors.totalRowBg }}>
-                          <TableCell
-                            colSpan={3}
-                            align="center"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'grand-country',
-                                'Grand Total: Label',
-                                invoiceServiceTableColors.totalRowBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 900,
-                              ...getInvoiceCellSx(
-                                'grand-country',
-                                invoiceServiceTableColors.totalRowBg,
-                                invoiceServiceTableColors.totalRowText
-                              ),
-                            }}
-                          >
-                            TOTAL AMOUNT (SAR)
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'grand-official',
-                                'Grand Total: Official Fees',
-                                invoiceServiceTableColors.totalRowBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'grand-official',
-                                invoiceServiceTableColors.totalRowBg,
-                                invoiceServiceTableColors.totalRowText
-                              ),
-                            }}
-                          >
-                            {toCurrency(viewingItem.totalOfficialFees || 0)}
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'grand-attorney',
-                                'Grand Total: Attorney Fees',
-                                invoiceServiceTableColors.totalRowBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'grand-attorney',
-                                invoiceServiceTableColors.totalRowBg,
-                                invoiceServiceTableColors.totalRowText
-                              ),
-                            }}
-                          >
-                            {toCurrency(viewingItem.totalAttorneyFees || 0)}
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'grand-vat',
-                                'Grand Total: VAT',
-                                invoiceServiceTableColors.totalRowBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'grand-vat',
-                                invoiceServiceTableColors.totalRowBg,
-                                invoiceServiceTableColors.totalRowText
-                              ),
-                            }}
-                          >
-                            {toCurrency(viewingItem.totalVatFees || 0)}
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'grand-discount',
-                                'Grand Total: Discount',
-                                invoiceServiceTableColors.totalRowBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'grand-discount',
-                                invoiceServiceTableColors.totalRowBg,
-                                invoiceServiceTableColors.totalRowText
-                              ),
-                            }}
-                          >
-                            {toCurrency(viewingItem.totalDiscount || 0)}
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            onClick={(event) =>
-                              openInvoiceCellPicker(
-                                event,
-                                'grand-total',
-                                'Grand Total: Total',
-                                invoiceServiceTableColors.totalRowBg
-                              )
-                            }
-                            sx={{
-                              fontWeight: 800,
-                              ...getInvoiceCellSx(
-                                'grand-total',
-                                invoiceServiceTableColors.totalRowBg,
-                                invoiceServiceTableColors.totalRowText
-                              ),
-                            }}
-                          >
-                            {toCurrency(viewingItem.grandTotal || 0)}
-                          </TableCell>
-                        </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell
+                              colSpan={viewingFeeColumns.length || 1}
+                              align="center"
+                              sx={{
+                                p: 1.5,
+                                ...getInvoiceCellSx(
+                                  'row-0-procedure',
+                                  getReportFeeColumnDefaultBg('procedure', 'body'),
+                                  getReportFeeColumnDefaultText('procedure')
+                                ),
+                              }}
+                            >
+                              No service details available.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        {showViewingGrandTotalRow && (
+                          <TableRow>
+                            {viewingFeeColumns.map((column) => {
+                              const cellKey = `grand-${column.key}`;
+                              const defaultBg = getReportFeeColumnDefaultBg(column.key, 'total');
+                              const defaultText = getReportFeeColumnDefaultText(column.key);
+
+                              return (
+                                <TableCell
+                                  key={cellKey}
+                                  align="center"
+                                  onClick={(event) =>
+                                    openInvoiceCellPicker(
+                                      event,
+                                      cellKey,
+                                      `Grand Total: ${column.label}`,
+                                      defaultBg
+                                    )
+                                  }
+                                  sx={{
+                                    p: 1.5,
+                                    fontWeight: 900,
+                                    ...getInvoiceCellSx(cellKey, defaultBg, defaultText),
+                                  }}
+                                >
+                                  {getReportFeeGrandTotalText(viewingItem, column.key)}
+                                </TableCell>
+                              );
+                            })}
+                          </TableRow>
+                        )}
                       </TableBody>
                     </Table>
                   </TableContainer>
@@ -4622,7 +4354,7 @@ export default function ClientQuotationsPage() {
 	                  Thank you for your business!
 	                </Typography>
 	                <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontStyle: 'italic', fontSize: 13 }}>
-	                  This is a computer-generated invoice and does not require a signature.
+	                  This is a computer-generated report and does not require a signature.
 	                </Typography>
 	              </Box>
               <Box className="invoice-report-bottom-band" />

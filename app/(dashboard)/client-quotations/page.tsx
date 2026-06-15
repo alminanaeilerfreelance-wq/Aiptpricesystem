@@ -1887,7 +1887,7 @@ export default function ClientQuotationsPage() {
           getReportFeeColumnDefaultText(columnKey),
           invoiceCellColors
         );
-        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)};padding:12px 10px;text-align:center;vertical-align:middle;font-family:${REPORT_CSS_FONT_STACK};font-size:${role === 'header' ? '16px' : '14px'};line-height:1.25;`;
+        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)};padding:10pt 7pt;text-align:center;vertical-align:middle;font-family:${REPORT_CSS_FONT_STACK};font-size:${role === 'header' ? '12pt' : '10pt'};line-height:1.25;`;
       };
       const detailRowsHtml = (rows: Array<[string, string]>) => rows.map(([label, value]) => `
         <tr>
@@ -1900,7 +1900,7 @@ export default function ClientQuotationsPage() {
       `).join('');
       const referenceRequirementRowsHtml = requirementRows.length > 0
         ? requirementRows.map((requirement) => `
-            <div class="requirement-description">${requirement.requirementsHtml || 'No requirement details available.'}</div>
+            <div class="requirement-description">${escapeHtml(requirement.requirementsText || 'No requirement details available.').replace(/\n/g, '<br/>')}</div>
           `).join('')
         : '<div class="requirement-description">No requirement details available.</div>';
       const referenceServiceHeaderHtml = `
@@ -1943,56 +1943,58 @@ export default function ClientQuotationsPage() {
         : '';
       const html = `
         <!doctype html>
-        <html>
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
           <head>
             <meta charset="utf-8" />
             <title>${escapeHtml(invoiceNo)} Report</title>
             <style>
-              @page { size: A4 portrait; margin: 12mm; }
-	              body { font-family: ${REPORT_CSS_FONT_STACK}; color: ${REPORT_LEGAL_TEXT}; margin: 0; background: #fff; }
-	              .top-band { height: 32px; background: ${REPORT_DARK_NAVY}; border-bottom: 2px solid ${REPORT_GOLD}; margin: -12mm -12mm 28px; }
-	              .bottom-band { height: 18px; background: ${REPORT_DARK_NAVY}; border-top: 2px solid ${REPORT_GOLD}; margin: 20px -12mm -12mm; }
+              @page { size: A4 portrait; margin: 28pt; }
+	              body { font-family: ${REPORT_CSS_FONT_STACK}; color: ${REPORT_LEGAL_TEXT}; margin: 0; background: #fff; font-size: 10pt; }
+	              .top-band { height: 32pt; background: ${REPORT_DARK_NAVY}; border-bottom: 1pt solid ${REPORT_GOLD}; margin: -28pt -28pt 28pt; }
+	              .bottom-band { height: 18pt; background: ${REPORT_DARK_NAVY}; border-top: 1pt solid ${REPORT_GOLD}; margin: 20pt -28pt -28pt; }
 	              .page { width: 100%; }
 	              .layout-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 	              .layout-table td { vertical-align: top; }
-	              .invoice-header { width: 100%; margin-bottom: 18px; text-align: center; }
-	              .company-block { color: ${REPORT_INK}; font-size: 12px; line-height: 1.45; text-align: center; max-width: 520px; margin: 0 auto; }
-	              .company-name-line { color: ${REPORT_NAVY}; font-size: 16px; font-weight: 800; margin-bottom: 4px; }
-	              .company-line { margin-bottom: 2px; }
-	              .summary-layout { width: 100%; margin-bottom: 14px; }
+	              .invoice-header { width: 100%; margin-bottom: 22pt; text-align: center; }
+	              .company-block { color: ${REPORT_INK}; font-size: 9.2pt; line-height: 1.4; text-align: center; max-width: 330pt; margin: 0 auto; }
+	              .company-name-line { color: ${REPORT_NAVY}; font-size: 13pt; font-weight: 800; margin-bottom: 8pt; }
+	              .company-line { margin-bottom: 2pt; }
+	              .summary-layout { width: 100%; margin-bottom: 18pt; }
               .info-panel { padding: 0; background: #fff; }
-              .section-box { border: 1px solid ${REPORT_BORDER}; border-radius: 8px; padding: 10px; background: #fff; }
-              .panel-title { color: ${REPORT_NAVY}; padding: 0 0 7px; font-size: 14px; font-weight: 800; text-transform: uppercase; }
-              .detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
-              .detail-table td { border-bottom: 1px solid #e2e8f0; padding: 9px 10px; }
+              .section-box { border: 1px solid ${REPORT_BORDER}; border-radius: 0; padding: 10pt; background: #fff; }
+              .panel-title { color: ${REPORT_NAVY}; padding: 0; font-size: 11pt; font-weight: 800; text-transform: uppercase; }
+              .panel-title-rule { width: 46pt; border-top: 0.8pt solid ${REPORT_NAVY}; margin: 5pt 0 8pt; }
+              .detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8.8pt; }
+              .detail-table td { border-bottom: 1px solid #e2e8f0; padding: 8pt 9pt; vertical-align: middle; }
               .detail-table tr:last-child td { border-bottom: 0; }
-              .detail-label { width: 42%; color: ${REPORT_NAVY}; font-weight: 800; border-right: 1px solid #e2e8f0; }
+              .detail-label { width: 46%; color: ${REPORT_NAVY}; font-weight: 800; border-right: 1px solid #e2e8f0; }
               .detail-value { color: #111827; }
-              .section-box { margin-top: 14px; padding: 16px; }
-              .requirement-flow-section { margin-top: 16px; padding: 4px 2px 12px; page-break-inside: auto; }
-              .section-title { color: ${REPORT_NAVY}; font-size: 17px; font-weight: 800; text-transform: uppercase; margin: 0; }
-              .title-underline { width: 46px; border-top: 2px solid ${REPORT_GOLD}; margin: 5px 0 12px; }
-              .section-note { margin: 4px 0 12px; color: #111827; font-size: 10.5px; }
-              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 0; font-size: 14px; page-break-inside: avoid; border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)}; background: #fff; }
+              .section-box { margin-top: 14pt; padding: 16pt; }
+              .requirement-flow-section { margin-top: 18pt; padding: 0 8pt 12pt; page-break-inside: auto; }
+              .section-title { color: ${REPORT_NAVY}; font-size: 14pt; font-weight: 800; text-transform: uppercase; margin: 0; }
+              .title-underline { width: 42pt; border-top: 1pt solid ${REPORT_GOLD}; margin: 5pt 0 13pt; }
+              .section-note { margin: 4pt 0 12pt; color: #111827; font-size: 10pt; }
+              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18pt; font-size: 10pt; page-break-inside: avoid; border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)}; background: #fff; }
               .service-table th { font-weight: 800; letter-spacing: 0; }
               .service-table td, .service-table th { word-break: normal; overflow-wrap: break-word; }
               .fee-header-title { font-weight: 800; }
-              .fee-header-subtitle { font-style: italic; font-size: 13px; font-weight: 400; margin-top: 2px; }
+              .fee-header-subtitle { font-style: italic; font-size: 8.6pt; font-weight: 400; margin-top: 2pt; }
               .procedure-main { font-weight: 800; color: inherit; }
-              .requirement-heading { color: ${REPORT_NAVY}; font-size: 13px; font-weight: 800; margin: 12px 0 8px; }
-              .requirement-description { color: #111827; font-size: 10.5px; line-height: 1.45; overflow-wrap: anywhere; word-break: normal; }
-              .requirement-description p { margin: 0 0 7px; }
+              .requirement-heading { color: ${REPORT_NAVY}; font-size: 10pt; font-weight: 800; margin: 0 0 8pt; }
+              .requirement-rule { border-top: 0.6pt solid ${REPORT_BORDER}; margin: 0 0 12pt; }
+              .requirement-description { color: #111827; font-size: 8.8pt; line-height: 1.35; overflow-wrap: anywhere; word-break: normal; }
+              .requirement-description p { margin: 0 0 7pt; }
               .requirement-description p:last-child { margin-bottom: 0; }
-              .requirement-description ul, .requirement-description ol { margin: 4px 0 4px 18px; padding: 0; }
-              .requirement-description table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 8px 0; }
-              .requirement-description td, .requirement-description th { border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, '#D1D5DB')}; padding: 6px 8px; vertical-align: top; word-break: normal; overflow-wrap: break-word; }
+              .requirement-description ul, .requirement-description ol { margin: 4pt 0 4pt 18pt; padding: 0; }
+              .requirement-description table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 8pt 0; }
+              .requirement-description td, .requirement-description th { border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, '#D1D5DB')}; padding: 6pt 8pt; vertical-align: top; word-break: normal; overflow-wrap: break-word; }
               .requirement-description th { background: ${normalizeHexColor(invoiceServiceTableColors.subHeaderBg, '#F8FAFC')}; font-weight: 700; }
               .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
-	              .footer { margin-top: 26px; text-align: center; color: ${REPORT_INK}; font-size: 11px; padding-top: 16px; }
-	              .footer-line { width: 70%; border-top: 1px solid ${REPORT_NAVY}; margin: 0 auto 12px; }
-	              .footer-dot { width: 8px; height: 8px; border-radius: 50%; background: ${REPORT_NAVY}; margin: -5px auto 10px; }
-	              .footer-thanks { color: ${REPORT_NAVY}; font-size: 17px; font-weight: 800; margin-bottom: 4px; }
-	              .footer-note { font-style: italic; }
+	              .footer { margin-top: 26pt; text-align: center; color: ${REPORT_INK}; font-size: 8.5pt; padding-top: 16pt; }
+	              .footer-line { width: 300pt; border-top: 1pt solid ${REPORT_NAVY}; margin: 0 auto 12pt; }
+	              .footer-dot { width: 8pt; height: 8pt; border-radius: 50%; background: ${REPORT_NAVY}; margin: -17pt auto 10pt; }
+	              .footer-thanks { color: ${REPORT_NAVY}; font-size: 13pt; font-weight: 800; margin-bottom: 4pt; }
+	              .footer-note { font-style: italic; font-size: 8.5pt; }
             </style>
           </head>
 	          <body>
@@ -2004,6 +2006,7 @@ export default function ClientQuotationsPage() {
 	              <div class="summary-layout">
 	                <div class="info-panel">
 	                  <div class="panel-title">Project Details</div>
+	                  <div class="panel-title-rule"></div>
 	                  <table class="detail-table">${detailRowsHtml(projectRows)}</table>
 	                </div>
 	              </div>
@@ -2011,6 +2014,7 @@ export default function ClientQuotationsPage() {
                 <h2 class="section-title">Requirement Details</h2>
                 <div class="title-underline"></div>
                 <div class="requirement-heading">Description</div>
+                <div class="requirement-rule"></div>
                 ${referenceRequirementRowsHtml}
               </div>
               <table class="service-table">

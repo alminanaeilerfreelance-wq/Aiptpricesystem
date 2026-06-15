@@ -282,8 +282,8 @@ const REPORT_BORDER = REPORT_INK;
 const REPORT_MUTED = '#475569';
 const REPORT_FEE_CURRENCY_LABEL = 'US$';
 const REPORT_FEE_SUBTITLE = '"per mark per class"';
-const REPORT_SERVICE_COLUMNS = ['procedure', 'official', 'attorney', 'vat', 'discount', 'total'] as const;
-type ReportServiceColumnKey = 'country' | 'service' | (typeof REPORT_SERVICE_COLUMNS)[number];
+const REPORT_SERVICE_COLUMNS = ['country', 'procedure', 'official', 'attorney', 'vat', 'discount', 'total'] as const;
+type ReportServiceColumnKey = 'service' | (typeof REPORT_SERVICE_COLUMNS)[number];
 type ReportFeeColumnRole = 'header' | 'body' | 'total';
 
 interface ReportFeeColumn {
@@ -679,22 +679,6 @@ const getInvoiceVatHeaderLabel = (quotation: ClientQuotation | null | undefined)
   return hasSingleDeclaredVat ? `VAT (${formatVatPercentLabel(declaredVat)}%)` : 'VAT (Mixed)';
 };
 
-const getReportFeeCountryHeaderLabel = (quotation: ClientQuotation | null | undefined): string => {
-  const countries = Array.from(
-    new Set(
-      [
-        ...(quotation?.services || []).map((service) => getServiceCountryName(service, quotation)),
-        ...(quotation?.inquirySnapshot?.countryNames || []),
-        getRequirementCountryName(quotation),
-      ]
-        .map((country) => String(country || '').trim())
-        .filter(Boolean)
-    )
-  );
-
-  return countries.length > 0 ? `"${countries.join(', ')}"` : '';
-};
-
 const shouldShowReportVatColumn = (quotation: ClientQuotation | null | undefined): boolean =>
   Boolean(
     quotation &&
@@ -720,6 +704,8 @@ const shouldShowReportFeeGrandTotalRow = (quotation: ClientQuotation | null | un
 
 const getReportFeeColumnWeight = (columnKey: ReportServiceColumnKey): number => {
   switch (columnKey) {
+    case 'country':
+      return 1.1;
     case 'procedure':
       return 2.25;
     case 'vat':
@@ -735,12 +721,15 @@ const getReportFeeColumnWeight = (columnKey: ReportServiceColumnKey): number => 
 };
 
 const getReportFeeTableColumns = (quotation: ClientQuotation | null | undefined): ReportFeeColumn[] => {
-  const countryLabel = getReportFeeCountryHeaderLabel(quotation);
   const columns: ReportFeeColumn[] = [
+    {
+      key: 'country',
+      label: 'Country',
+      weight: getReportFeeColumnWeight('country'),
+    },
     {
       key: 'procedure',
       label: 'Procedure',
-      subtitle: countryLabel || undefined,
       weight: getReportFeeColumnWeight('procedure'),
     },
     {
@@ -794,7 +783,7 @@ const getReportFeeColumnDefaultBg = (
 ): string => {
   switch (columnKey) {
     case 'procedure':
-      return role === 'header' ? REPORT_LEGAL_HEADER_GRAY : '#FFFFFF';
+      return '#FFFFFF';
     case 'official':
       return REPORT_LEGAL_LIGHT_BLUE;
     case 'attorney':
@@ -803,7 +792,9 @@ const getReportFeeColumnDefaultBg = (
       return REPORT_LEGAL_LIGHT_BLUE;
     case 'vat':
     case 'discount':
+      return REPORT_LEGAL_LIGHT_BLUE;
     case 'country':
+      return '#FFFFFF';
     case 'service':
       return REPORT_LEGAL_HEADER_GRAY;
     default:

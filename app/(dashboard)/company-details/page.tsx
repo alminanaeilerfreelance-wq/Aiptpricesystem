@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Box,
@@ -13,7 +13,6 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  MenuItem,
   Stack,
   SvgIcon,
   TextField,
@@ -22,52 +21,37 @@ import {
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
-import companyDetailsService, {
-  CompanyDetail,
-  CompanyServiceCategory,
-} from '@/services/company-details.service';
-import { continentsService, Continent } from '@/services/continents.service';
-import { countriesService, Country } from '@/services/countries.service';
+import companyDetailsService, { CompanyDetail } from '@/services/company-details.service';
 import { useDebounce } from '@/hooks/useDebounce';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
 
 export const dynamic = 'force-dynamic';
 
-const SERVICE_COLOR_MAP: Record<CompanyServiceCategory, string> = {
-  Trademark: '#2563EB',
-  Patent: '#16A34A',
-  Design: '#9333EA',
-  Copyright: '#F59E0B',
-  Litigation: '#DC2626',
-};
-
-const SERVICE_OPTIONS: CompanyServiceCategory[] = [
-  'Trademark',
-  'Patent',
-  'Design',
-  'Copyright',
-  'Litigation',
-];
-
 interface CompanyForm {
-  continentId: string;
-  countryId: string;
   companyName: string;
   address: string;
   contact: string;
   email: string;
-  serviceCategory: CompanyServiceCategory;
+  logoUrl: string;
 }
 
 const defaultForm: CompanyForm = {
-  continentId: '',
-  countryId: '',
   companyName: '',
   address: '',
   contact: '',
   email: '',
-  serviceCategory: 'Trademark',
+  logoUrl: '',
+};
+
+const COMPANY_LOGO_MAX_SIZE_BYTES = 255 * 1024 * 1024;
+const COMPANY_LOGO_MAX_SIZE_LABEL = '255 MB';
+
+const getCompanyLogoImageSrc = (logoUrl?: string | null): string => {
+  const value = String(logoUrl || '').trim();
+  if (!value) return '';
+  if (/^(blob:|data:|https?:\/\/|\/)/i.test(value)) return value;
+  return `/${value.replace(/^\/+/, '')}`;
 };
 
 const EyeIcon = () => (
@@ -97,9 +81,6 @@ const TrashIcon = () => (
   </SvgIcon>
 );
 
-const isServiceCategory = (value: string): value is CompanyServiceCategory =>
-  SERVICE_OPTIONS.includes(value as CompanyServiceCategory);
-
 export default function CompanyDetailsPage() {
   const [mounted, setMounted] = useState(false);
   const [items, setItems] = useState<CompanyDetail[]>([]);
@@ -111,50 +92,36 @@ export default function CompanyDetailsPage() {
   const debouncedSearch = useDebounce(search, 400);
   const [error, setError] = useState('');
 
-  const [continents, setContinents] = useState<Continent[]>([]);
-  const [countries, setCountries] = useState<Country[]>([]);
-
   const [openForm, setOpenForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<CompanyForm>(defaultForm);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState('');
 
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [viewingItem, setViewingItem] = useState<CompanyDetail | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const continentMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const continent of continents) {
-      map.set(continent._id, continent.continent);
-    }
-    return map;
-  }, [continents]);
-
-  const countryMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const country of countries) {
-      map.set(country._id, country.name);
-    }
-    return map;
-  }, [countries]);
-
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const fetchLookups = useCallback(async () => {
-    try {
-      const [continentsRes, countriesRes] = await Promise.all([
-        continentsService.list(),
-        countriesService.list({ page: 1, limit: 1000 }),
-      ]);
-      setContinents(Array.isArray(continentsRes?.continents) ? continentsRes.continents : []);
-      setCountries(Array.isArray(countriesRes?.countries) ? countriesRes.countries : []);
-    } catch {
-      setError('Failed to load continent/country options');
-    }
+  const setLogoPreview = useCallback((nextPreviewUrl: string) => {
+    setLogoPreviewUrl((currentPreviewUrl) => {
+      if (currentPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(currentPreviewUrl);
+      return nextPreviewUrl;
+    });
   }, []);
+
+  const resetLogoUpload = useCallback(() => {
+    setLogoFile(null);
+    setLogoPreview('');
+  }, [setLogoPreview]);
+
+  useEffect(() => () => {
+    if (logoPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(logoPreviewUrl);
+  }, [logoPreviewUrl]);
 
   const fetchItems = useCallback(
     async (params?: { nextPage?: number; nextSearch?: string }) => {
@@ -187,30 +154,26 @@ export default function CompanyDetailsPage() {
   }, [debouncedSearch, fetchItems, page]);
 
   useEffect(() => {
-    fetchLookups().catch(() => undefined);
-  }, [fetchLookups]);
-
-  useEffect(() => {
     setPage(1);
   }, [debouncedSearch]);
 
   const handleAdd = () => {
     setEditingId(null);
     setFormData(defaultForm);
+    resetLogoUpload();
     setOpenForm(true);
   };
 
   const handleEdit = (item: CompanyDetail) => {
     setEditingId(item._id);
     setFormData({
-      continentId: item.continentId || '',
-      countryId: item.countryId || '',
       companyName: item.companyName || '',
       address: item.address || '',
       contact: item.contact || '',
       email: item.email || '',
-      serviceCategory: item.serviceCategory || 'Trademark',
+      logoUrl: item.logoUrl || '',
     });
+    resetLogoUpload();
     setOpenForm(true);
   };
 
@@ -228,17 +191,29 @@ export default function CompanyDetailsPage() {
     setOpenForm(false);
     setEditingId(null);
     setFormData(defaultForm);
+    resetLogoUpload();
+  };
+
+  const handleLogoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = '';
+
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Company logo must be an image file.');
+      return;
+    }
+    if (file.size > COMPANY_LOGO_MAX_SIZE_BYTES) {
+      setError(`Company logo must be ${COMPANY_LOGO_MAX_SIZE_LABEL} or smaller.`);
+      return;
+    }
+
+    setError('');
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
   };
 
   const handleSubmitForm = async () => {
-    if (!formData.continentId) {
-      setError('Continent is required');
-      return;
-    }
-    if (!formData.countryId) {
-      setError('Country is required');
-      return;
-    }
     if (!formData.companyName.trim()) {
       setError('Company name is required');
       return;
@@ -252,15 +227,13 @@ export default function CompanyDetailsPage() {
       setLoading(true);
       setError('');
 
-      const payload = {
-        continentId: formData.continentId,
-        countryId: formData.countryId,
-        companyName: formData.companyName.trim(),
-        address: formData.address.trim() || undefined,
-        contact: formData.contact.trim() || undefined,
-        email: formData.email.trim().toLowerCase() || undefined,
-        serviceCategory: formData.serviceCategory,
-      };
+      const payload = new FormData();
+      payload.append('companyName', formData.companyName.trim());
+      payload.append('address', formData.address.trim());
+      payload.append('contact', formData.contact.trim());
+      payload.append('email', formData.email.trim().toLowerCase());
+      payload.append('logoUrl', formData.logoUrl || '');
+      if (logoFile) payload.append('logo', logoFile);
 
       if (editingId) {
         await companyDetailsService.update(editingId, payload);
@@ -321,50 +294,23 @@ export default function CompanyDetailsPage() {
         .slice(1)
         .filter((row) => row.some((cell) => String(cell ?? '').trim()));
 
-      const continentByName = new Map(
-        continents.map((continent) => [continent.continent.trim().toLowerCase(), continent._id])
-      );
-      const countryByName = new Map(
-        countries.map((country) => [country.name.trim().toLowerCase(), country._id])
-      );
-      for (const country of countries) {
-        countryByName.set(country.abbreviation.trim().toLowerCase(), country._id);
-      }
-
       let importedCount = 0;
       const importErrors: string[] = [];
 
       for (const row of dataRows) {
-        const continentText = String(row[0] ?? '').trim();
-        const countryText = String(row[1] ?? '').trim();
-        const companyName = String(row[2] ?? '').trim();
-        const address = String(row[3] ?? '').trim();
-        const contact = String(row[4] ?? '').trim();
-        const email = String(row[5] ?? '').trim();
-        const serviceText = String(row[6] ?? '').trim();
+        const companyName = String(row[0] ?? '').trim();
+        const address = String(row[1] ?? '').trim();
+        const contact = String(row[2] ?? '').trim();
+        const email = String(row[3] ?? '').trim();
 
         if (!companyName) continue;
 
-        const continentId = continentByName.get(continentText.toLowerCase());
-        const countryId = countryByName.get(countryText.toLowerCase());
-        const serviceCategory = isServiceCategory(serviceText) ? serviceText : 'Trademark';
-
-        if (!continentId || !countryId) {
-          importErrors.push(
-            `Skipped "${companyName}" (invalid continent or country)`
-          );
-          continue;
-        }
-
         try {
           await companyDetailsService.create({
-            continentId,
-            countryId,
             companyName,
             address: address || undefined,
             contact: contact || undefined,
             email: email || undefined,
-            serviceCategory,
           });
           importedCount += 1;
         } catch {
@@ -436,9 +382,6 @@ export default function CompanyDetailsPage() {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(
       records.map((item) => ({
-        Service: item.serviceCategory,
-        Continent: item.continentName || '',
-        Country: item.countryName || '',
         'Company Name': item.companyName,
         Address: item.address || '',
         Contact: item.contact || '',
@@ -463,9 +406,6 @@ export default function CompanyDetailsPage() {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(
       records.map((item) => ({
-        Service: item.serviceCategory,
-        Continent: item.continentName || '',
-        Country: item.countryName || '',
         'Company Name': item.companyName,
         Address: item.address || '',
         Contact: item.contact || '',
@@ -492,11 +432,8 @@ export default function CompanyDetailsPage() {
     const doc = new jsPDF.jsPDF({ orientation: 'landscape' });
 
     autoTable.default(doc, {
-      head: [['Service', 'Continent', 'Country', 'Company Name', 'Contact', 'Email']],
+      head: [['Company Name', 'Contact', 'Email']],
       body: records.map((item) => [
-        item.serviceCategory,
-        item.continentName || '-',
-        item.countryName || '-',
         item.companyName,
         item.contact || '-',
         item.email || '-',
@@ -512,44 +449,30 @@ export default function CompanyDetailsPage() {
 
   const columns: MuiDataTableColumn<CompanyDetail>[] = [
     {
-      id: 'serviceCategory',
-      label: 'Service',
-      sortable: true,
-      searchValue: (row) => row.serviceCategory || '',
+      id: 'logoUrl',
+      label: 'Logo',
+      sortable: false,
       render: (row) => {
-        const service = row.serviceCategory || 'Trademark';
-        const color = SERVICE_COLOR_MAP[service];
-        return (
+        const logoSrc = getCompanyLogoImageSrc(row.logoUrl);
+        return logoSrc ? (
           <Box
-            component="span"
+            component="img"
+            src={logoSrc}
+            alt={`${row.companyName || 'Company'} logo`}
             sx={{
-              px: 1.2,
-              py: 0.4,
-              borderRadius: 999,
-              color,
-              bgcolor: `${color}1A`,
-              fontWeight: 700,
-              fontSize: 12,
+              width: 44,
+              height: 44,
+              objectFit: 'contain',
+              border: '1px solid #E2E8F0',
+              borderRadius: 1,
+              bgcolor: '#FFFFFF',
+              p: 0.5,
             }}
-          >
-            {service}
-          </Box>
+          />
+        ) : (
+          '-'
         );
       },
-    },
-    {
-      id: 'continentName',
-      label: 'Continent',
-      sortable: true,
-      searchValue: (row) => row.continentName || '',
-      render: (row) => row.continentName || continentMap.get(row.continentId || '') || '-',
-    },
-    {
-      id: 'countryName',
-      label: 'Country',
-      sortable: true,
-      searchValue: (row) => row.countryName || '',
-      render: (row) => row.countryName || countryMap.get(row.countryId || '') || '-',
     },
     {
       id: 'companyName',
@@ -642,6 +565,8 @@ export default function CompanyDetailsPage() {
 
   if (!mounted) return null;
 
+  const formLogoSrc = getCompanyLogoImageSrc(formData.logoUrl);
+
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Topbar title="Company Details" />
@@ -719,37 +644,60 @@ export default function CompanyDetailsPage() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
-              select
-              label="Continent"
-              value={formData.continentId}
-              onChange={(e) => setFormData((prev) => ({ ...prev, continentId: e.target.value }))}
-              required
-            >
-              {continents.map((continent) => (
-                <MenuItem key={continent._id} value={continent._id}>
-                  {continent.continent}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label="Country"
-              value={formData.countryId}
-              onChange={(e) => setFormData((prev) => ({ ...prev, countryId: e.target.value }))}
-              required
-            >
-              {countries.map((country) => (
-                <MenuItem key={country._id} value={country._id}>
-                  {country.name}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
               label="Company Name"
               value={formData.companyName}
               onChange={(e) => setFormData((prev) => ({ ...prev, companyName: e.target.value }))}
               required
             />
+            <Box
+              sx={{
+                border: '1px dashed #CBD5E1',
+                borderRadius: 2,
+                p: 2,
+                bgcolor: '#F8FAFC',
+              }}
+            >
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
+                <Box
+                  sx={{
+                    width: 92,
+                    height: 92,
+                    border: '1px solid #E2E8F0',
+                    borderRadius: 1.5,
+                    bgcolor: '#FFFFFF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {(logoPreviewUrl || formLogoSrc) ? (
+                    <Box
+                      component="img"
+                      src={logoPreviewUrl || formLogoSrc}
+                      alt="Company logo preview"
+                      sx={{ width: '100%', height: '100%', objectFit: 'contain', p: 0.75 }}
+                    />
+                  ) : (
+                    <Typography sx={{ color: '#64748B', fontSize: 12, fontWeight: 700 }}>
+                      Logo
+                    </Typography>
+                  )}
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontWeight: 800, color: '#0F172A', mb: 0.5 }}>
+                    Company Logo
+                  </Typography>
+                  <Typography sx={{ color: '#64748B', fontSize: 12, mb: 1 }}>
+                    Upload an image logo. Maximum file size: {COMPANY_LOGO_MAX_SIZE_LABEL}.
+                  </Typography>
+                  <Button variant="outlined" component="label" size="small">
+                    Upload Logo
+                    <input type="file" hidden accept="image/*" onChange={handleLogoFileChange} />
+                  </Button>
+                </Box>
+              </Stack>
+            </Box>
             <TextField
               label="Address"
               value={formData.address}
@@ -768,23 +716,6 @@ export default function CompanyDetailsPage() {
               value={formData.email}
               onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
             />
-            <TextField
-              select
-              label="Service"
-              value={formData.serviceCategory}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  serviceCategory: e.target.value as CompanyServiceCategory,
-                }))
-              }
-            >
-              {SERVICE_OPTIONS.map((service) => (
-                <MenuItem key={service} value={service}>
-                  {service}
-                </MenuItem>
-              ))}
-            </TextField>
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -803,24 +734,24 @@ export default function CompanyDetailsPage() {
         <DialogContent>
           {viewingItem && (
             <Stack spacing={1.5} sx={{ pt: 1 }}>
-              <Typography>
-                <strong>Service:</strong>{' '}
-                <Box
-                  component="span"
-                  sx={{
-                    px: 1,
-                    py: 0.2,
-                    borderRadius: 999,
-                    color: SERVICE_COLOR_MAP[viewingItem.serviceCategory],
-                    bgcolor: `${SERVICE_COLOR_MAP[viewingItem.serviceCategory]}1A`,
-                    fontWeight: 700,
-                  }}
-                >
-                  {viewingItem.serviceCategory}
+              {getCompanyLogoImageSrc(viewingItem.logoUrl) && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                  <Box
+                    component="img"
+                    src={getCompanyLogoImageSrc(viewingItem.logoUrl)}
+                    alt={`${viewingItem.companyName || 'Company'} logo`}
+                    sx={{
+                      maxWidth: 150,
+                      maxHeight: 96,
+                      objectFit: 'contain',
+                      border: '1px solid #E2E8F0',
+                      borderRadius: 1.5,
+                      bgcolor: '#FFFFFF',
+                      p: 1,
+                    }}
+                  />
                 </Box>
-              </Typography>
-              <Typography><strong>Continent:</strong> {viewingItem.continentName || '-'}</Typography>
-              <Typography><strong>Country:</strong> {viewingItem.countryName || '-'}</Typography>
+              )}
               <Typography><strong>Company Name:</strong> {viewingItem.companyName || '-'}</Typography>
               <Typography><strong>Address:</strong> {viewingItem.address || '-'}</Typography>
               <Typography><strong>Contact:</strong> {viewingItem.contact || '-'}</Typography>

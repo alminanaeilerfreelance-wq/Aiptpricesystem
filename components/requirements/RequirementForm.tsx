@@ -7,6 +7,7 @@ const ReactQuill = dynamic(
   { ssr: false }
 );
 import {
+  Autocomplete,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -23,6 +24,8 @@ import {
 } from '@mui/material';
 import { countriesService } from '@/services/countries.service';
 import requirementsService from '@/services/requirements.service';
+import { proceduresService, Procedure } from '@/services/procedures.service';
+import { useDebounce } from '@/hooks/useDebounce';
 
 interface RequirementFormProps {
   open: boolean;
@@ -64,6 +67,14 @@ const INITIAL_FORM_DATA: {
 };
 
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
+const uniqueProceduresById = (items: Procedure[]) => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item._id)) return false;
+    seen.add(item._id);
+    return true;
+  });
+};
 
 const requirementTableToolbarHandlers = {
   insertTable(this: any) {
@@ -134,8 +145,13 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
 
   const [countries, setCountries] = useState<Country[]>([]);
+  const [procedures, setProcedures] = useState<Procedure[]>([]);
+  const [selectedProcedure, setSelectedProcedure] = useState<Procedure | null>(null);
+  const [procedureTitleInput, setProcedureTitleInput] = useState('');
+  const debouncedProcedureTitleInput = useDebounce(procedureTitleInput, 350);
   const [loading, setLoading] = useState(false);
   const [countriesLoading, setCountriesLoading] = useState(false);
+  const [proceduresLoading, setProceduresLoading] = useState(false);
   const [error, setError] = useState('');
 
   // Fetch countries on mount
@@ -166,6 +182,43 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
     };
   }, [open]);
 
+  useEffect(() => {
+    let active = true;
+
+    const fetchProcedures = async () => {
+      if (!open || !formData.serviceCategory) {
+        setProcedures([]);
+        setProceduresLoading(false);
+        return;
+      }
+
+      try {
+        setProceduresLoading(true);
+        const response = await proceduresService.list({
+          category: formData.serviceCategory,
+          search: debouncedProcedureTitleInput.trim() || undefined,
+          page: 1,
+          limit: 25,
+        });
+        if (!active) return;
+        setProcedures(uniqueProceduresById(response.procedures || []));
+      } catch (err) {
+        if (!active) return;
+        console.error('Failed to fetch procedures:', err);
+        setProcedures([]);
+        setError('Failed to fetch procedures');
+      } finally {
+        if (active) setProceduresLoading(false);
+      }
+    };
+
+    fetchProcedures();
+
+    return () => {
+      active = false;
+    };
+  }, [debouncedProcedureTitleInput, formData.serviceCategory, open]);
+
   // Fetch requirement data if editing
   useEffect(() => {
     let active = true;
@@ -185,6 +238,8 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
           title: response.data.title || '',
           requirements: response.data.requirements,
         });
+        setProcedureTitleInput(response.data.title || '');
+        setSelectedProcedure(null);
         setError('');
       } catch (err) {
         if (!active) return;
@@ -199,6 +254,8 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
       fetchRequirement();
     } else if (open && !editingId) {
       setFormData(INITIAL_FORM_DATA);
+      setProcedureTitleInput('');
+      setSelectedProcedure(null);
       setError('');
       setLoading(false);
     }
@@ -249,6 +306,8 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
 
   const handleClose = () => {
     setFormData(INITIAL_FORM_DATA);
+    setProcedureTitleInput('');
+    setSelectedProcedure(null);
     setError('');
     onClose();
   };
@@ -284,10 +343,16 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
               <InputLabel>Service *</InputLabel>
               <Select
                 value={formData.serviceCategory}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  serviceCategory: e.target.value as ServiceCategory | '',
-                })}
+                onChange={(e) => {
+                  setSelectedProcedure(null);
+                  setProcedureTitleInput('');
+                  setProcedures([]);
+                  setFormData({
+                    ...formData,
+                    serviceCategory: e.target.value as ServiceCategory | '',
+                    title: '',
+                  });
+                }}
                 label="Service *"
               >
                 <MenuItem value="">Select a service</MenuItem>
@@ -299,13 +364,52 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
               </Select>
             </FormControl>
 
-            <TextField
-              label="Title *"
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              fullWidth
-              required
-              disabled={loading}
+            <Autocomplete
+              options={procedures}
+              value={selectedProcedure}
+              inputValue={procedureTitleInput}
+              loading={proceduresLoading}
+              disabled={loading || !formData.serviceCategory}
+              filterOptions={(options) => options}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionLabel={(option) =>
+                `${option.name}${option.serviceCategory ? ` (${option.serviceCategory})` : ''}`
+              }
+              onInputChange={(_event, value, reason) => {
+                setProcedureTitleInput(value);
+                if (reason === 'input') {
+                  setSelectedProcedure(null);
+                  setFormData((current) => ({ ...current, title: '' }));
+                }
+              }}
+              onChange={(_event, value) => {
+                setSelectedProcedure(value);
+                setProcedureTitleInput(value?.name || '');
+                setFormData((current) => ({
+                  ...current,
+                  title: value?.name || '',
+                  serviceCategory: value?.serviceCategory || current.serviceCategory,
+                }));
+                if (value) setProcedures((current) => uniqueProceduresById([value, ...current]));
+              }}
+              loadingText="Searching procedures..."
+              noOptionsText={
+                formData.serviceCategory
+                  ? 'No procedures found'
+                  : 'Select a service first'
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Title / Procedure *"
+                  required
+                  helperText={
+                    formData.serviceCategory
+                      ? 'Type to search Procedure model, then select a title.'
+                      : 'Select a service first to load procedures.'
+                  }
+                />
+              )}
             />
 
             {/* Requirements Rich Text Editor */}

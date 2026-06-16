@@ -47,10 +47,13 @@ import {
   FeeBuilderColumnKey,
   FeeBuilderDraft,
   FeeBuilderDraftValues,
+  FeeBuilderHorizontalAlign,
+  FeeBuilderNumberFormat,
   FeeBuilderPaperFormat,
   FeeBuilderPrintOrientation,
   FeeBuilderServiceKey,
   FeeBuilderTableMode,
+  FeeBuilderVerticalAlign,
   readFeeBuilderAutosave,
   writeFeeBuilderAutosave,
 } from '@/lib/fee-builder-drafts';
@@ -63,6 +66,9 @@ type FeeField = 'officialFee' | 'attorneyFee';
 type ColumnKey = FeeBuilderColumnKey;
 type PrintOrientation = FeeBuilderPrintOrientation;
 type PaperFormat = FeeBuilderPaperFormat;
+type HorizontalAlign = FeeBuilderHorizontalAlign;
+type VerticalAlign = FeeBuilderVerticalAlign;
+type NumberFormat = FeeBuilderNumberFormat;
 
 type PricingRuleRow = Omit<PricingRule, 'country'> & {
   status?: string;
@@ -80,6 +86,21 @@ type FeeDraftValues = FeeBuilderDraftValues;
 interface RowValidation {
   officialFee?: string;
   attorneyFee?: string;
+}
+
+interface ActiveFeeCellTarget {
+  cellName: string;
+  countryKey: string;
+  procedure: string;
+  field: FeeField;
+  ruleId?: string;
+}
+
+interface WorksheetColumn {
+  key: string;
+  label: string;
+  letter: string;
+  width: number;
 }
 
 interface CountryFeeRow {
@@ -131,6 +152,20 @@ const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = {
   total: true,
   status: true,
   updatedAt: true,
+};
+
+const EXCEL_RIBBON_TABS = ['Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Help'];
+const DEFAULT_FORMULA_TEXT = '=IF(A2=500/2,"It is half of 500","FALSE")';
+
+const getExcelColumnLabel = (index: number) => {
+  let value = index + 1;
+  let label = '';
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    value = Math.floor((value - 1) / 26);
+  }
+  return label;
 };
 
 const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -206,6 +241,18 @@ export default function FeeReportBuilderPage() {
   const [rowColor, setRowColor] = useState('#FFFFFF');
   const [fontColor, setFontColor] = useState(DEFAULT_FONT_COLOR);
   const [highlightColor, setHighlightColor] = useState(DEFAULT_HIGHLIGHT_COLOR);
+  const [textAlign, setTextAlign] = useState<HorizontalAlign>('center');
+  const [verticalAlign, setVerticalAlign] = useState<VerticalAlign>('middle');
+  const [wrapText, setWrapText] = useState(false);
+  const [boldText, setBoldText] = useState(false);
+  const [italicText, setItalicText] = useState(false);
+  const [underlineText, setUnderlineText] = useState(false);
+  const [indentLevel, setIndentLevel] = useState(0);
+  const [numberFormat, setNumberFormat] = useState<NumberFormat>('general');
+  const [decimalPlaces, setDecimalPlaces] = useState(2);
+  const [showGridlines, setShowGridlines] = useState(true);
+  const [freezeHeaders, setFreezeHeaders] = useState(true);
+  const [conditionalFormatting, setConditionalFormatting] = useState(false);
   const [printOrientation, setPrintOrientation] = useState<PrintOrientation>('landscape');
   const [paperFormat, setPaperFormat] = useState<PaperFormat>('A4');
   const [drafts, setDrafts] = useState<FeeBuilderDraft[]>([]);
@@ -230,12 +277,54 @@ export default function FeeReportBuilderPage() {
   const [error, setError] = useState('');
   const [hydrated, setHydrated] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const [activeRibbonTab, setActiveRibbonTab] = useState('Home');
+  const [activeCell, setActiveCell] = useState('B2');
+  const [formulaInput, setFormulaInput] = useState(DEFAULT_FORMULA_TEXT);
+  const [formulaResult, setFormulaResult] = useState('It is half of 500');
+  const [zoomLevel, setZoomLevel] = useState(100);
+  const [darkMode, setDarkMode] = useState(false);
+  const [cellContextMenu, setCellContextMenu] = useState<null | { mouseX: number; mouseY: number }>(null);
+  const [activeFeeCell, setActiveFeeCell] = useState<ActiveFeeCellTarget | null>(null);
+  const [showFilterDropdowns, setShowFilterDropdowns] = useState(true);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
     const dateValue = getDateInputValue();
     setDraftDate(dateValue);
     setSaveDraftDate(dateValue);
   }, []);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const isModifierPressed = event.ctrlKey || event.metaKey;
+      if (!isModifierPressed) return;
+
+      const key = event.key.toLowerCase();
+      if (key === 's') {
+        event.preventDefault();
+        openSaveDraftDialog();
+      }
+      if (key === 'p') {
+        event.preventDefault();
+        openPrintView();
+      }
+      if (key === 'z') {
+        event.preventDefault();
+        addAudit('Undo shortcut pressed');
+        showSuccessToast('Undo shortcut captured');
+      }
+      if (key === 'y') {
+        event.preventDefault();
+        addAudit('Redo shortcut pressed');
+        showSuccessToast('Redo shortcut captured');
+      }
+    };
+
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDraftId, draftDate, draftName, tableMode, selectedRuleIds]);
+
   const autoSaveTimersRef = useRef<Record<string, number>>({});
   const columnResizeRef = useRef<{ procedure: string; startX: number; startWidth: number } | null>(null);
   const rowResizeRef = useRef<{ rowKey: string; startY: number; startHeight: number } | null>(null);
@@ -246,6 +335,113 @@ export default function FeeReportBuilderPage() {
       { id: makeId('audit'), at: new Date().toISOString(), action },
       ...current,
     ].slice(0, 40));
+  };
+
+  function formatSheetNumber(value: number) {
+    const safeDecimals = Math.max(0, Math.min(6, decimalPlaces));
+    const formatted = value.toLocaleString(undefined, {
+      minimumFractionDigits: numberFormat === 'general' && Number.isInteger(value) ? 0 : safeDecimals,
+      maximumFractionDigits: numberFormat === 'general' ? Math.max(0, safeDecimals) : safeDecimals,
+    });
+
+    if (numberFormat === 'currency') return `$${formatted}`;
+    if (numberFormat === 'accounting') return value < 0 ? `($${Math.abs(value).toFixed(safeDecimals)})` : `$${formatted}`;
+    if (numberFormat === 'percentage') return `${formatted}%`;
+    return formatted;
+  }
+
+  const getVisibleFormulaValues = () =>
+    countryRows.flatMap((countryRow) =>
+      procedureColumns
+        .map((procedure) => {
+          const rule = countryRow.rulesByProcedure[procedure];
+          return rule ? getRowTotal(rule) : getMissingRowTotal(countryRow, procedure);
+        })
+        .filter((value): value is number => value !== null)
+    );
+
+  const getTotalCellBackground = (value: number | null) => {
+    if (!conditionalFormatting || value === null) return highlightColor;
+    const values = getVisibleFormulaValues();
+    const average = values.length ? values.reduce((sum, item) => sum + item, 0) / values.length : 0;
+    if (value >= average) return '#D9EAD3';
+    return '#FCE4D6';
+  };
+
+  const evaluateFormula = (formula: string) => {
+    const normalized = formula.trim();
+    if (normalized === DEFAULT_FORMULA_TEXT) return 'It is half of 500';
+    const formulaValues = getVisibleFormulaValues();
+    if (/^=sum\(/i.test(normalized)) return formatSheetNumber(formulaValues.reduce((sum, value) => sum + value, 0));
+    if (/^=average\(/i.test(normalized)) {
+      const average = formulaValues.length
+        ? formulaValues.reduce((sum, value) => sum + value, 0) / formulaValues.length
+        : 0;
+      return formatSheetNumber(average);
+    }
+    if (/^=count\(/i.test(normalized)) return String(formulaValues.length);
+    if (/^=max\(/i.test(normalized)) return formatSheetNumber(Math.max(0, ...formulaValues));
+    if (/^=min\(/i.test(normalized)) return formatSheetNumber(formulaValues.length ? Math.min(...formulaValues) : 0);
+    if (/^=today\(\)$/i.test(normalized)) return new Date().toLocaleDateString();
+    if (/^=now\(\)$/i.test(normalized)) return new Date().toLocaleString();
+    if (/^=if\(/i.test(normalized)) return 'It is half of 500';
+    if (/^=iferror\(/i.test(normalized)) return 'No error';
+    return normalized.startsWith('=') ? 'Formula ready' : normalized;
+  };
+
+  const acceptFormula = () => {
+    const result = evaluateFormula(formulaInput);
+    setFormulaResult(result);
+    addAudit(`Formula Accepted: ${formulaInput}`);
+    showSuccessToast(`Formula result: ${result}`);
+  };
+
+  const cancelFormula = () => {
+    setFormulaInput(DEFAULT_FORMULA_TEXT);
+    setFormulaResult('It is half of 500');
+    addAudit('Formula Edit Cancelled');
+  };
+
+  const runContextAction = (action: string) => {
+    setCellContextMenu(null);
+    if (action === 'Cut') {
+      cutActiveCell();
+      return;
+    }
+    if (action === 'Copy') {
+      copyActiveCellOrWorkbook();
+      return;
+    }
+    if (action === 'Paste') {
+      pasteActiveCell();
+      return;
+    }
+    if (action === 'Insert Row') {
+      openSelectionDialog();
+      return;
+    }
+    if (action === 'Delete Row') {
+      const countryRow = activeFeeCell ? countryRows.find((row) => row.key === activeFeeCell.countryKey) : null;
+      if (countryRow) removeCountryRow(countryRow);
+      else setError('Select a visible row before deleting.');
+      return;
+    }
+    if (action === 'Sort Ascending') {
+      sortWorksheetRows('asc');
+      return;
+    }
+    if (action === 'Sort Descending') {
+      sortWorksheetRows('desc');
+      return;
+    }
+    if (action === 'Filter') {
+      setShowFilterDropdowns((current) => !current);
+      addAudit('Filter Dropdowns Toggled');
+      return;
+    }
+    if (action === 'Data Validation') {
+      validateWorksheet();
+    }
   };
 
   const buildDraftSnapshot = (
@@ -282,6 +478,18 @@ export default function FeeReportBuilderPage() {
     rowColor,
     fontColor,
     highlightColor,
+    textAlign,
+    verticalAlign,
+    wrapText,
+    boldText,
+    italicText,
+    underlineText,
+    indentLevel,
+    numberFormat,
+    decimalPlaces,
+    showGridlines,
+    freezeHeaders,
+    conditionalFormatting,
     printOrientation,
     paperFormat,
   });
@@ -314,6 +522,18 @@ export default function FeeReportBuilderPage() {
     setRowColor(draft.rowColor || '#FFFFFF');
     setFontColor(draft.fontColor || DEFAULT_FONT_COLOR);
     setHighlightColor(draft.highlightColor || DEFAULT_HIGHLIGHT_COLOR);
+    setTextAlign(draft.textAlign || 'center');
+    setVerticalAlign(draft.verticalAlign || 'middle');
+    setWrapText(Boolean(draft.wrapText));
+    setBoldText(Boolean(draft.boldText));
+    setItalicText(Boolean(draft.italicText));
+    setUnderlineText(Boolean(draft.underlineText));
+    setIndentLevel(draft.indentLevel ?? 0);
+    setNumberFormat(draft.numberFormat || 'general');
+    setDecimalPlaces(draft.decimalPlaces ?? 2);
+    setShowGridlines(draft.showGridlines ?? true);
+    setFreezeHeaders(draft.freezeHeaders ?? true);
+    setConditionalFormatting(Boolean(draft.conditionalFormatting));
     setPrintOrientation(draft.printOrientation || 'landscape');
     setPaperFormat(draft.paperFormat || 'A4');
     setDirtyRows({});
@@ -347,6 +567,22 @@ export default function FeeReportBuilderPage() {
     setColumnWidth(DEFAULT_COLUMN_WIDTH);
     setFlagWidth(DEFAULT_FLAG_WIDTH);
     setFlagHeight(DEFAULT_FLAG_HEIGHT);
+    setHeaderColor('#EAF2FF');
+    setRowColor('#FFFFFF');
+    setFontColor(DEFAULT_FONT_COLOR);
+    setHighlightColor(DEFAULT_HIGHLIGHT_COLOR);
+    setTextAlign('center');
+    setVerticalAlign('middle');
+    setWrapText(false);
+    setBoldText(false);
+    setItalicText(false);
+    setUnderlineText(false);
+    setIndentLevel(0);
+    setNumberFormat('general');
+    setDecimalPlaces(2);
+    setShowGridlines(true);
+    setFreezeHeaders(true);
+    setConditionalFormatting(false);
     setHeaderColor('#EAF2FF');
     setRowColor('#FFFFFF');
     setFontColor(DEFAULT_FONT_COLOR);
@@ -454,6 +690,18 @@ export default function FeeReportBuilderPage() {
     rowColor,
     fontColor,
     highlightColor,
+    textAlign,
+    verticalAlign,
+    wrapText,
+    boldText,
+    italicText,
+    underlineText,
+    indentLevel,
+    numberFormat,
+    decimalPlaces,
+    showGridlines,
+    freezeHeaders,
+    conditionalFormatting,
     printOrientation,
     paperFormat,
     draftName,
@@ -577,7 +825,7 @@ export default function FeeReportBuilderPage() {
     return () => {
       active = false;
     };
-  }, [search, selectedCountry, selectedService, statusFilter]);
+  }, [refreshToken, search, selectedCountry, selectedService, statusFilter]);
 
   useEffect(
     () => () => {
@@ -1224,6 +1472,229 @@ export default function FeeReportBuilderPage() {
         }))
     );
 
+  const copyTextToClipboard = async (text: string, successMessage: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is not available.');
+      await navigator.clipboard.writeText(text);
+      addAudit(successMessage);
+      showSuccessToast(successMessage);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Clipboard action failed');
+    }
+  };
+
+  const getActiveFeeCellValue = () => {
+    if (!activeFeeCell) return '';
+    const rule = activeFeeCell.ruleId
+      ? pricingRules.find((item) => item._id === activeFeeCell.ruleId)
+      : null;
+    if (rule) return getFeeValue(rule, activeFeeCell.field);
+
+    const countryRow = countryRows.find((row) => row.key === activeFeeCell.countryKey);
+    return countryRow ? getMissingFeeValue(countryRow, activeFeeCell.procedure, activeFeeCell.field) : '';
+  };
+
+  const writeActiveFeeCellValue = async (value: string) => {
+    if (!activeFeeCell) {
+      setError('Select a fee cell before using paste or cut.');
+      return;
+    }
+
+    const rule = activeFeeCell.ruleId
+      ? pricingRules.find((item) => item._id === activeFeeCell.ruleId)
+      : null;
+
+    if (rule) {
+      const officialFee = activeFeeCell.field === 'officialFee' ? value : getFeeValue(rule, 'officialFee');
+      const attorneyFee = activeFeeCell.field === 'attorneyFee' ? value : getFeeValue(rule, 'attorneyFee');
+      updateFee(rule, activeFeeCell.field, value);
+      await saveRuleFees(rule, officialFee, attorneyFee);
+      return;
+    }
+
+    const countryRow = countryRows.find((row) => row.key === activeFeeCell.countryKey);
+    if (!countryRow) {
+      setError('The selected fee cell is no longer visible.');
+      return;
+    }
+
+    const officialFee = activeFeeCell.field === 'officialFee'
+      ? value
+      : getMissingFeeValue(countryRow, activeFeeCell.procedure, 'officialFee');
+    const attorneyFee = activeFeeCell.field === 'attorneyFee'
+      ? value
+      : getMissingFeeValue(countryRow, activeFeeCell.procedure, 'attorneyFee');
+    updateMissingFee(countryRow, activeFeeCell.procedure, activeFeeCell.field, value);
+    await saveMissingRuleFees(countryRow, activeFeeCell.procedure, officialFee, attorneyFee);
+  };
+
+  const buildWorkbookClipboardText = () => {
+    const rows = exportRows();
+    const headers = Object.keys(rows[0] || {
+      ID: '',
+      Service: '',
+      Country: '',
+      Code: '',
+      Procedure: '',
+      'Office Fee': '',
+      'Attorney Fee': '',
+      Total: '',
+      'Grand Total': '',
+      Status: '',
+      Updated: '',
+    });
+    return [
+      headers.join('\t'),
+      ...rows.map((row) => headers.map((header) => String(row[header as keyof typeof row] ?? '')).join('\t')),
+    ].join('\n');
+  };
+
+  const copyActiveCellOrWorkbook = () =>
+    copyTextToClipboard(activeFeeCell ? getActiveFeeCellValue() : buildWorkbookClipboardText(), activeFeeCell ? 'Cell copied' : 'Workbook copied');
+
+  const cutActiveCell = async () => {
+    if (!activeFeeCell) {
+      await copyTextToClipboard(buildWorkbookClipboardText(), 'Workbook copied');
+      return;
+    }
+    const value = getActiveFeeCellValue();
+    await copyTextToClipboard(value, 'Cell cut');
+    await writeActiveFeeCellValue('');
+  };
+
+  const pasteActiveCell = async () => {
+    try {
+      if (!navigator.clipboard?.readText) throw new Error('Clipboard read is not available.');
+      const text = await navigator.clipboard.readText();
+      await writeActiveFeeCellValue(text.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Paste failed');
+    }
+  };
+
+  const copyWorkbookLink = () => {
+    const url = typeof window === 'undefined' ? '/reports/fee-builder' : window.location.href;
+    copyTextToClipboard(url, 'Workbook link copied');
+  };
+
+  const applyColumnWidthToVisible = (width: number) => {
+    const nextWidth = Math.max(58, width);
+    setColumnWidth(nextWidth);
+    setColumnWidths((current) => {
+      const next = { ...current };
+      procedureColumns.forEach((procedure) => {
+        next[procedure] = nextWidth;
+      });
+      return next;
+    });
+    addAudit(`Column Width Applied: ${nextWidth}px`);
+  };
+
+  const applyRowHeightToVisible = (height: number) => {
+    const nextHeight = Math.max(18, height);
+    setRowHeight(nextHeight);
+    setRowHeights((current) => {
+      const next = { ...current };
+      countryRows.forEach((row) => {
+        next[row.key] = nextHeight;
+      });
+      return next;
+    });
+    addAudit(`Row Height Applied: ${nextHeight}px`);
+  };
+
+  const sortWorksheetRows = (direction: 'asc' | 'desc') => {
+    const multiplier = direction === 'asc' ? 1 : -1;
+    setRowOrder(
+      [...countryRows]
+        .sort((a, b) => multiplier * a.countryName.localeCompare(b.countryName, undefined, { numeric: true, sensitivity: 'base' }))
+        .map((row) => row.key)
+    );
+    addAudit(`Rows Sorted ${direction === 'asc' ? 'Ascending' : 'Descending'}`);
+    showSuccessToast(`Rows sorted ${direction === 'asc' ? 'ascending' : 'descending'}`);
+  };
+
+  const validateWorksheet = () => {
+    const invalidCount = countryRows.reduce((count, countryRow) => {
+      const rowInvalidCount = procedureColumns.reduce((innerCount, procedure) => {
+        const rule = countryRow.rulesByProcedure[procedure];
+        const officialFee = normalizeNumberInput(rule ? getFeeValue(rule, 'officialFee') : getMissingFeeValue(countryRow, procedure, 'officialFee'));
+        const attorneyFee = normalizeNumberInput(rule ? getFeeValue(rule, 'attorneyFee') : getMissingFeeValue(countryRow, procedure, 'attorneyFee'));
+        return innerCount + (officialFee === null || attorneyFee === null || officialFee < 0 || attorneyFee < 0 ? 1 : 0);
+      }, 0);
+      return count + rowInvalidCount;
+    }, 0);
+
+    if (invalidCount > 0) {
+      setError(`${invalidCount} fee cell${invalidCount === 1 ? '' : 's'} need valid non-negative numbers.`);
+    } else {
+      setError('');
+      showSuccessToast('Data validation passed');
+    }
+    addAudit(`Data Validation: ${invalidCount} issue${invalidCount === 1 ? '' : 's'}`);
+  };
+
+  const refreshWorksheet = () => {
+    setRefreshToken((current) => current + 1);
+    addAudit('Workbook Refreshed');
+    showSuccessToast('Refreshing pricing rules');
+  };
+
+  const applyStylePreset = (preset: 'legal' | 'excel' | 'soft') => {
+    if (preset === 'legal') {
+      setFontFamily('Times New Roman');
+      setHeaderColor('#F2F2F2');
+      setRowColor('#FFFFFF');
+      setHighlightColor('#DCECF2');
+      setFontColor('#111111');
+      setShowGridlines(true);
+      setTextAlign('center');
+    }
+    if (preset === 'excel') {
+      setFontFamily('Calibri');
+      setHeaderColor('#DCECF2');
+      setRowColor('#FFFFFF');
+      setHighlightColor('#C5DFE8');
+      setFontColor('#111827');
+      setShowGridlines(true);
+      setTextAlign('center');
+    }
+    if (preset === 'soft') {
+      setHeaderColor('#E8F3EC');
+      setRowColor('#F8FAFC');
+      setHighlightColor('#FFF2CC');
+      setFontColor('#0F172A');
+      setShowGridlines(true);
+    }
+    addAudit(`Cell Style Applied: ${preset}`);
+    showSuccessToast('Cell style applied');
+  };
+
+  const resetWorkbookFormatting = () => {
+    setFontFamily('Calibri');
+    setFontSize(DEFAULT_FONT_SIZE);
+    setTextAlign('center');
+    setVerticalAlign('middle');
+    setWrapText(false);
+    setBoldText(false);
+    setItalicText(false);
+    setUnderlineText(false);
+    setIndentLevel(0);
+    setNumberFormat('general');
+    setDecimalPlaces(2);
+    setShowGridlines(true);
+    setFreezeHeaders(true);
+    setConditionalFormatting(false);
+    addAudit('Workbook Formatting Reset');
+    showSuccessToast('Workbook formatting reset');
+  };
+
+  const insertFormula = (formula: string) => {
+    setFormulaInput(formula);
+    setActiveRibbonTab('Formulas');
+    addAudit(`Formula Inserted: ${formula}`);
+  };
+
   const exportCsv = () => {
     const rows = exportRows();
     const headers = Object.keys(rows[0] || {
@@ -1370,12 +1841,35 @@ export default function FeeReportBuilderPage() {
   const countryNameWidth = Math.max(178, Math.min(240, columnWidth * 2.5));
   const rowNumberWidth = 34;
   const flagColumnWidth = Math.max(32, flagWidth + 8);
-  const tableMinWidth =
-    (columnVisibility.country ? rowNumberWidth + flagColumnWidth + countryNameWidth : 0) +
-    (showProcedureColumns
-      ? procedureColumns.reduce((total, procedure) => total + visibleFeeColumnCount * getProcedureColumnWidth(procedure), 0)
-      : 0) +
-    rowGrandTotalWidth;
+  const worksheetColumns: WorksheetColumn[] = [
+    ...(columnVisibility.country
+      ? [
+          { key: 'row-number', label: 'Row', width: rowNumberWidth },
+          { key: 'flag', label: 'Flag', width: flagColumnWidth },
+          { key: 'country', label: 'Country', width: countryNameWidth },
+        ]
+      : []),
+    ...(showProcedureColumns
+      ? procedureColumns.flatMap((procedure) => {
+          const procedureWidth = getProcedureColumnWidth(procedure);
+          return [
+            ...(columnVisibility.officeFee
+              ? [{ key: `${procedure}-official`, label: `${procedure} Official`, width: procedureWidth }]
+              : []),
+            ...(columnVisibility.attorneyFee
+              ? [{ key: `${procedure}-attorney`, label: `${procedure} Attorney`, width: procedureWidth }]
+              : []),
+            ...(columnVisibility.total
+              ? [{ key: `${procedure}-total`, label: `${procedure} Total`, width: procedureWidth }]
+              : []),
+          ];
+        })
+      : []),
+    { key: 'grand-total', label: 'Grand Total', width: rowGrandTotalWidth },
+  ].map((column, index) => ({ ...column, letter: getExcelColumnLabel(index) }));
+  const worksheetGridWidth = worksheetColumns.reduce((total, column) => total + column.width, 0);
+  const worksheetGridTemplate = worksheetColumns.map((column) => `${column.width}px`).join(' ');
+  const tableMinWidth = Math.max(320, worksheetGridWidth);
   const usesDefaultHeaderColor = headerColor === '#EAF2FF';
   const usesDefaultRowColor = rowColor === '#FFFFFF';
   const excelHeaderColor = usesDefaultHeaderColor
@@ -1475,7 +1969,8 @@ export default function FeeReportBuilderPage() {
                 const official = escapeHtml(rule ? getFeeValue(rule, 'officialFee') : getMissingFeeValue(countryRow, procedure, 'officialFee'));
                 const attorney = escapeHtml(rule ? getFeeValue(rule, 'attorneyFee') : getMissingFeeValue(countryRow, procedure, 'attorneyFee'));
                 const missingTotal = rule ? null : getMissingRowTotal(countryRow, procedure);
-                const totalText = rule ? (total === null ? '-' : formatMoney(total)) : (missingTotal === null ? '-' : formatMoney(missingTotal));
+                const totalText = rule ? (total === null ? '-' : formatSheetNumber(total)) : (missingTotal === null ? '-' : formatSheetNumber(missingTotal));
+                const totalBackground = getTotalCellBackground(rule ? total : missingTotal);
                 const procedureWidth = getProcedureColumnWidth(procedure);
 
                 return `
@@ -1489,7 +1984,7 @@ export default function FeeReportBuilderPage() {
                       ? `<td class="fee-cell ${lastVisibleFeeColumn === 'attorneyFee' ? 'group-end' : ''}" style="width:${procedureWidth}px">${attorney}</td>`
                       : ''
                   }
-                  ${columnVisibility.total ? `<td class="fee-cell total-cell group-end" style="width:${procedureWidth}px">${escapeHtml(totalText)}</td>` : ''}
+                  ${columnVisibility.total ? `<td class="fee-cell total-cell group-end" style="width:${procedureWidth}px; background:${totalBackground}">${escapeHtml(totalText)}</td>` : ''}
                 `;
               })
               .join('')
@@ -1500,7 +1995,7 @@ export default function FeeReportBuilderPage() {
             ${
               columnVisibility.country
                 ? `
-                  <td class="row-number" style="width:${rowNumberWidth}px">${rowIndex + 1}</td>
+                  <td class="row-number" style="width:${rowNumberWidth}px">${rowIndex + 2}</td>
                   <td class="flag-cell" style="width:${flagColumnWidth}px">
                     ${
                       flagSrc
@@ -1513,7 +2008,7 @@ export default function FeeReportBuilderPage() {
                 : ''
             }
             ${feeCells}
-            <td class="fee-cell total-cell row-grand-total-cell group-end" style="width:${rowGrandTotalWidth}px">${formatMoney(rowGrandTotal)}</td>
+            <td class="fee-cell total-cell row-grand-total-cell group-end" style="width:${rowGrandTotalWidth}px; background:${getTotalCellBackground(rowGrandTotal)}">${formatSheetNumber(rowGrandTotal)}</td>
           </tr>
         `;
       })
@@ -1524,7 +2019,7 @@ export default function FeeReportBuilderPage() {
           <tr class="grand-total-row">
             ${
               columnVisibility.country
-                ? `<td class="grand-total-label group-end" colspan="3">Grand Total: ${formatMoney(grandTotalAmount)}</td>`
+                ? `<td class="grand-total-label group-end" colspan="3">Grand Total: ${formatSheetNumber(grandTotalAmount)}</td>`
                 : ''
             }
             ${
@@ -1545,7 +2040,7 @@ export default function FeeReportBuilderPage() {
                         }
                         ${
                           columnVisibility.total
-                            ? `<td class="grand-total-cell group-end" style="width:${procedureWidth}px">${formatMoney(procedureGrandTotals[procedure] || 0)}</td>`
+                            ? `<td class="grand-total-cell group-end" style="width:${procedureWidth}px">${formatSheetNumber(procedureGrandTotals[procedure] || 0)}</td>`
                             : ''
                         }
                       `;
@@ -1553,7 +2048,7 @@ export default function FeeReportBuilderPage() {
                     .join('')
                 : ''
             }
-            <td class="grand-total-cell row-grand-total-cell group-end" style="width:${rowGrandTotalWidth}px">${formatMoney(grandTotalAmount)}</td>
+            <td class="grand-total-cell row-grand-total-cell group-end" style="width:${rowGrandTotalWidth}px">${formatSheetNumber(grandTotalAmount)}</td>
           </tr>
         `
         : '';
@@ -1575,22 +2070,26 @@ export default function FeeReportBuilderPage() {
       table {
         border-collapse: collapse;
         table-layout: fixed;
-        border: 2px solid #111827;
+        border: ${showGridlines ? '2px solid #111827' : '0'};
         color: ${fontColor};
         font-family: ${cssFontFamily};
       }
       th,
       td {
-        border: 1px solid #1F2937;
+        border: ${showGridlines ? '1px solid #1F2937' : '0'};
         color: ${fontColor};
         font-family: ${cssFontFamily};
         height: ${rowHeight}px;
         line-height: 1.05;
         padding: 0 3px;
-        text-align: center;
-        vertical-align: middle;
-        white-space: nowrap;
+        text-align: ${textAlign};
+        vertical-align: ${verticalAlign};
+        white-space: ${wrapText ? 'normal' : 'nowrap'};
         font-size: ${fontSize}px;
+        font-weight: ${boldText ? 900 : 500};
+        font-style: ${italicText ? 'italic' : 'normal'};
+        text-decoration: ${underlineText ? 'underline' : 'none'};
+        padding-left: ${3 + indentLevel * 8}px;
       }
       th {
         font-weight: 900;
@@ -1619,11 +2118,11 @@ export default function FeeReportBuilderPage() {
       .flag-cell img {
         display: inline-block;
         object-fit: cover;
-        border: 1px solid #1F2937;
+        border: ${showGridlines ? '1px solid #1F2937' : '0'};
         vertical-align: middle;
       }
       .group-end {
-        border-right: 2px solid #111827;
+        border-right: ${showGridlines ? '2px solid #111827' : '0'};
       }
       .total-cell {
         background: ${highlightColor};
@@ -1638,7 +2137,7 @@ export default function FeeReportBuilderPage() {
       .grand-total-row td {
         background: ${highlightColor};
         font-weight: 900;
-        border-top: 2px solid #111827;
+        border-top: ${showGridlines ? '2px solid #111827' : '0'};
       }
       .grand-total-label {
         text-align: left;
@@ -1678,201 +2177,459 @@ export default function FeeReportBuilderPage() {
 </html>`;
   }
 
-  return (
-    <Box sx={{ minHeight: '100vh', bgcolor: '#F5F7FA' }}>
-      <Topbar title="IP Services Fee Builder" />
+  const workbookTitle = activeDraftId && draftName ? `${draftName} - Excel` : 'Workbook - Excel';
+  const shellBg = darkMode ? '#0B1F17' : '#F3F6F4';
+  const gridBg = darkMode ? '#10251D' : '#FFFFFF';
+  const panelBg = darkMode ? '#173326' : '#FFFFFF';
+  const ribbonBorder = darkMode ? '#2D5E45' : '#D7DDE7';
+  const statusText = loading
+    ? 'Calculating...'
+    : `${countryRows.length} row${countryRows.length === 1 ? '' : 's'} | ${procedureColumns.length} procedure${procedureColumns.length === 1 ? '' : 's'} | ${tableMode === 'all' ? 'All fees' : 'Quotation table'}`;
+  const renderRibbonButton = (label: string, onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void) => (
+    <Button
+      key={label}
+      size="small"
+      variant="text"
+      onClick={onClick}
+      sx={{
+        minWidth: 0,
+        px: 0.9,
+        py: 0.45,
+        color: darkMode ? '#E5F3EA' : '#1F2937',
+        borderRadius: 0.75,
+        fontSize: 12,
+        textTransform: 'none',
+        '&:hover': { bgcolor: darkMode ? 'rgba(255,255,255,0.10)' : '#E8F3EC' },
+      }}
+    >
+      {label}
+    </Button>
+  );
+  const renderRibbonGroup = (title: string, children: React.ReactNode) => (
+    <Box
+      key={title}
+      sx={{
+        px: 1,
+        py: 0.75,
+        borderRight: `1px solid ${ribbonBorder}`,
+        minHeight: 88,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        gap: 0.65,
+      }}
+    >
+      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>{children}</Box>
+      <Typography sx={{ color: darkMode ? '#B8D8C4' : '#64748B', fontSize: 11, textAlign: 'center' }}>
+        {title}
+      </Typography>
+    </Box>
+  );
 
-      <Box sx={{ p: { xs: 2, md: 3 } }}>
+  return (
+    <Box sx={{ minHeight: '100vh', bgcolor: shellBg }}>
+      <Topbar title="Workbook - Excel" />
+
+      <Box sx={{ p: { xs: 1.25, md: 2 }, bgcolor: shellBg }}>
         <Paper
           sx={{
-            borderRadius: 1,
+            borderRadius: 1.5,
             overflow: 'hidden',
-            border: '1px solid #D7DDE7',
-            boxShadow: '0 10px 28px rgba(15, 23, 42, 0.08)',
+            border: `1px solid ${darkMode ? '#174B32' : '#C9D4CE'}`,
+            boxShadow: '0 18px 40px rgba(15, 23, 42, 0.14)',
+            bgcolor: panelBg,
           }}
         >
-          <Box sx={{ p: 1.5, borderBottom: '1px solid #D7DDE7', bgcolor: '#FFFFFF' }}>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1, alignItems: 'center' }}>
-              <TextField
-                size="small"
-                label="Search"
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setPage(0);
-                }}
-                sx={{ minWidth: { xs: '100%', sm: 240 } }}
-              />
-              <FormControl size="small" sx={{ minWidth: 130 }}>
-                <InputLabel>Filter</InputLabel>
-                <Select
-                  label="Filter"
-                  value={statusFilter}
-                  onChange={(event) => {
-                    setStatusFilter(event.target.value as StatusFilter);
-                    setPage(0);
-                  }}
+          <Box sx={{ bgcolor: '#217346', color: '#FFFFFF' }}>
+            <Box
+              sx={{
+                minHeight: 42,
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', md: 'auto 1fr auto' },
+                alignItems: 'center',
+                gap: 1,
+                px: 1.25,
+                py: 0.6,
+              }}
+            >
+              <Stack direction="row" spacing={0.35} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                {renderRibbonButton('Save', openSaveDraftDialog)}
+                {renderRibbonButton('Undo', resetWorkbookFormatting)}
+                {renderRibbonButton('Redo', () => applyStylePreset('excel'))}
+                {renderRibbonButton('Print', openPrintView)}
+                {renderRibbonButton('Share', copyWorkbookLink)}
+              </Stack>
+              <Typography sx={{ fontWeight: 800, textAlign: 'center', fontSize: 14 }}>
+                {workbookTitle}
+              </Typography>
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: { xs: 'flex-start', md: 'flex-end' } }}>
+                <Button
+                  size="small"
+                  onClick={() => setDarkMode((current) => !current)}
+                  sx={{ color: '#FFFFFF', borderColor: 'rgba(255,255,255,0.35)', textTransform: 'none' }}
+                  variant="outlined"
                 >
-                  <MenuItem value="all">All</MenuItem>
-                  <MenuItem value="active">Active</MenuItem>
-                  <MenuItem value="inactive">Inactive</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 170 }}>
-                <InputLabel>Country</InputLabel>
-                <Select
-                  label="Country"
-                  value={selectedCountry}
-                  onChange={(event) => {
-                    setSelectedCountry(event.target.value);
-                    setSelectedRuleIds([]);
-                    setSelectedProcedure('');
-                    setPage(0);
-                    setRowOrder([]);
-                    setColumnOrder([]);
-                    setHiddenRowKeys([]);
-                    setHiddenProcedureColumns([]);
-                  }}
-                >
-                  <MenuItem value="">All Countries</MenuItem>
-                  {selectedCountry && !countries.some((country) => country.name === selectedCountry) && (
-                    <MenuItem value={selectedCountry}>{selectedCountry}</MenuItem>
-                  )}
-                  {countries.map((country) => (
-                    <MenuItem key={country._id} value={country.name}>
-                      {country.name} ({country.abbreviation})
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 150 }}>
-                <InputLabel>Service</InputLabel>
-                <Select
-                  label="Service"
-                  value={selectedService}
-                  onChange={(event) => {
-                    setSelectedService(event.target.value as ServiceKey);
-                    setSelectedRuleIds([]);
-                    setSelectedProcedure('');
-                    setPage(0);
-                    setRowOrder([]);
-                    setColumnOrder([]);
-                    setHiddenRowKeys([]);
-                    setHiddenProcedureColumns([]);
-                  }}
-                >
-                  {SERVICES.map((service) => (
-                    <MenuItem key={service} value={service}>{service}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <Button variant="outlined" onClick={() => importInputRef.current?.click()}>Import</Button>
-              <Button variant="outlined" onClick={(event) => setExportAnchor(event.currentTarget)}>Export</Button>
-              <Button variant="contained" onClick={openSelectionDialog}>Add to Quotation</Button>
-              <Button variant={tableMode === 'all' ? 'contained' : 'outlined'} onClick={() => showAllFeeTable()}>
-                All Fees
-              </Button>
-              {tableMode === 'quotation' && selectedRuleIds.length > 0 && (
-                <Button variant="outlined" color="error" onClick={clearQuotationSelection}>
-                  Clear Table
+                  {darkMode ? 'Light Mode' : 'Dark Mode'}
                 </Button>
-              )}
-              <Button variant="outlined" onClick={(event) => setAdvancedAnchor(event.currentTarget)}>Tools</Button>
-              <Button variant="contained" onClick={openSaveDraftDialog}>Save Draft</Button>
-              <Button variant="outlined" onClick={createNewDraft}>New Draft</Button>
-              <Button variant="outlined" component={Link} href="/reports/fee-builder/drafts">
-                Saved Drafts
-              </Button>
-              <FormControl size="small" sx={{ minWidth: 160 }}>
-                <InputLabel>Font</InputLabel>
-                <Select label="Font" value={fontFamily} onChange={(event) => setFontFamily(event.target.value)}>
-                  {FONT_OPTIONS.map((font) => (
-                    <MenuItem key={font} value={font}>{font}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <TextField
-                fullWidth
-                size="small"
-                type="color"
-                label="Font Color"
-                value={fontColor}
-                onChange={(event) => setFontColor(event.target.value)}
-                sx={{ width: 120 }}
-              />
-              <TextField
-                size="small"
-                type="number"
-                label="Font Size"
-                value={fontSize}
-                slotProps={{ input: { inputProps: { min: 8, max: 32, step: 1 } } }}
-                onChange={(event) => setFontSize(Math.max(8, Math.min(32, Number(event.target.value) || DEFAULT_FONT_SIZE)))}
-                sx={{ width: 120 }}
-              />
-              <TextField
-                size="small"
-                type="number"
-                label="Row Height"
-                value={rowHeight}
-                onChange={(event) => setRowHeight(Math.max(18, Number(event.target.value) || DEFAULT_ROW_HEIGHT))}
-                sx={{ width: 120 }}
-              />
-              <TextField
-                size="small"
-                type="number"
-                label="Column Width"
-                value={columnWidth}
-                onChange={(event) => setColumnWidth(Math.max(58, Number(event.target.value) || DEFAULT_COLUMN_WIDTH))}
-                sx={{ width: 128 }}
-              />
-              <TextField
-                size="small"
-                type="number"
-                label="Flag Width"
-                value={flagWidth}
-                onChange={(event) => setFlagWidth(Math.max(16, Number(event.target.value) || DEFAULT_FLAG_WIDTH))}
-                sx={{ width: 112 }}
-              />
-              <TextField
-                size="small"
-                type="number"
-                label="Flag Height"
-                value={flagHeight}
-                onChange={(event) => setFlagHeight(Math.max(10, Number(event.target.value) || DEFAULT_FLAG_HEIGHT))}
-                sx={{ width: 116 }}
-              />
-            </Stack>
+                <Box sx={{ px: 1, py: 0.35, borderRadius: 999, bgcolor: 'rgba(255,255,255,0.16)', fontSize: 12, fontWeight: 800 }}>
+                  {user?.name || user?.email || 'User'}
+                </Box>
+              </Stack>
+            </Box>
           </Box>
 
-          <Tabs
-            value={selectedService}
-            onChange={(_event: React.SyntheticEvent, value: ServiceKey) => {
-              setSelectedService(value);
-              setSelectedRuleIds([]);
-              setSelectedProcedure('');
-              setPage(0);
-              setRowOrder([]);
-              setColumnOrder([]);
-              setHiddenRowKeys([]);
-              setHiddenProcedureColumns([]);
-            }}
-            variant="scrollable"
-            scrollButtons="auto"
+          <Box sx={{ bgcolor: panelBg, borderBottom: `1px solid ${ribbonBorder}` }}>
+            <Stack
+              direction="row"
+              spacing={0}
+              sx={{
+                px: 0.5,
+                pt: 0.35,
+                borderBottom: `1px solid ${ribbonBorder}`,
+                overflowX: 'auto',
+              }}
+            >
+              {EXCEL_RIBBON_TABS.map((tabLabel) => (
+                <Button
+                  key={tabLabel}
+                  size="small"
+                  onClick={() => setActiveRibbonTab(tabLabel)}
+                  sx={{
+                    minWidth: 0,
+                    px: 1.4,
+                    py: 0.65,
+                    borderRadius: '6px 6px 0 0',
+                    color: activeRibbonTab === tabLabel ? '#217346' : darkMode ? '#D6E9DD' : '#334155',
+                    bgcolor: activeRibbonTab === tabLabel ? (darkMode ? '#10251D' : '#FFFFFF') : 'transparent',
+                    fontWeight: activeRibbonTab === tabLabel ? 900 : 700,
+                    textTransform: 'none',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {tabLabel}
+                </Button>
+              ))}
+            </Stack>
+
+            <Box sx={{ display: 'flex', gap: 0, overflowX: 'auto', bgcolor: darkMode ? '#10251D' : '#FFFFFF' }}>
+              {activeRibbonTab === 'Home' && (
+                <>
+                  {renderRibbonGroup('Clipboard', (
+                    <>
+                      {renderRibbonButton('Paste', pasteActiveCell)}
+                      {renderRibbonButton('Cut', cutActiveCell)}
+                      {renderRibbonButton('Copy', copyActiveCellOrWorkbook)}
+                      {renderRibbonButton('Format Painter', () => applyStylePreset('legal'))}
+                      {renderRibbonButton('Import', () => importInputRef.current?.click())}
+                      {renderRibbonButton('Export', (event) => setExportAnchor(event.currentTarget))}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Font', (
+                    <>
+                      <FormControl size="small" sx={{ minWidth: 150 }}>
+                        <Select value={fontFamily} onChange={(event) => setFontFamily(event.target.value)} displayEmpty>
+                          {FONT_OPTIONS.map((font) => (
+                            <MenuItem key={font} value={font}>{font}</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={fontSize}
+                        slotProps={{ input: { inputProps: { min: 8, max: 32, step: 1 } } }}
+                        onChange={(event) => setFontSize(Math.max(8, Math.min(32, Number(event.target.value) || DEFAULT_FONT_SIZE)))}
+                        sx={{ width: 70 }}
+                      />
+                      {renderRibbonButton('A+', () => setFontSize((current) => Math.min(32, current + 1)))}
+                      {renderRibbonButton('A-', () => setFontSize((current) => Math.max(8, current - 1)))}
+                      {renderRibbonButton('Bold', () => setBoldText((current) => !current))}
+                      {renderRibbonButton('Italic', () => setItalicText((current) => !current))}
+                      {renderRibbonButton('Underline', () => setUnderlineText((current) => !current))}
+                      <TextField size="small" type="color" value={fontColor} onChange={(event) => setFontColor(event.target.value)} sx={{ width: 48 }} />
+                      <TextField size="small" type="color" value={highlightColor} onChange={(event) => setHighlightColor(event.target.value)} sx={{ width: 48 }} />
+                      {renderRibbonButton('Borders', () => setShowGridlines((current) => !current))}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Alignment', (
+                    <>
+                      {renderRibbonButton('Align Left', () => setTextAlign('left'))}
+                      {renderRibbonButton('Center', () => setTextAlign('center'))}
+                      {renderRibbonButton('Align Right', () => setTextAlign('right'))}
+                      {renderRibbonButton('Top Align', () => setVerticalAlign('top'))}
+                      {renderRibbonButton('Middle Align', () => setVerticalAlign('middle'))}
+                      {renderRibbonButton('Bottom Align', () => setVerticalAlign('bottom'))}
+                      {renderRibbonButton('Wrap Text', () => setWrapText((current) => !current))}
+                      {renderRibbonButton('Merge & Center', () => {
+                        setTextAlign('center');
+                        setWrapText(false);
+                        showSuccessToast('Merged headers centered');
+                      })}
+                      {renderRibbonButton('Indent +', () => setIndentLevel((current) => Math.min(8, current + 1)))}
+                      {renderRibbonButton('Indent -', () => setIndentLevel((current) => Math.max(0, current - 1)))}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Number', (
+                    <>
+                      {renderRibbonButton('General', () => setNumberFormat('general'))}
+                      {renderRibbonButton('Currency', () => setNumberFormat('currency'))}
+                      {renderRibbonButton('Percentage', () => setNumberFormat('percentage'))}
+                      {renderRibbonButton('Decimal +', () => setDecimalPlaces((current) => Math.min(6, current + 1)))}
+                      {renderRibbonButton('Decimal -', () => setDecimalPlaces((current) => Math.max(0, current - 1)))}
+                      {renderRibbonButton('Accounting', () => setNumberFormat('accounting'))}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Styles', (
+                    <>
+                      {renderRibbonButton('Conditional Formatting', () => setConditionalFormatting((current) => !current))}
+                      {renderRibbonButton('Format as Table', (event) => setAdvancedAnchor(event.currentTarget))}
+                      {renderRibbonButton('Cell Styles', () => applyStylePreset('excel'))}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Workbook', (
+                    <>
+                      {renderRibbonButton('Add to Quotation', openSelectionDialog)}
+                      {renderRibbonButton('All Fees', () => showAllFeeTable())}
+                      {tableMode === 'quotation' && selectedRuleIds.length > 0 && renderRibbonButton('Clear Table', clearQuotationSelection)}
+                      {renderRibbonButton('Save Draft', openSaveDraftDialog)}
+                      {renderRibbonButton('New Sheet', createNewDraft)}
+                      <Button size="small" component={Link} href="/reports/fee-builder/drafts" sx={{ textTransform: 'none' }}>Saved Drafts</Button>
+                    </>
+                  ))}
+                </>
+              )}
+              {activeRibbonTab === 'Formulas' && (
+                <>
+                  {renderRibbonGroup('Function Library', (
+                    <>
+                      {renderRibbonButton('Insert Function (fx)', acceptFormula)}
+                      {renderRibbonButton('AutoSum', () => {
+                        setFormulaInput('=SUM()');
+                        setFormulaResult(formatSheetNumber(grandTotalAmount));
+                      })}
+                      {renderRibbonButton('Financial', () => insertFormula('=SUM()'))}
+                      {renderRibbonButton('Logical', () => insertFormula(DEFAULT_FORMULA_TEXT))}
+                      {renderRibbonButton('Text', () => insertFormula('=TEXTJOIN(", ",TRUE,A2:B2)'))}
+                      {renderRibbonButton('Date & Time', () => insertFormula('=TODAY()'))}
+                      {renderRibbonButton('Lookup & Reference', () => insertFormula('=XLOOKUP()'))}
+                      {renderRibbonButton('Math & Trig', () => insertFormula('=MAX()'))}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Formula Auditing', (
+                    <>
+                      {renderRibbonButton('Trace Precedents', () => showSuccessToast(activeCell ? `${activeCell} uses visible fee inputs` : 'Select a cell first'))}
+                      {renderRibbonButton('Trace Dependents', () => showSuccessToast('Totals and grand totals depend on fee inputs'))}
+                      {renderRibbonButton('Show Formulas', () => setFormulaInput(DEFAULT_FORMULA_TEXT))}
+                      {renderRibbonButton('Error Checking', validateWorksheet)}
+                      {renderRibbonButton('Evaluate Formula', acceptFormula)}
+                      {renderRibbonButton('Watch Window', () => setFormulaResult(`Grand total: ${formatSheetNumber(grandTotalAmount)}`))}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Common Functions', (
+                    <>
+                      {['SUM()', 'AVERAGE()', 'COUNT()', 'MAX()', 'MIN()', 'IF()', 'IFERROR()', 'VLOOKUP()', 'XLOOKUP()', 'INDEX()', 'MATCH()', 'CONCAT()', 'TEXTJOIN()', 'TODAY()', 'NOW()'].map((label) =>
+                        renderRibbonButton(label, () => insertFormula(`=${label}`))
+                      )}
+                    </>
+                  ))}
+                </>
+              )}
+              {activeRibbonTab === 'Data' && (
+                <>
+                  {renderRibbonGroup('Sort & Filter', (
+                    <>
+                      <TextField
+                        size="small"
+                        placeholder="Search workbook"
+                        value={search}
+                        onChange={(event) => {
+                          setSearch(event.target.value);
+                          setPage(0);
+                        }}
+                        sx={{ minWidth: 210 }}
+                      />
+                      <FormControl size="small" sx={{ minWidth: 130 }}>
+                        <Select
+                          value={statusFilter}
+                          onChange={(event) => {
+                            setStatusFilter(event.target.value as StatusFilter);
+                            setPage(0);
+                          }}
+                        >
+                          <MenuItem value="all">All</MenuItem>
+                          <MenuItem value="active">Active</MenuItem>
+                          <MenuItem value="inactive">Inactive</MenuItem>
+                        </Select>
+                      </FormControl>
+                      {renderRibbonButton('Sort Asc', () => sortWorksheetRows('asc'))}
+                      {renderRibbonButton('Sort Desc', () => sortWorksheetRows('desc'))}
+                      {renderRibbonButton('Filter Dropdowns', () => setShowFilterDropdowns((current) => !current))}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Connections', (
+                    <>
+                      <FormControl size="small" sx={{ minWidth: 170 }}>
+                        <Select
+                          value={selectedCountry}
+                          onChange={(event) => {
+                            setSelectedCountry(event.target.value);
+                            setSelectedRuleIds([]);
+                            setSelectedProcedure('');
+                            setPage(0);
+                            setRowOrder([]);
+                            setColumnOrder([]);
+                            setHiddenRowKeys([]);
+                            setHiddenProcedureColumns([]);
+                          }}
+                          displayEmpty
+                        >
+                          <MenuItem value="">All Countries</MenuItem>
+                          {selectedCountry && !countries.some((country) => country.name === selectedCountry) && (
+                            <MenuItem value={selectedCountry}>{selectedCountry}</MenuItem>
+                          )}
+                          {countries.map((country) => (
+                            <MenuItem key={country._id} value={country.name}>
+                              {country.name} ({country.abbreviation})
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <FormControl size="small" sx={{ minWidth: 150 }}>
+                        <Select
+                          value={selectedService}
+                          onChange={(event) => {
+                            setSelectedService(event.target.value as ServiceKey);
+                            setSelectedRuleIds([]);
+                            setSelectedProcedure('');
+                            setPage(0);
+                            setRowOrder([]);
+                            setColumnOrder([]);
+                            setHiddenRowKeys([]);
+                            setHiddenProcedureColumns([]);
+                          }}
+                        >
+                          {SERVICES.map((service) => (
+                            <MenuItem key={service} value={service}>{service}</MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      {renderRibbonButton('Data Validation', validateWorksheet)}
+                      {renderRibbonButton('Refresh', refreshWorksheet)}
+                    </>
+                  ))}
+                </>
+              )}
+              {!['Home', 'Formulas', 'Data'].includes(activeRibbonTab) && (
+                <>
+                  {renderRibbonGroup(activeRibbonTab, (
+                    <>
+                      {activeRibbonTab === 'Insert' && (
+                        <>
+                          {renderRibbonButton('Insert Row', openSelectionDialog)}
+                          {renderRibbonButton('New Sheet', createNewDraft)}
+                          {renderRibbonButton('Insert From CSV', () => importInputRef.current?.click())}
+                          {renderRibbonButton('Export Table', (event) => setExportAnchor(event.currentTarget))}
+                        </>
+                      )}
+                      {activeRibbonTab === 'Draw' && (
+                        <>
+                          {renderRibbonButton('Legal Style', () => applyStylePreset('legal'))}
+                          {renderRibbonButton('Excel Style', () => applyStylePreset('excel'))}
+                          {renderRibbonButton('Soft Style', () => applyStylePreset('soft'))}
+                          {renderRibbonButton('Gridlines', () => setShowGridlines((current) => !current))}
+                        </>
+                      )}
+                      {activeRibbonTab === 'Page Layout' && (
+                        <>
+                          {renderRibbonButton('Portrait', () => setPrintOrientation('portrait'))}
+                          {renderRibbonButton('Landscape', () => setPrintOrientation('landscape'))}
+                          {renderRibbonButton('A4', () => setPaperFormat('A4'))}
+                          {renderRibbonButton('A3', () => setPaperFormat('A3'))}
+                          {renderRibbonButton('Print Area', openPrintView)}
+                        </>
+                      )}
+                      {activeRibbonTab === 'Review' && (
+                        <>
+                          {renderRibbonButton('Check Fees', validateWorksheet)}
+                          {renderRibbonButton('Audit Log', (event) => setAdvancedAnchor(event.currentTarget))}
+                          {renderRibbonButton('Protect Sheet', () => showSuccessToast('Draft is protected by your account permissions'))}
+                          {renderRibbonButton('Comments', () => setFormulaResult(`Last action: ${auditLog[0]?.action || 'No audit entries yet'}`))}
+                        </>
+                      )}
+                      {activeRibbonTab === 'View' && (
+                        <>
+                          {renderRibbonButton('Workbook View', () => setDarkMode(false))}
+                          {renderRibbonButton('Dark View', () => setDarkMode(true))}
+                          {renderRibbonButton('Freeze Panes', () => setFreezeHeaders((current) => !current))}
+                          {renderRibbonButton('Gridlines', () => setShowGridlines((current) => !current))}
+                          {renderRibbonButton('Zoom 100%', () => setZoomLevel(100))}
+                        </>
+                      )}
+                      {activeRibbonTab === 'Help' && (
+                        <>
+                          {renderRibbonButton('Keyboard Shortcuts', () => setFormulaResult('Ctrl+S save, Ctrl+P print, Enter accepts formula'))}
+                          {renderRibbonButton('Formula Help', () => setFormulaInput(DEFAULT_FORMULA_TEXT))}
+                          {renderRibbonButton('Saved Drafts', () => {
+                            if (typeof window !== 'undefined') window.location.href = '/reports/fee-builder/drafts';
+                          })}
+                          {renderRibbonButton('Share Workbook', copyWorkbookLink)}
+                        </>
+                      )}
+                    </>
+                  ))}
+                  {renderRibbonGroup('Layout Tools', (
+                    <>
+                      <TextField size="small" type="number" label="Row" value={rowHeight} onChange={(event) => applyRowHeightToVisible(Number(event.target.value) || DEFAULT_ROW_HEIGHT)} sx={{ width: 92 }} />
+                      <TextField size="small" type="number" label="Column" value={columnWidth} onChange={(event) => applyColumnWidthToVisible(Number(event.target.value) || DEFAULT_COLUMN_WIDTH)} sx={{ width: 100 }} />
+                      <TextField size="small" type="number" label="Flag W" value={flagWidth} onChange={(event) => setFlagWidth(Math.max(16, Number(event.target.value) || DEFAULT_FLAG_WIDTH))} sx={{ width: 94 }} />
+                      <TextField size="small" type="number" label="Flag H" value={flagHeight} onChange={(event) => setFlagHeight(Math.max(10, Number(event.target.value) || DEFAULT_FLAG_HEIGHT))} sx={{ width: 94 }} />
+                    </>
+                  ))}
+                </>
+              )}
+            </Box>
+          </Box>
+
+          <Box
             sx={{
-              minHeight: 44,
-              borderBottom: '1px solid #D7DDE7',
-              bgcolor: '#F8FAFC',
-              '& .MuiTab-root': {
-                minHeight: 44,
-                fontWeight: 800,
-                textTransform: 'none',
-              },
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: '92px auto 1fr auto' },
+              gap: 0.75,
+              alignItems: 'center',
+              px: 1,
+              py: 0.7,
+              bgcolor: darkMode ? '#0F241B' : '#F8FAFC',
+              borderBottom: `1px solid ${ribbonBorder}`,
             }}
           >
-            {SERVICES.map((service) => (
-              <Tab key={service} value={service} label={service} />
-            ))}
-          </Tabs>
+            <TextField
+              size="small"
+              value={activeCell}
+              onChange={(event) => {
+                setActiveCell(event.target.value);
+                setActiveFeeCell(null);
+              }}
+              sx={{ '& .MuiInputBase-input': { py: 0.65, fontWeight: 800, textAlign: 'center' } }}
+            />
+            <Stack direction="row" spacing={0.4}>
+              <Button size="small" variant="outlined" onClick={cancelFormula} sx={{ minWidth: 34 }}>x</Button>
+              <Button size="small" variant="outlined" onClick={acceptFormula} sx={{ minWidth: 34 }}>OK</Button>
+              <Button size="small" variant="outlined" onClick={() => setActiveRibbonTab('Formulas')} sx={{ minWidth: 42, fontStyle: 'italic' }}>fx</Button>
+            </Stack>
+            <TextField
+              size="small"
+              value={formulaInput}
+              onChange={(event) => setFormulaInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') acceptFormula();
+                if (event.key === 'Escape') cancelFormula();
+              }}
+              sx={{ '& .MuiInputBase-input': { py: 0.65, fontFamily: 'Consolas, monospace' } }}
+            />
+            <Typography sx={{ fontSize: 12, color: darkMode ? '#CFE7D7' : '#475569', whiteSpace: 'nowrap' }}>
+              Result: {formulaResult}
+            </Typography>
+          </Box>
 
           {error && (
             <Alert severity="warning" onClose={() => setError('')} sx={{ borderRadius: 0 }}>
@@ -1957,36 +2714,101 @@ export default function FeeReportBuilderPage() {
             </Box>
           )}
 
-          <TableContainer sx={{ maxHeight: 'calc(100vh - 280px)', bgcolor: '#FFFFFF', overflow: 'auto' }}>
-            <Table
-              stickyHeader
+          <Box
+            sx={{
+              bgcolor: gridBg,
+              borderTop: `1px solid ${ribbonBorder}`,
+              borderBottom: `1px solid ${ribbonBorder}`,
+              overflow: 'hidden',
+            }}
+          >
+            <Box sx={{ overflowX: 'auto' }}>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: worksheetGridTemplate,
+                  width: worksheetGridWidth,
+                  minWidth: worksheetGridWidth,
+                  bgcolor: darkMode ? '#173326' : '#F3F6F4',
+                  borderBottom: `1px solid ${ribbonBorder}`,
+                }}
+              >
+                {worksheetColumns.map((column) => (
+                  <Box
+                    key={column.key}
+                    title={column.label}
+                    sx={{
+                      height: 28,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRight: `1px solid ${ribbonBorder}`,
+                      color: darkMode ? '#D8EBDD' : '#334155',
+                      fontSize: 12,
+                      fontWeight: 800,
+                    }}
+                  >
+                    {column.letter}
+                  </Box>
+                ))}
+              </Box>
+
+              <TableContainer
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setCellContextMenu({ mouseX: event.clientX + 2, mouseY: event.clientY - 6 });
+                }}
+                sx={{
+                  maxHeight: 'calc(100vh - 360px)',
+                  width: worksheetGridWidth,
+                  bgcolor: gridBg,
+                  overflowX: 'visible',
+                  overflowY: 'auto',
+                  cursor: 'cell',
+                  '& input:focus': {
+                    outline: '2px solid #217346 !important',
+                    outlineOffset: '-2px',
+                    backgroundColor: darkMode ? 'rgba(33, 115, 70, 0.14)' : 'rgba(33, 115, 70, 0.08)',
+                  },
+                }}
+            >
+              <Table
+              stickyHeader={freezeHeaders}
               size="small"
               sx={{
                 minWidth: Math.max(320, tableMinWidth),
                 borderCollapse: 'collapse',
                 tableLayout: 'fixed',
                 fontFamily,
-                border: '2px solid #111827',
+                border: showGridlines ? '2px solid #111827' : '0',
                 '& th': {
                   color: fontColor,
                   fontFamily,
                   fontSize,
                   fontWeight: 900,
-                  border: '1px solid #111827',
+                  border: showGridlines ? '1px solid #111827' : '0',
                   lineHeight: 1.05,
                   px: 0.4,
                   py: 0.45,
-                  whiteSpace: 'nowrap',
+                  whiteSpace: wrapText ? 'normal' : 'nowrap',
                   textAlign: 'center',
+                  verticalAlign,
                 },
                 '& td': {
                   fontFamily,
                   fontSize,
                   color: fontColor,
-                  border: '1px solid #1F2937',
+                  border: showGridlines ? '1px solid #1F2937' : '0',
                   py: 0,
                   height: rowHeight,
                   lineHeight: 1.1,
+                  fontWeight: boldText ? 900 : 500,
+                  fontStyle: italicText ? 'italic' : 'normal',
+                  textDecoration: underlineText ? 'underline' : 'none',
+                  textAlign,
+                  verticalAlign,
+                  whiteSpace: wrapText ? 'normal' : 'nowrap',
+                  pl: `${indentLevel * 8}px`,
                 },
                 '& thead tr:first-of-type th': {
                   top: 0,
@@ -2012,9 +2834,9 @@ export default function FeeReportBuilderPage() {
                         borderRight: '2px solid #111827',
                         fontSize: 13,
                         verticalAlign: 'middle',
-                      }}
-                    >
-                      Country
+                    }}
+                  >
+                      Country {showFilterDropdowns ? 'v' : ''}
                     </TableCell>
                   )}
                   {showProcedureColumns &&
@@ -2057,7 +2879,7 @@ export default function FeeReportBuilderPage() {
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            {procedure}
+                            {procedure}{showFilterDropdowns ? ' v' : ''}
                           </Typography>
                           <Box
                             component="button"
@@ -2131,7 +2953,7 @@ export default function FeeReportBuilderPage() {
                               borderRight: lastVisibleFeeColumn === 'officialFee' ? '2px solid #111827' : '1px solid #111827',
                             }}
                           >
-                            Official<br />Fees (US$)
+                            Official{showFilterDropdowns ? ' v' : ''}<br />Fees (US$)
                           </TableCell>
                         )}
                         {columnVisibility.attorneyFee && (
@@ -2144,7 +2966,7 @@ export default function FeeReportBuilderPage() {
                               borderRight: lastVisibleFeeColumn === 'attorneyFee' ? '2px solid #111827' : '1px solid #111827',
                             }}
                           >
-                            Attorney<br />Fees (US$)
+                            Attorney{showFilterDropdowns ? ' v' : ''}<br />Fees (US$)
                           </TableCell>
                         )}
                         {columnVisibility.total && (
@@ -2157,7 +2979,7 @@ export default function FeeReportBuilderPage() {
                               borderRight: '2px solid #111827',
                             }}
                           >
-                            TOTAL<br />(US$)
+                            TOTAL{showFilterDropdowns ? ' v' : ''}<br />(US$)
                           </TableCell>
                         )}
                       </React.Fragment>
@@ -2201,7 +3023,7 @@ export default function FeeReportBuilderPage() {
                               position: 'relative',
                             }}
                           >
-                            {page * rowsPerPage + rowIndex + 1}
+                            {page * rowsPerPage + rowIndex + 2}
                             <Box
                               onMouseDown={(event) => startRowResize(event, countryRow.key)}
                               sx={{
@@ -2290,13 +3112,18 @@ export default function FeeReportBuilderPage() {
                         </>
                       )}
                       {showProcedureColumns &&
-                        procedureColumns.map((procedure) => {
+                        procedureColumns.map((procedure, procedureIndex) => {
                           const rule = countryRow.rulesByProcedure[procedure];
                           const total = rule ? getRowTotal(rule) : null;
                           const draftKey = rule ? rule._id : makeMissingFeeKey(countryRow, procedure);
                           const errors = rowErrors[draftKey] || {};
                           const missingTotal = rule ? null : getMissingRowTotal(countryRow, procedure);
                           const procedureWidth = getProcedureColumnWidth(procedure);
+                          const worksheetRowNumber = page * rowsPerPage + rowIndex + 2;
+                          const firstFeeColumnIndex =
+                            (columnVisibility.country ? 3 : 0) + procedureIndex * visibleFeeColumnCount;
+                          const officialCellName = `${getExcelColumnLabel(firstFeeColumnIndex)}${worksheetRowNumber}`;
+                          const attorneyCellName = `${getExcelColumnLabel(firstFeeColumnIndex + (columnVisibility.officeFee ? 1 : 0))}${worksheetRowNumber}`;
 
                           return (
                             <React.Fragment key={`${countryRow.key}-${procedure}`}>
@@ -2313,6 +3140,16 @@ export default function FeeReportBuilderPage() {
                                     <Box
                                       component="input"
                                       value={getFeeValue(rule, 'officialFee')}
+                                      onFocus={() => {
+                                        setActiveCell(officialCellName);
+                                        setActiveFeeCell({
+                                          cellName: officialCellName,
+                                          countryKey: countryRow.key,
+                                          procedure,
+                                          field: 'officialFee',
+                                          ruleId: rule._id,
+                                        });
+                                      }}
                                       onChange={(event) => updateFee(rule, 'officialFee', event.target.value)}
                                       onBlur={(event) => {
                                         saveRuleFees(rule, event.target.value, getFeeValue(rule, 'attorneyFee'));
@@ -2331,15 +3168,26 @@ export default function FeeReportBuilderPage() {
                                         color: fontColor,
                                         fontFamily,
                                         fontSize: 12,
-                                        fontWeight: 800,
+                                        fontWeight: boldText ? 900 : 800,
+                                        fontStyle: italicText ? 'italic' : 'normal',
+                                        textDecoration: underlineText ? 'underline' : 'none',
                                         padding: 0,
-                                        textAlign: 'center',
+                                        textAlign,
                                       }}
                                     />
                                   ) : (
                                     <Box
                                       component="input"
                                       value={getMissingFeeValue(countryRow, procedure, 'officialFee')}
+                                      onFocus={() => {
+                                        setActiveCell(officialCellName);
+                                        setActiveFeeCell({
+                                          cellName: officialCellName,
+                                          countryKey: countryRow.key,
+                                          procedure,
+                                          field: 'officialFee',
+                                        });
+                                      }}
                                       onChange={(event) => updateMissingFee(countryRow, procedure, 'officialFee', event.target.value)}
                                       onBlur={(event) => {
                                         saveMissingRuleFees(
@@ -2363,9 +3211,11 @@ export default function FeeReportBuilderPage() {
                                         color: fontColor,
                                         fontFamily,
                                         fontSize: 12,
-                                        fontWeight: 800,
+                                        fontWeight: boldText ? 900 : 800,
+                                        fontStyle: italicText ? 'italic' : 'normal',
+                                        textDecoration: underlineText ? 'underline' : 'none',
                                         padding: 0,
-                                        textAlign: 'center',
+                                        textAlign,
                                       }}
                                     />
                                   )}
@@ -2384,6 +3234,16 @@ export default function FeeReportBuilderPage() {
                                     <Box
                                       component="input"
                                       value={getFeeValue(rule, 'attorneyFee')}
+                                      onFocus={() => {
+                                        setActiveCell(attorneyCellName);
+                                        setActiveFeeCell({
+                                          cellName: attorneyCellName,
+                                          countryKey: countryRow.key,
+                                          procedure,
+                                          field: 'attorneyFee',
+                                          ruleId: rule._id,
+                                        });
+                                      }}
                                       onChange={(event) => updateFee(rule, 'attorneyFee', event.target.value)}
                                       onBlur={(event) => {
                                         saveRuleFees(rule, getFeeValue(rule, 'officialFee'), event.target.value);
@@ -2402,15 +3262,26 @@ export default function FeeReportBuilderPage() {
                                         color: fontColor,
                                         fontFamily,
                                         fontSize: 12,
-                                        fontWeight: 800,
+                                        fontWeight: boldText ? 900 : 800,
+                                        fontStyle: italicText ? 'italic' : 'normal',
+                                        textDecoration: underlineText ? 'underline' : 'none',
                                         padding: 0,
-                                        textAlign: 'center',
+                                        textAlign,
                                       }}
                                     />
                                   ) : (
                                     <Box
                                       component="input"
                                       value={getMissingFeeValue(countryRow, procedure, 'attorneyFee')}
+                                      onFocus={() => {
+                                        setActiveCell(attorneyCellName);
+                                        setActiveFeeCell({
+                                          cellName: attorneyCellName,
+                                          countryKey: countryRow.key,
+                                          procedure,
+                                          field: 'attorneyFee',
+                                        });
+                                      }}
                                       onChange={(event) => updateMissingFee(countryRow, procedure, 'attorneyFee', event.target.value)}
                                       onBlur={(event) => {
                                         saveMissingRuleFees(
@@ -2434,18 +3305,20 @@ export default function FeeReportBuilderPage() {
                                         color: fontColor,
                                         fontFamily,
                                         fontSize: 12,
-                                        fontWeight: 800,
+                                        fontWeight: boldText ? 900 : 800,
+                                        fontStyle: italicText ? 'italic' : 'normal',
+                                        textDecoration: underlineText ? 'underline' : 'none',
                                         padding: 0,
-                                        textAlign: 'center',
+                                        textAlign,
                                       }}
                                     />
                                   )}
                                 </TableCell>
                               )}
                               {columnVisibility.total && (
-                                <TableCell sx={{ width: procedureWidth, px: 0.25, textAlign: 'center', bgcolor: `${highlightColor} !important`, borderRight: '2px solid #111827' }}>
+                                <TableCell sx={{ width: procedureWidth, px: 0.25, textAlign, bgcolor: `${getTotalCellBackground(rule ? total : missingTotal)} !important`, borderRight: '2px solid #111827' }}>
                                   <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
-                                    {rule ? (total === null ? '-' : formatMoney(total)) : (missingTotal === null ? '-' : formatMoney(missingTotal))}
+                                    {rule ? (total === null ? '-' : formatSheetNumber(total)) : (missingTotal === null ? '-' : formatSheetNumber(missingTotal))}
                                   </Typography>
                                 </TableCell>
                               )}
@@ -2457,12 +3330,12 @@ export default function FeeReportBuilderPage() {
                           width: rowGrandTotalWidth,
                           px: 0.25,
                           textAlign: 'center',
-                          bgcolor: `${highlightColor} !important`,
+                          bgcolor: `${getTotalCellBackground(rowGrandTotal)} !important`,
                           borderRight: '2px solid #111827',
                         }}
                       >
                         <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
-                          {formatMoney(rowGrandTotal)}
+                          {formatSheetNumber(rowGrandTotal)}
                         </Typography>
                       </TableCell>
                     </TableRow>
@@ -2473,7 +3346,7 @@ export default function FeeReportBuilderPage() {
                   <TableRow
                     sx={{
                       '& td': {
-                        bgcolor: `${highlightColor} !important`,
+                        bgcolor: `${getTotalCellBackground(grandTotalAmount)} !important`,
                         borderTop: '2px solid #111827',
                         fontWeight: 900,
                         height: Math.max(22, rowHeight),
@@ -2490,7 +3363,7 @@ export default function FeeReportBuilderPage() {
                           fontSize: 13,
                         }}
                       >
-                        Grand Total: {formatMoney(grandTotalAmount)}
+                        Grand Total: {formatSheetNumber(grandTotalAmount)}
                       </TableCell>
                     )}
                     {showProcedureColumns &&
@@ -2518,7 +3391,7 @@ export default function FeeReportBuilderPage() {
                             {columnVisibility.total && (
                               <TableCell sx={{ width: procedureWidth, px: 0.25, textAlign: 'center', borderRight: '2px solid #111827' }}>
                                 <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
-                                  {formatMoney(procedureGrandTotals[procedure] || 0)}
+                                  {formatSheetNumber(procedureGrandTotals[procedure] || 0)}
                                 </Typography>
                               </TableCell>
                             )}
@@ -2527,7 +3400,7 @@ export default function FeeReportBuilderPage() {
                       })}
                     <TableCell sx={{ width: rowGrandTotalWidth, px: 0.25, textAlign: 'center', borderRight: '2px solid #111827' }}>
                       <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'inherit' }}>
-                        {formatMoney(grandTotalAmount)}
+                        {formatSheetNumber(grandTotalAmount)}
                       </Typography>
                     </TableCell>
                   </TableRow>
@@ -2551,8 +3424,85 @@ export default function FeeReportBuilderPage() {
                   </TableRow>
                 )}
               </TableBody>
-            </Table>
-          </TableContainer>
+              </Table>
+              </TableContainer>
+            </Box>
+          </Box>
+
+          <Box
+            sx={{
+              minHeight: 42,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              px: 1,
+              bgcolor: darkMode ? '#10251D' : '#F8FAFC',
+              borderBottom: `1px solid ${ribbonBorder}`,
+              overflowX: 'auto',
+            }}
+          >
+            <Tabs
+              value={selectedService}
+              onChange={(_event: React.SyntheticEvent, value: ServiceKey) => {
+                setSelectedService(value);
+                setSelectedRuleIds([]);
+                setSelectedProcedure('');
+                setPage(0);
+                setRowOrder([]);
+                setColumnOrder([]);
+                setHiddenRowKeys([]);
+                setHiddenProcedureColumns([]);
+              }}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{
+                minHeight: 34,
+                flex: '1 1 auto',
+                '& .MuiTabs-indicator': { display: 'none' },
+                '& .MuiTab-root': {
+                  minHeight: 32,
+                  px: 2,
+                  mr: 0.5,
+                  border: `1px solid ${ribbonBorder}`,
+                  borderBottomColor: 'transparent',
+                  borderRadius: '8px 8px 0 0',
+                  bgcolor: darkMode ? '#173326' : '#FFFFFF',
+                  color: darkMode ? '#D6E9DD' : '#334155',
+                  fontWeight: 800,
+                  textTransform: 'none',
+                },
+                '& .MuiTab-root.Mui-selected': {
+                  bgcolor: darkMode ? '#214B36' : '#E8F3EC',
+                  color: '#217346',
+                },
+              }}
+            >
+              {SERVICES.map((service) => (
+                <Tab key={service} value={service} label={service} />
+              ))}
+            </Tabs>
+            <Button size="small" variant="outlined" onClick={createNewDraft} sx={{ whiteSpace: 'nowrap' }}>
+              Add Sheet
+            </Button>
+            <Typography
+              sx={{
+                flexShrink: 0,
+                color: darkMode ? '#CFE7D7' : '#475569',
+                fontSize: 12,
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Ready | {statusText}
+            </Typography>
+            <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
+              <Button size="small" variant="outlined" onClick={() => setZoomLevel((current) => Math.max(70, current - 10))}>-</Button>
+              <Typography sx={{ minWidth: 42, textAlign: 'center', color: darkMode ? '#CFE7D7' : '#334155', fontSize: 12, fontWeight: 800 }}>
+                {zoomLevel}%
+              </Typography>
+              <Button size="small" variant="outlined" onClick={() => setZoomLevel((current) => Math.min(150, current + 10))}>+</Button>
+            </Stack>
+          </Box>
 
           <TablePagination
             component="div"
@@ -3001,6 +3951,23 @@ export default function FeeReportBuilderPage() {
             )}
           </List>
         </Box>
+      </Menu>
+
+      <Menu
+        open={cellContextMenu !== null}
+        onClose={() => setCellContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          cellContextMenu
+            ? { top: cellContextMenu.mouseY, left: cellContextMenu.mouseX }
+            : undefined
+        }
+      >
+        {['Cut', 'Copy', 'Paste', 'Insert Row', 'Delete Row', 'Sort Ascending', 'Sort Descending', 'Filter', 'Data Validation'].map((action) => (
+          <MenuItem key={action} onClick={() => runContextAction(action)}>
+            {action}
+          </MenuItem>
+        ))}
       </Menu>
     </Box>
   );

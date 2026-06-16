@@ -404,32 +404,6 @@ const getCompanyDetailForQuotation = (
   if (!quotation || companyDetails.length === 0) return null;
   const activeCompanyDetails = companyDetails.filter((company) => company.isActive !== false);
   const candidates = activeCompanyDetails.length > 0 ? activeCompanyDetails : companyDetails;
-  const serviceCategory = String(quotation.serviceCategory || quotation.inquirySnapshot?.serviceCategory || '')
-    .trim()
-    .toLowerCase();
-  const inquiryCountryNames = new Set(
-    (quotation.inquirySnapshot?.countryNames || [])
-      .map((country) => String(country || '').trim().toLowerCase())
-      .filter(Boolean)
-  );
-
-  const exactMatch = candidates.find((company) => {
-    const companyCountry = String(company.countryName || '').trim().toLowerCase();
-    const companyService = String(company.serviceCategory || '').trim().toLowerCase();
-    return inquiryCountryNames.has(companyCountry) && companyService === serviceCategory;
-  });
-  if (exactMatch) return exactMatch;
-
-  const countryMatch = candidates.find((company) =>
-    inquiryCountryNames.has(String(company.countryName || '').trim().toLowerCase())
-  );
-  if (countryMatch) return countryMatch;
-
-  const serviceMatch = candidates.find((company) =>
-    String(company.serviceCategory || '').trim().toLowerCase() === serviceCategory
-  );
-  if (serviceMatch) return serviceMatch;
-
   return candidates[0] || null;
 };
 
@@ -491,6 +465,67 @@ const getReportCompanyLines = (company: CompanyDetail | null | undefined): strin
     company?.email ? String(company.email).trim() : '',
   ];
   return lines.filter((line) => line && line !== '-');
+};
+
+const getReportCompanyLogoUrl = (company: CompanyDetail | null | undefined): string =>
+  String(company?.logoUrl || '').trim();
+
+const resolveReportAssetUrl = (url: string): string => {
+  if (!url || url.startsWith('data:') || /^https?:\/\//i.test(url)) return url;
+  if (typeof window !== 'undefined' && url.startsWith('/')) return `${window.location.origin}${url}`;
+  return url;
+};
+
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('Unable to read image file.'));
+    reader.readAsDataURL(blob);
+  });
+
+const getReportImageDataUrl = async (url: string): Promise<string> => {
+  const normalizedUrl = resolveReportAssetUrl(url);
+  if (!normalizedUrl) return '';
+  if (normalizedUrl.startsWith('data:')) return normalizedUrl;
+
+  const response = await fetch(normalizedUrl);
+  if (!response.ok) return '';
+
+  const blob = await response.blob();
+  if (blob.type && !blob.type.toLowerCase().startsWith('image/')) return '';
+  return blobToDataUrl(blob);
+};
+
+const getReportImageLayout = async (
+  url: string,
+  maxWidth: number,
+  maxHeight: number
+): Promise<{ dataUrl: string; width: number; height: number } | null> => {
+  const dataUrl = await getReportImageDataUrl(url);
+  if (!dataUrl) return null;
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const naturalWidth = image.naturalWidth || maxWidth;
+      const naturalHeight = image.naturalHeight || maxHeight;
+      const scale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight, 1);
+      resolve({
+        dataUrl,
+        width: naturalWidth * scale,
+        height: naturalHeight * scale,
+      });
+    };
+    image.onerror = () => resolve(null);
+    image.src = dataUrl;
+  });
+};
+
+const getReportPdfImageFormat = (dataUrl: string): 'PNG' | 'JPEG' | 'WEBP' => {
+  if (/^data:image\/png/i.test(dataUrl)) return 'PNG';
+  if (/^data:image\/webp/i.test(dataUrl)) return 'WEBP';
+  return 'JPEG';
 };
 
 const getReportProjectDetails = (quotation: ClientQuotation): Array<[string, string]> => [
@@ -737,7 +772,6 @@ const getReportFeeColumnWeight = (columnKey: ReportServiceColumnKey): number => 
 };
 
 const getReportFeeTableColumns = (quotation: ClientQuotation | null | undefined): ReportFeeColumn[] => {
-  const countryLabel = getReportFeeCountryHeaderLabel(quotation);
   const columns: ReportFeeColumn[] = [
     {
       key: 'country',
@@ -747,7 +781,6 @@ const getReportFeeTableColumns = (quotation: ClientQuotation | null | undefined)
     {
       key: 'procedure',
       label: 'Procedure',
-      subtitle: countryLabel || undefined,
       weight: getReportFeeColumnWeight('procedure'),
     },
     {
@@ -768,6 +801,7 @@ const getReportFeeTableColumns = (quotation: ClientQuotation | null | undefined)
     columns.push({
       key: 'vat',
       label: getInvoiceVatHeaderLabel(quotation),
+      subtitle: REPORT_FEE_SUBTITLE,
       weight: getReportFeeColumnWeight('vat'),
     });
   }
@@ -1404,6 +1438,8 @@ export default function ClientQuotationsPage() {
   );
   const serviceDetailProcedureOptions = useMemo(
     () => {
+      if (inquiryProcedureOptions.length > 0) return inquiryProcedureOptions;
+
       const fromPricingRules = Array.from(
         new Set(
           (priceRules || [])
@@ -1411,7 +1447,7 @@ export default function ClientQuotationsPage() {
             .filter(Boolean)
         )
       );
-      return Array.from(new Set([...inquiryProcedureOptions, ...fromPricingRules])).filter(Boolean);
+      return fromPricingRules;
     },
     [priceRules, inquiryProcedureOptions]
   );
@@ -1589,6 +1625,12 @@ export default function ClientQuotationsPage() {
       }
       const company = getCompanyDetailForQuotation(quotation, companyDetails);
       const companyLines = getReportCompanyLines(company);
+      let companyLogoLayout: { dataUrl: string; width: number; height: number } | null = null;
+      try {
+        companyLogoLayout = await getReportImageLayout(getReportCompanyLogoUrl(company), 92, 54);
+      } catch {
+        companyLogoLayout = null;
+      }
       const projectRows = getReportProjectDetails(quotation);
       const requirementRows = getRequirementDisplayRows(quotation);
       const feeColumns = getReportFeeTableColumns(quotation);
@@ -1670,21 +1712,40 @@ export default function ClientQuotationsPage() {
 
       const drawInvoiceHeader = () => {
         const topY = 62;
+        let companyLineY = topY;
+        let logoDrawn = false;
+        if (companyLogoLayout) {
+          try {
+            doc.addImage(
+              companyLogoLayout.dataUrl,
+              getReportPdfImageFormat(companyLogoLayout.dataUrl),
+              (pageWidth - companyLogoLayout.width) / 2,
+              topY - 6,
+              companyLogoLayout.width,
+              companyLogoLayout.height
+            );
+            companyLineY = topY + companyLogoLayout.height + 16;
+            logoDrawn = true;
+          } catch {
+            companyLineY = topY;
+          }
+        }
+
         doc.setFont(REPORT_PDF_FONT, 'bold');
         doc.setFontSize(13);
         doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.text(companyLines[0] || 'IP LAW FIRM', pageWidth / 2, topY, { align: 'center' });
+        doc.text(companyLines[0] || 'IP LAW FIRM', pageWidth / 2, companyLineY, { align: 'center' });
         doc.setFont(REPORT_PDF_FONT, 'normal');
         doc.setFontSize(9.2);
         doc.setTextColor(...hexToRgbTuple(REPORT_INK));
-        let companyLineY = topY + 18;
+        companyLineY += 18;
         companyLines.slice(1, 7).forEach((line) => {
           const visibleLines = doc.splitTextToSize(line, 330).slice(0, 2);
           doc.text(visibleLines, pageWidth / 2, companyLineY, { align: 'center' });
           companyLineY += Math.max(1, visibleLines.length) * 11;
         });
 
-        return Math.max(companyLineY + 22, topY + 74);
+        return Math.max(companyLineY + 22, topY + (logoDrawn ? 116 : 74));
       };
 
       drawDecorativeChrome();
@@ -1890,6 +1951,12 @@ export default function ClientQuotationsPage() {
       }
       const company = getCompanyDetailForQuotation(quotation, companyDetails);
       const companyLines = getReportCompanyLines(company);
+      let companyLogoDataUrl = '';
+      try {
+        companyLogoDataUrl = await getReportImageDataUrl(getReportCompanyLogoUrl(company));
+      } catch {
+        companyLogoDataUrl = '';
+      }
       const projectRows = getReportProjectDetails(quotation);
       const requirementRows = getRequirementDisplayRows(quotation);
       const feeColumns = getReportFeeTableColumns(quotation);
@@ -1916,6 +1983,9 @@ export default function ClientQuotationsPage() {
       const companyLinesHtml = companyLines.map((line, index) => `
         <div class="${index === 0 ? 'company-name-line' : 'company-line'}">${escapeHtml(line)}</div>
       `).join('');
+      const companyLogoHtml = companyLogoDataUrl
+        ? `<div class="company-logo-wrap"><img class="company-logo" src="${escapeHtml(companyLogoDataUrl)}" alt="Company logo" /></div>`
+        : '';
       const referenceRequirementRowsHtml = requirementRows.length > 0
         ? requirementRows.map((requirement) => `
             <div class="requirement-description">${escapeHtml(requirement.requirementsText || 'No requirement details available.').replace(/\n/g, '<br/>')}</div>
@@ -1975,6 +2045,8 @@ export default function ClientQuotationsPage() {
 	              .layout-table td { vertical-align: top; }
 	              .invoice-header { width: 100%; margin-bottom: 22pt; text-align: center; }
 	              .company-block { color: ${REPORT_INK}; font-size: 9.2pt; line-height: 1.4; text-align: center; max-width: 330pt; margin: 0 auto; }
+	              .company-logo-wrap { text-align: center; margin: 0 auto 10pt; }
+	              .company-logo { max-width: 92pt; max-height: 54pt; width: auto; height: auto; object-fit: contain; }
 	              .company-name-line { color: ${REPORT_NAVY}; font-size: 13pt; font-weight: 800; margin-bottom: 8pt; }
 	              .company-line { margin-bottom: 2pt; }
 	              .summary-layout { width: 100%; margin-bottom: 18pt; }
@@ -2019,7 +2091,7 @@ export default function ClientQuotationsPage() {
 	            <div class="top-band"></div>
 	            <div class="page">
 	              <div class="invoice-header">
-	                <div class="company-block">${companyLinesHtml}</div>
+	                <div class="company-block">${companyLogoHtml}${companyLinesHtml}</div>
 	              </div>
 	              <div class="summary-layout">
 	                <div class="info-panel">
@@ -2624,6 +2696,10 @@ export default function ClientQuotationsPage() {
       const selectedCountryOptions = getInquiryCountryOptions(selectedInquiry);
       const countryNames = selectedCountryOptions.map((country) => country.name).filter(Boolean).join(', ');
       const selectedServiceCategory = ((selectedInquiry.serviceId as any)?.category || '') as string;
+      const selectedProcedureNames = getInquireProcedureNames(selectedInquiry);
+      const selectedProcedureNameSet = new Set(
+        selectedProcedureNames.map((procedure) => normalizeProcedureName(procedure)).filter(Boolean)
+      );
       clearRequirementAutosaveTimers();
       setRequirementAutosaveState({});
       setRequirementsState({
@@ -2646,14 +2722,19 @@ export default function ClientQuotationsPage() {
           });
           const rows = Array.isArray(response.data?.data) ? response.data.data : [];
           rows.forEach((row: any) => {
-            requirementsAcc.push({
+            const requirementOption = {
               _id: row._id,
               countryId: typeof row.country === 'string' ? row.country : row.country?._id || '',
               countryName: row.country?.name || '',
               serviceCategory: row.serviceCategory,
               title: row.title || '',
               requirements: row.requirements || '',
-            });
+            };
+            const requirementProcedure = normalizeProcedureName(requirementOption.title || '');
+            if (selectedProcedureNameSet.size > 0 && !selectedProcedureNameSet.has(requirementProcedure)) {
+              return;
+            }
+            requirementsAcc.push(requirementOption);
           });
         }
 
@@ -2666,8 +2747,12 @@ export default function ClientQuotationsPage() {
           items: requirementsAcc,
         });
         setSelectedRequirementIds((prev) => {
-          const availableIds = new Set(requirementsAcc.map((requirement) => requirement._id));
-          return prev.filter((id) => availableIds.has(id));
+          const availableIds = Array.from(
+            new Set(requirementsAcc.map((requirement) => requirement._id))
+          );
+          const availableIdSet = new Set(availableIds);
+          const retainedIds = prev.filter((id) => availableIdSet.has(id));
+          return retainedIds.length > 0 ? retainedIds : availableIds;
         });
         setRequirementDraftIds((prev) => {
           const availableIds = new Set(requirementsAcc.map((requirement) => requirement._id));
@@ -2810,6 +2895,7 @@ export default function ClientQuotationsPage() {
     [invoiceCompanyDetails, viewingItem]
   );
   const viewingCompanyLines = getReportCompanyLines(selectedInvoiceCompanyDetail);
+  const viewingCompanyLogoUrl = getReportCompanyLogoUrl(selectedInvoiceCompanyDetail);
   const viewingProjectRows = viewingItem ? getReportProjectDetails(viewingItem) : [];
   const viewingRequirementRows = viewingItem ? getRequirementDisplayRows(viewingItem) : [];
   const viewingFeeColumns = viewingItem ? getReportFeeTableColumns(viewingItem) : [];
@@ -3965,6 +4051,23 @@ export default function ClientQuotationsPage() {
 	                  }}
 	                >
 	                  <Box sx={{ color: REPORT_INK, fontSize: 14, lineHeight: 1.55, maxWidth: 620, mx: 'auto' }}>
+	                    {viewingCompanyLogoUrl && (
+	                      <Box
+	                        component="img"
+	                        src={viewingCompanyLogoUrl}
+	                        alt="Company logo"
+	                        sx={{
+	                          display: 'block',
+	                          maxWidth: 128,
+	                          maxHeight: 74,
+	                          width: 'auto',
+	                          height: 'auto',
+	                          objectFit: 'contain',
+	                          mx: 'auto',
+	                          mb: 1.25,
+	                        }}
+	                      />
+	                    )}
 	                    {viewingCompanyLines.map((line, index) => (
 	                      <Typography
 	                        key={`${line}-${index}`}

@@ -27,6 +27,18 @@ export interface IFeeBuilderDraft extends Document {
   rowColor: string;
   fontColor?: string;
   highlightColor?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  wrapText?: boolean;
+  boldText?: boolean;
+  italicText?: boolean;
+  underlineText?: boolean;
+  indentLevel?: number;
+  numberFormat?: 'general' | 'currency' | 'percentage' | 'accounting';
+  decimalPlaces?: number;
+  showGridlines?: boolean;
+  freezeHeaders?: boolean;
+  conditionalFormatting?: boolean;
   printOrientation?: 'portrait' | 'landscape';
   paperFormat?: 'A4' | 'A3' | 'Letter';
   createdByUserId: string;
@@ -72,6 +84,18 @@ const feeBuilderDraftSchema = new mongoose.Schema<IFeeBuilderDraft>(
     rowColor: { type: String, default: '#FFFFFF' },
     fontColor: { type: String, default: '#111827' },
     highlightColor: { type: String, default: '#FFF2CC' },
+    textAlign: { type: String, enum: ['left', 'center', 'right'], default: 'center' },
+    verticalAlign: { type: String, enum: ['top', 'middle', 'bottom'], default: 'middle' },
+    wrapText: { type: Boolean, default: false },
+    boldText: { type: Boolean, default: false },
+    italicText: { type: Boolean, default: false },
+    underlineText: { type: Boolean, default: false },
+    indentLevel: { type: Number, default: 0 },
+    numberFormat: { type: String, enum: ['general', 'currency', 'percentage', 'accounting'], default: 'general' },
+    decimalPlaces: { type: Number, default: 2 },
+    showGridlines: { type: Boolean, default: true },
+    freezeHeaders: { type: Boolean, default: true },
+    conditionalFormatting: { type: Boolean, default: false },
     printOrientation: { type: String, enum: ['portrait', 'landscape'], default: 'landscape' },
     paperFormat: { type: String, enum: ['A4', 'A3', 'Letter'], default: 'A4' },
     createdByUserId: { type: String, required: true, index: true },

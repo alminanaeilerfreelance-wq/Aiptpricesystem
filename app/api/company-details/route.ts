@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import CompanyDetail from '@/models/CompanyDetail';
-import Continent from '@/models/Continent';
-import Country from '@/models/Country';
 import { getUserFromRequest } from '@/lib/auth';
+import { saveCompanyLogoFile } from '@/lib/company-logo-upload';
 
 const SERVICE_CATEGORIES = new Set([
   'Trademark',
@@ -16,6 +14,27 @@ const SERVICE_CATEGORIES = new Set([
 
 const isValidServiceCategory = (value: unknown): value is string =>
   typeof value === 'string' && SERVICE_CATEGORIES.has(value);
+
+const readCompanyDetailBody = async (req: NextRequest) => {
+  const contentType = req.headers.get('content-type') || '';
+  if (contentType.toLowerCase().includes('multipart/form-data')) {
+    const formData = await req.formData();
+    const body: Record<string, unknown> = {};
+    formData.forEach((value, key) => {
+      if (key !== 'logo') body[key] = value;
+    });
+    const logo = formData.get('logo');
+    return {
+      body,
+      logoFile: logo && typeof logo !== 'string' ? logo : null,
+    };
+  }
+
+  return {
+    body: await req.json(),
+    logoFile: null,
+  };
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -41,12 +60,9 @@ export async function GET(req: NextRequest) {
       const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       filter.$or = [
         { companyName: { $regex: safeSearch, $options: 'i' } },
-        { continentName: { $regex: safeSearch, $options: 'i' } },
-        { countryName: { $regex: safeSearch, $options: 'i' } },
         { address: { $regex: safeSearch, $options: 'i' } },
         { contact: { $regex: safeSearch, $options: 'i' } },
         { email: { $regex: safeSearch, $options: 'i' } },
-        { serviceCategory: { $regex: safeSearch, $options: 'i' } },
       ];
     }
 
@@ -74,52 +90,38 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
 
-    const body = await req.json();
+    const { body, logoFile } = await readCompanyDetailBody(req);
     const companyName = typeof body?.companyName === 'string' ? body.companyName.trim() : '';
-    const continentId = typeof body?.continentId === 'string' ? body.continentId.trim() : '';
-    const countryId = typeof body?.countryId === 'string' ? body.countryId.trim() : '';
     const address = typeof body?.address === 'string' ? body.address.trim() : '';
     const contact = typeof body?.contact === 'string' ? body.contact.trim() : '';
     const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const existingLogoUrl = typeof body?.logoUrl === 'string' ? body.logoUrl.trim() : '';
     const serviceCategory = isValidServiceCategory(body?.serviceCategory)
       ? body.serviceCategory
-      : 'Trademark';
+      : undefined;
 
     if (!companyName) {
       return NextResponse.json({ error: 'Company name is required' }, { status: 400 });
-    }
-    if (!mongoose.Types.ObjectId.isValid(continentId)) {
-      return NextResponse.json({ error: 'Valid continent is required' }, { status: 400 });
-    }
-    if (!mongoose.Types.ObjectId.isValid(countryId)) {
-      return NextResponse.json({ error: 'Valid country is required' }, { status: 400 });
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: 'Invalid email address' }, { status: 400 });
     }
 
-    const [continent, country] = await Promise.all([
-      Continent.findOne({ _id: continentId, isActive: true }).lean(),
-      Country.findOne({ _id: countryId, isActive: true }).lean(),
-    ]);
-
-    if (!continent) {
-      return NextResponse.json({ error: 'Continent not found' }, { status: 404 });
-    }
-    if (!country) {
-      return NextResponse.json({ error: 'Country not found' }, { status: 404 });
+    let logoUrl = existingLogoUrl || undefined;
+    try {
+      logoUrl = (await saveCompanyLogoFile(logoFile)) || logoUrl;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid company logo upload';
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     const companyDetail = await CompanyDetail.create({
-      continentId,
-      continentName: continent.continent,
-      countryId,
-      countryName: country.name,
       companyName,
       address: address || undefined,
       contact: contact || undefined,
       email: email || undefined,
-      serviceCategory,
+      logoUrl,
+      serviceCategory: serviceCategory || undefined,
       isActive: body?.isActive !== false,
     });
 

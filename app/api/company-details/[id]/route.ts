@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import CompanyDetail from '@/models/CompanyDetail';
-import Continent from '@/models/Continent';
-import Country from '@/models/Country';
 import { getUserFromRequest } from '@/lib/auth';
+import { saveCompanyLogoFile } from '@/lib/company-logo-upload';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -20,6 +19,27 @@ const SERVICE_CATEGORIES = new Set([
 
 const isValidServiceCategory = (value: unknown): value is string =>
   typeof value === 'string' && SERVICE_CATEGORIES.has(value);
+
+const readCompanyDetailBody = async (req: NextRequest) => {
+  const contentType = req.headers.get('content-type') || '';
+  if (contentType.toLowerCase().includes('multipart/form-data')) {
+    const formData = await req.formData();
+    const body: Record<string, unknown> = {};
+    formData.forEach((value, key) => {
+      if (key !== 'logo') body[key] = value;
+    });
+    const logo = formData.get('logo');
+    return {
+      body,
+      logoFile: logo && typeof logo !== 'string' ? logo : null,
+    };
+  }
+
+  return {
+    body: await req.json(),
+    logoFile: null,
+  };
+};
 
 export async function GET(req: NextRequest, { params }: RouteContext) {
   const { id } = await params;
@@ -57,7 +77,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    const body = await req.json();
+    const { body, logoFile } = await readCompanyDetailBody(req);
     const existing = await CompanyDetail.findById(id);
     if (!existing || !existing.isActive) {
       return NextResponse.json({ error: 'Company detail not found' }, { status: 404 });
@@ -67,12 +87,6 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       body?.companyName !== undefined
         ? String(body.companyName || '').trim()
         : String(existing.companyName || '');
-    const continentId =
-      body?.continentId !== undefined
-        ? String(body.continentId || '').trim()
-        : String(existing.continentId || '');
-    const countryId =
-      body?.countryId !== undefined ? String(body.countryId || '').trim() : String(existing.countryId || '');
     const address =
       body?.address !== undefined ? String(body.address || '').trim() : String(existing.address || '');
     const contact =
@@ -81,6 +95,10 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       body?.email !== undefined
         ? String(body.email || '').trim().toLowerCase()
         : String(existing.email || '');
+    let logoUrl =
+      body?.logoUrl !== undefined
+        ? String(body.logoUrl || '').trim()
+        : String(existing.logoUrl || '');
     const serviceCategory = isValidServiceCategory(body?.serviceCategory)
       ? body.serviceCategory
       : existing.serviceCategory;
@@ -88,42 +106,34 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     if (!companyName) {
       return NextResponse.json({ error: 'Company name is required' }, { status: 400 });
     }
-    if (!mongoose.Types.ObjectId.isValid(continentId)) {
-      return NextResponse.json({ error: 'Valid continent is required' }, { status: 400 });
-    }
-    if (!mongoose.Types.ObjectId.isValid(countryId)) {
-      return NextResponse.json({ error: 'Valid country is required' }, { status: 400 });
-    }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: 'Invalid email address' }, { status: 400 });
     }
 
-    const [continent, country] = await Promise.all([
-      Continent.findOne({ _id: continentId, isActive: true }).lean(),
-      Country.findOne({ _id: countryId, isActive: true }).lean(),
-    ]);
-
-    if (!continent) {
-      return NextResponse.json({ error: 'Continent not found' }, { status: 404 });
-    }
-    if (!country) {
-      return NextResponse.json({ error: 'Country not found' }, { status: 404 });
+    try {
+      logoUrl = (await saveCompanyLogoFile(logoFile)) || logoUrl;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid company logo upload';
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     const companyDetail = await CompanyDetail.findByIdAndUpdate(
       id,
       {
         $set: {
-          continentId,
-          continentName: continent.continent,
-          countryId,
-          countryName: country.name,
           companyName,
           address: address || undefined,
           contact: contact || undefined,
           email: email || undefined,
+          logoUrl: logoUrl || undefined,
           serviceCategory,
           isActive: body?.isActive !== undefined ? body.isActive !== false : existing.isActive,
+        },
+        $unset: {
+          continentId: '',
+          continentName: '',
+          countryId: '',
+          countryName: '',
         },
       },
       { new: true, runValidators: true }

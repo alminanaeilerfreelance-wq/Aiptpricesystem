@@ -13,6 +13,9 @@ const SERVICES = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'] as
 const PRINT_ORIENTATIONS = ['portrait', 'landscape'] as const;
 const PAPER_FORMATS = ['A4', 'A3', 'Letter'] as const;
 const TABLE_MODES = ['quotation', 'all'] as const;
+const HORIZONTAL_ALIGNS = ['left', 'center', 'right'] as const;
+const VERTICAL_ALIGNS = ['top', 'middle', 'bottom'] as const;
+const NUMBER_FORMATS = ['general', 'currency', 'percentage', 'accounting'] as const;
 
 type DraftBody = Record<string, unknown>;
 
@@ -29,6 +32,9 @@ const cleanArray = (value: unknown) =>
 const cleanObject = (value: unknown) =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
 
+const cleanBoolean = (value: unknown, fallback: boolean) =>
+  typeof value === 'boolean' ? value : fallback;
+
 const buildDraftPayload = (body: DraftBody, user: JWTPayload) => {
   const selectedService = SERVICES.includes(body.selectedService as (typeof SERVICES)[number])
     ? (body.selectedService as (typeof SERVICES)[number])
@@ -44,6 +50,15 @@ const buildDraftPayload = (body: DraftBody, user: JWTPayload) => {
     : cleanArray(body.selectedRuleIds).length > 0
       ? 'quotation'
       : 'all';
+  const textAlign = HORIZONTAL_ALIGNS.includes(body.textAlign as (typeof HORIZONTAL_ALIGNS)[number])
+    ? (body.textAlign as (typeof HORIZONTAL_ALIGNS)[number])
+    : 'center';
+  const verticalAlign = VERTICAL_ALIGNS.includes(body.verticalAlign as (typeof VERTICAL_ALIGNS)[number])
+    ? (body.verticalAlign as (typeof VERTICAL_ALIGNS)[number])
+    : 'middle';
+  const numberFormat = NUMBER_FORMATS.includes(body.numberFormat as (typeof NUMBER_FORMATS)[number])
+    ? (body.numberFormat as (typeof NUMBER_FORMATS)[number])
+    : 'general';
 
   return {
     name: cleanString(body.name) || 'Untitled Draft',
@@ -72,6 +87,18 @@ const buildDraftPayload = (body: DraftBody, user: JWTPayload) => {
     rowColor: cleanString(body.rowColor) || '#FFFFFF',
     fontColor: cleanString(body.fontColor) || '#111827',
     highlightColor: cleanString(body.highlightColor) || '#FFF2CC',
+    textAlign,
+    verticalAlign,
+    wrapText: cleanBoolean(body.wrapText, false),
+    boldText: cleanBoolean(body.boldText, false),
+    italicText: cleanBoolean(body.italicText, false),
+    underlineText: cleanBoolean(body.underlineText, false),
+    indentLevel: Math.max(0, Math.min(8, cleanNumber(body.indentLevel, 0))),
+    numberFormat,
+    decimalPlaces: Math.max(0, Math.min(6, cleanNumber(body.decimalPlaces, 2))),
+    showGridlines: cleanBoolean(body.showGridlines, true),
+    freezeHeaders: cleanBoolean(body.freezeHeaders, true),
+    conditionalFormatting: cleanBoolean(body.conditionalFormatting, false),
     printOrientation,
     paperFormat,
     createdByUserId: user.userId,

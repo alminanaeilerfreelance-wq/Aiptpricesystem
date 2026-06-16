@@ -10,14 +10,15 @@ export type CompanyServiceCategory =
 export interface CompanyDetail {
   _id: string;
   continentId?: string;
-  continentName: string;
+  continentName?: string;
   countryId?: string;
-  countryName: string;
+  countryName?: string;
   companyName: string;
   address?: string;
   contact?: string;
   email?: string;
-  serviceCategory: CompanyServiceCategory;
+  logoUrl?: string;
+  serviceCategory?: CompanyServiceCategory;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -38,13 +39,12 @@ export interface CompanyDetailsListResponse {
 }
 
 export interface CreateCompanyDetailDto {
-  continentId: string;
-  countryId: string;
   companyName: string;
   address?: string;
   contact?: string;
   email?: string;
-  serviceCategory: CompanyServiceCategory;
+  logoUrl?: string;
+  serviceCategory?: CompanyServiceCategory;
   isActive?: boolean;
 }
 
@@ -59,12 +59,12 @@ export const companyDetailsService = {
     return response.data;
   },
 
-  async create(data: CreateCompanyDetailDto): Promise<CompanyDetail> {
+  async create(data: CreateCompanyDetailDto | FormData): Promise<CompanyDetail> {
     const response = await apiClient.post<CompanyDetail>('/api/company-details', data);
     return response.data;
   },
 
-  async update(id: string, data: Partial<CreateCompanyDetailDto>): Promise<CompanyDetail> {
+  async update(id: string, data: Partial<CreateCompanyDetailDto> | FormData): Promise<CompanyDetail> {
     const response = await apiClient.patch<CompanyDetail>(`/api/company-details/${id}`, data);
     return response.data;
   },

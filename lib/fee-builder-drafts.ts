@@ -12,6 +12,9 @@ export type FeeBuilderColumnKey =
 export type FeeBuilderPrintOrientation = 'portrait' | 'landscape';
 export type FeeBuilderPaperFormat = 'A4' | 'A3' | 'Letter';
 export type FeeBuilderTableMode = 'quotation' | 'all';
+export type FeeBuilderHorizontalAlign = 'left' | 'center' | 'right';
+export type FeeBuilderVerticalAlign = 'top' | 'middle' | 'bottom';
+export type FeeBuilderNumberFormat = 'general' | 'currency' | 'percentage' | 'accounting';
 
 export interface FeeBuilderDraftValues {
   officialFee: string;
@@ -39,6 +42,18 @@ export interface FeeBuilderDraft {
   rowColor: string;
   fontColor?: string;
   highlightColor?: string;
+  textAlign?: FeeBuilderHorizontalAlign;
+  verticalAlign?: FeeBuilderVerticalAlign;
+  wrapText?: boolean;
+  boldText?: boolean;
+  italicText?: boolean;
+  underlineText?: boolean;
+  indentLevel?: number;
+  numberFormat?: FeeBuilderNumberFormat;
+  decimalPlaces?: number;
+  showGridlines?: boolean;
+  freezeHeaders?: boolean;
+  conditionalFormatting?: boolean;
   printOrientation?: FeeBuilderPrintOrientation;
   paperFormat?: FeeBuilderPaperFormat;
   selectedCountry?: string;
@@ -47,7 +62,7 @@ export interface FeeBuilderDraft {
   selectedRuleIds?: string[];
   columnOrder?: string[];
   columnWidths?: Record<string, number>;
-  rowHeights?: Record<string, number>
+  rowHeights?: Record<string, number>;
   hiddenRowKeys?: string[];
   hiddenProcedureColumns?: string[];
 }

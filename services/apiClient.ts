@@ -1,4 +1,10 @@
-import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import axios, {
+  AxiosError,
+  AxiosHeaders,
+  AxiosInstance,
+  AxiosResponse,
+  InternalAxiosRequestConfig,
+} from 'axios';
 
 const apiClient: AxiosInstance = axios.create({
   // Use relative URLs for same-origin requests (will use current origin)
@@ -11,6 +17,17 @@ const apiClient: AxiosInstance = axios.create({
 // Request interceptor: attach JWT token from localStorage or cookies
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
+    const isFormData =
+      typeof FormData !== 'undefined' && config.data instanceof FormData;
+
+    if (isFormData && config.headers) {
+      if (config.headers instanceof AxiosHeaders) {
+        config.headers.delete('Content-Type');
+      } else {
+        delete config.headers['Content-Type'];
+      }
+    }
+
     if (typeof window !== 'undefined') {
       // Try localStorage first, then cookies
       let token = localStorage.getItem('token');

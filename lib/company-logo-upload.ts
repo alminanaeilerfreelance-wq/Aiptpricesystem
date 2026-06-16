@@ -1,0 +1,52 @@
+import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+export const COMPANY_LOGO_MAX_SIZE_BYTES = 255 * 1024 * 1024;
+
+type UploadableFile = {
+  name?: string;
+  size: number;
+  type?: string;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+};
+
+const IMAGE_EXTENSION_BY_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/svg+xml': 'svg',
+};
+
+const getSafeLogoExtension = (file: UploadableFile): string => {
+  const fromMime = file.type ? IMAGE_EXTENSION_BY_TYPE[file.type.toLowerCase()] : '';
+  if (fromMime) return fromMime;
+
+  const ext = path.extname(file.name || '').replace('.', '').toLowerCase();
+  return /^[a-z0-9]{1,8}$/.test(ext) ? ext : 'png';
+};
+
+export const saveCompanyLogoFile = async (file: UploadableFile | null | undefined): Promise<string | undefined> => {
+  if (!file || file.size === 0) return undefined;
+
+  if (file.size > COMPANY_LOGO_MAX_SIZE_BYTES) {
+    throw new Error('Company logo must be 255 MB or smaller.');
+  }
+
+  if (file.type && !file.type.toLowerCase().startsWith('image/')) {
+    throw new Error('Company logo must be an image file.');
+  }
+
+  const uploadDir = path.join(process.cwd(), 'public', 'uploads', 'company-logos');
+  await mkdir(uploadDir, { recursive: true });
+
+  const extension = getSafeLogoExtension(file);
+  const fileName = `${Date.now()}-${randomUUID()}.${extension}`;
+  const filePath = path.join(uploadDir, fileName);
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  await writeFile(filePath, buffer);
+  return `/uploads/company-logos/${fileName}`;
+};

@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import CompanyDetail from '@/models/CompanyDetail';
 import { getUserFromRequest } from '@/lib/auth';
-import { saveCompanyLogoFile } from '@/lib/company-logo-upload';
+import { deleteCompanyLogoFile, saveCompanyLogoFile } from '@/lib/company-logo-upload';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -99,6 +99,8 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       body?.logoUrl !== undefined
         ? String(body.logoUrl || '').trim()
         : String(existing.logoUrl || '');
+    const previousLogoUrl = String(existing.logoUrl || '');
+    let uploadedLogoUrl = '';
     const serviceCategory = isValidServiceCategory(body?.serviceCategory)
       ? body.serviceCategory
       : existing.serviceCategory;
@@ -111,7 +113,8 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     }
 
     try {
-      logoUrl = (await saveCompanyLogoFile(logoFile)) || logoUrl;
+      uploadedLogoUrl = (await saveCompanyLogoFile(logoFile)) || '';
+      logoUrl = uploadedLogoUrl || logoUrl;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid company logo upload';
       return NextResponse.json({ error: message }, { status: 400 });
@@ -141,6 +144,10 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
 
     if (!companyDetail) {
       return NextResponse.json({ error: 'Company detail not found' }, { status: 404 });
+    }
+
+    if (uploadedLogoUrl && previousLogoUrl && previousLogoUrl !== uploadedLogoUrl) {
+      await deleteCompanyLogoFile(previousLogoUrl);
     }
 
     return NextResponse.json(companyDetail);

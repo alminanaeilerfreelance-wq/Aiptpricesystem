@@ -1655,16 +1655,16 @@ export default function ClientQuotationsPage() {
         title: string,
         rows: Array<[string, string]>
       ) => {
-        const headerHeight = 28;
-        const rowHeight = 27;
-        const panelHeight = headerHeight + rows.length * rowHeight + 4;
+        const headerHeight = 22;
+        const rowHeight = 18;
+        const panelHeight = headerHeight + rows.length * rowHeight + 2;
         doc.setFont(REPORT_PDF_FONT, 'bold');
         doc.setFontSize(11);
         doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.text(title.toUpperCase(), x, y + 14);
+        doc.text(title.toUpperCase(), x, y + 12);
         doc.setDrawColor(...hexToRgbTuple(REPORT_NAVY));
         doc.setLineWidth(0.8);
-        doc.line(x, y + 20, x + 46, y + 20);
+        doc.line(x, y + 16, x + 46, y + 16);
 
         rows.forEach(([label, value], index) => {
           const rowY = y + headerHeight + index * rowHeight;
@@ -1674,11 +1674,11 @@ export default function ClientQuotationsPage() {
           doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
           doc.setFont(REPORT_PDF_FONT, 'bold');
           doc.setFontSize(8.8);
-          doc.text(label, x, rowY + 17);
+          doc.text(label, x, rowY + 12);
           doc.setTextColor(15, 23, 42);
           doc.setFont(REPORT_PDF_FONT, 'normal');
           const wrapped = doc.splitTextToSize(value, width * 0.48);
-          doc.text(wrapped.slice(0, 2), x + width * 0.52, rowY + 17);
+          doc.text(wrapped.slice(0, 2), x + width * 0.52, rowY + 12);
         });
         return panelHeight;
       };
@@ -1774,7 +1774,7 @@ export default function ClientQuotationsPage() {
         return y + 52;
       };
 
-      let cursorY = panelTop + projectHeight + 26;
+      let cursorY = panelTop + projectHeight + 18;
       cursorY = ensurePdfRoom(cursorY, 78);
       cursorY = drawRequirementHeader(cursorY);
       doc.setFont(REPORT_PDF_FONT, 'normal');
@@ -2049,17 +2049,17 @@ export default function ClientQuotationsPage() {
 	              .company-logo { max-width: 92pt; max-height: 54pt; width: auto; height: auto; object-fit: contain; }
 	              .company-name-line { color: ${REPORT_NAVY}; font-size: 13pt; font-weight: 800; margin-bottom: 8pt; }
 	              .company-line { margin-bottom: 2pt; }
-	              .summary-layout { width: 100%; margin-bottom: 18pt; }
+		              .summary-layout { width: 100%; margin-bottom: 10pt; }
               .info-panel { padding: 0; background: #fff; }
-              .section-box { border: 1px solid ${REPORT_BORDER}; border-radius: 0; padding: 10pt; background: #fff; }
-              .panel-title { color: ${REPORT_NAVY}; padding: 0; font-size: 11pt; font-weight: 800; text-transform: uppercase; }
-              .panel-title-rule { width: 46pt; border-top: 0.8pt solid ${REPORT_NAVY}; margin: 5pt 0 8pt; }
-              .detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8.8pt; }
-              .detail-table td { border-bottom: 1px solid #e2e8f0; padding: 8pt 9pt; vertical-align: middle; }
+              .section-box { border: 1px solid ${REPORT_BORDER}; border-radius: 0; padding: 8pt; background: #fff; }
+              .panel-title { color: ${REPORT_NAVY}; padding: 0; font-size: 11pt; font-weight: 800; line-height: 1.1; text-transform: uppercase; }
+              .panel-title-rule { width: 46pt; border-top: 0.8pt solid ${REPORT_NAVY}; margin: 3pt 0 4pt; }
+              .detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8.8pt; line-height: 1.12; }
+              .detail-table td { border-bottom: 1px solid #e2e8f0; padding: 3pt 6pt; vertical-align: middle; line-height: 1.12; }
               .detail-table tr:last-child td { border-bottom: 0; }
               .detail-label { width: 46%; color: ${REPORT_NAVY}; font-weight: 800; border-right: 1px solid #e2e8f0; }
               .detail-value { color: #111827; }
-              .section-box { margin-top: 14pt; padding: 16pt; }
+              .section-box { margin-top: 10pt; padding: 12pt; }
               .requirement-flow-section { margin-top: 18pt; padding: 0 8pt 12pt; page-break-inside: auto; }
               .section-title { color: ${REPORT_NAVY}; font-size: 14pt; font-weight: 800; text-transform: uppercase; margin: 0; }
               .title-underline { width: 42pt; border-top: 1pt solid ${REPORT_GOLD}; margin: 5pt 0 13pt; }
@@ -2943,14 +2943,18 @@ export default function ClientQuotationsPage() {
           },
           '.client-quotation-invoice-print .invoice-detail-panel-title': {
             color: REPORT_NAVY,
-            padding: '0 0 7px',
+            padding: '0 0 3px',
             fontFamily: `${REPORT_CSS_FONT_STACK} !important`,
             fontWeight: 900,
             letterSpacing: '0.01em',
+            lineHeight: 1.1,
           },
           '.client-quotation-invoice-print .invoice-detail-table .MuiTableCell-root': {
             borderColor: REPORT_TEAL_LIGHT,
             fontSize: 13,
+            lineHeight: 1.12,
+            paddingTop: '3px !important',
+            paddingBottom: '3px !important',
           },
           '.client-quotation-invoice-print .invoice-report-footer': {
             marginTop: 28,
@@ -4087,7 +4091,7 @@ export default function ClientQuotationsPage() {
 	                </Box>
 	              </Box>
 
-              <Grid container spacing={2} sx={{ mb: 2 }}>
+              <Grid container spacing={1} sx={{ mb: 1.25 }}>
                 <Grid size={{ xs: 12 }}>
                   <Box className="invoice-detail-block" sx={{ height: '100%' }}>
                       <Box className="invoice-detail-panel-title">

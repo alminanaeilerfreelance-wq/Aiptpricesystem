@@ -96,6 +96,14 @@ interface ActiveFeeCellTarget {
   ruleId?: string;
 }
 
+interface FeeEditHistoryItem {
+  id: string;
+  target: ActiveFeeCellTarget;
+  previousValue: string;
+  nextValue: string;
+  label: string;
+}
+
 interface WorksheetColumn {
   key: string;
   label: string;
@@ -156,6 +164,32 @@ const DEFAULT_COLUMNS: Record<ColumnKey, boolean> = {
 
 const EXCEL_RIBBON_TABS = ['Home', 'Insert', 'Draw', 'Page Layout', 'Formulas', 'Data', 'Review', 'View', 'Help'];
 const DEFAULT_FORMULA_TEXT = '=IF(A2=500/2,"It is half of 500","FALSE")';
+
+const getFeeCellKey = (target: ActiveFeeCellTarget) =>
+  `${target.countryKey}::${target.procedure}::${target.field}`;
+
+const getCellCoordinates = (cellName: string) => {
+  const match = cellName.trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
+  if (!match) return null;
+
+  const column = match[1].split('').reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+  const row = Number(match[2]) - 1;
+  return Number.isFinite(column) && Number.isFinite(row) ? { column, row } : null;
+};
+
+const isCellBetween = (cellName: string, startCell: string, endCell: string) => {
+  const cell = getCellCoordinates(cellName);
+  const start = getCellCoordinates(startCell);
+  const end = getCellCoordinates(endCell);
+  if (!cell || !start || !end) return false;
+
+  const minColumn = Math.min(start.column, end.column);
+  const maxColumn = Math.max(start.column, end.column);
+  const minRow = Math.min(start.row, end.row);
+  const maxRow = Math.max(start.row, end.row);
+
+  return cell.column >= minColumn && cell.column <= maxColumn && cell.row >= minRow && cell.row <= maxRow;
+};
 
 const getExcelColumnLabel = (index: number) => {
   let value = index + 1;
@@ -285,8 +319,13 @@ export default function FeeReportBuilderPage() {
   const [darkMode, setDarkMode] = useState(false);
   const [cellContextMenu, setCellContextMenu] = useState<null | { mouseX: number; mouseY: number }>(null);
   const [activeFeeCell, setActiveFeeCell] = useState<ActiveFeeCellTarget | null>(null);
+  const [selectedFeeCells, setSelectedFeeCells] = useState<ActiveFeeCellTarget[]>([]);
+  const [selectionAnchorCell, setSelectionAnchorCell] = useState<ActiveFeeCellTarget | null>(null);
+  const [undoStack, setUndoStack] = useState<FeeEditHistoryItem[]>([]);
+  const [redoStack, setRedoStack] = useState<FeeEditHistoryItem[]>([]);
   const [showFilterDropdowns, setShowFilterDropdowns] = useState(true);
   const [refreshToken, setRefreshToken] = useState(0);
+  const editStartValueRef = useRef<Record<string, string>>({});
 
   useEffect(() => {
     const dateValue = getDateInputValue();
@@ -310,20 +349,18 @@ export default function FeeReportBuilderPage() {
       }
       if (key === 'z') {
         event.preventDefault();
-        addAudit('Undo shortcut pressed');
-        showSuccessToast('Undo shortcut captured');
+        undoLastFeeEdit();
       }
       if (key === 'y') {
         event.preventDefault();
-        addAudit('Redo shortcut pressed');
-        showSuccessToast('Redo shortcut captured');
+        redoLastFeeEdit();
       }
     };
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeDraftId, draftDate, draftName, tableMode, selectedRuleIds]);
+  }, [activeDraftId, draftDate, draftName, tableMode, selectedRuleIds, undoStack, redoStack]);
 
   const autoSaveTimersRef = useRef<Record<string, number>>({});
   const columnResizeRef = useRef<{ procedure: string; startX: number; startWidth: number } | null>(null);
@@ -371,7 +408,7 @@ export default function FeeReportBuilderPage() {
   const evaluateFormula = (formula: string) => {
     const normalized = formula.trim();
     if (normalized === DEFAULT_FORMULA_TEXT) return 'It is half of 500';
-    const formulaValues = getVisibleFormulaValues();
+    const formulaValues = getSelectedFormulaValues(normalized);
     if (/^=sum\(/i.test(normalized)) return formatSheetNumber(formulaValues.reduce((sum, value) => sum + value, 0));
     if (/^=average\(/i.test(normalized)) {
       const average = formulaValues.length
@@ -386,14 +423,36 @@ export default function FeeReportBuilderPage() {
     if (/^=now\(\)$/i.test(normalized)) return new Date().toLocaleString();
     if (/^=if\(/i.test(normalized)) return 'It is half of 500';
     if (/^=iferror\(/i.test(normalized)) return 'No error';
+    const arithmeticValue = evaluateArithmeticFormula(normalized);
+    if (arithmeticValue !== null) return formatSheetNumber(arithmeticValue);
     return normalized.startsWith('=') ? 'Formula ready' : normalized;
   };
 
   const acceptFormula = () => {
     const result = evaluateFormula(formulaInput);
     setFormulaResult(result);
-    addAudit(`Formula Accepted: ${formulaInput}`);
+    addAudit(`Formula Accepted: ${formulaInput} on ${selectedRangeLabel}`);
     showSuccessToast(`Formula result: ${result}`);
+  };
+
+  const applyFormulaResultToActiveCell = async () => {
+    if (!activeFeeCell) {
+      setError('Select a fee cell before applying a formula result.');
+      return;
+    }
+
+    const result = evaluateFormula(formulaInput);
+    const numericResult = normalizeFormulaResultNumber(result);
+    if (numericResult === null) {
+      setError('Only numeric formula results can be applied to fee cells.');
+      return;
+    }
+
+    setFormulaResult(result);
+    await writeFeeCellTargetValue(activeFeeCell, String(numericResult), {
+      historyLabel: `Formula Applied: ${formulaInput} -> ${activeFeeCell.cellName}`,
+    });
+    showSuccessToast(`Formula applied to ${activeFeeCell.cellName}`);
   };
 
   const cancelFormula = () => {
@@ -1500,32 +1559,9 @@ export default function FeeReportBuilderPage() {
       return;
     }
 
-    const rule = activeFeeCell.ruleId
-      ? pricingRules.find((item) => item._id === activeFeeCell.ruleId)
-      : null;
-
-    if (rule) {
-      const officialFee = activeFeeCell.field === 'officialFee' ? value : getFeeValue(rule, 'officialFee');
-      const attorneyFee = activeFeeCell.field === 'attorneyFee' ? value : getFeeValue(rule, 'attorneyFee');
-      updateFee(rule, activeFeeCell.field, value);
-      await saveRuleFees(rule, officialFee, attorneyFee);
-      return;
-    }
-
-    const countryRow = countryRows.find((row) => row.key === activeFeeCell.countryKey);
-    if (!countryRow) {
-      setError('The selected fee cell is no longer visible.');
-      return;
-    }
-
-    const officialFee = activeFeeCell.field === 'officialFee'
-      ? value
-      : getMissingFeeValue(countryRow, activeFeeCell.procedure, 'officialFee');
-    const attorneyFee = activeFeeCell.field === 'attorneyFee'
-      ? value
-      : getMissingFeeValue(countryRow, activeFeeCell.procedure, 'attorneyFee');
-    updateMissingFee(countryRow, activeFeeCell.procedure, activeFeeCell.field, value);
-    await saveMissingRuleFees(countryRow, activeFeeCell.procedure, officialFee, attorneyFee);
+    await writeFeeCellTargetValue(activeFeeCell, value, {
+      historyLabel: `Clipboard Write: ${activeFeeCell.cellName}`,
+    });
   };
 
   const buildWorkbookClipboardText = () => {
@@ -1549,24 +1585,71 @@ export default function FeeReportBuilderPage() {
     ].join('\n');
   };
 
+  const buildSelectedRangeClipboardText = () => {
+    if (selectedFeeCells.length <= 1) return getActiveFeeCellValue();
+
+    const sortedCells = [...selectedFeeCells].sort((a, b) => {
+      const aPosition = getCellCoordinates(a.cellName);
+      const bPosition = getCellCoordinates(b.cellName);
+      if (!aPosition || !bPosition) return a.cellName.localeCompare(b.cellName);
+      if (aPosition.row !== bPosition.row) return aPosition.row - bPosition.row;
+      return aPosition.column - bPosition.column;
+    });
+    const rows = new Map<number, string[]>();
+
+    sortedCells.forEach((target) => {
+      const position = getCellCoordinates(target.cellName);
+      const row = position?.row ?? 0;
+      rows.set(row, [...(rows.get(row) || []), getFeeCellTargetValue(target)]);
+    });
+
+    return Array.from(rows.keys())
+      .sort((a, b) => a - b)
+      .map((row) => (rows.get(row) || []).join('\t'))
+      .join('\n');
+  };
+
   const copyActiveCellOrWorkbook = () =>
-    copyTextToClipboard(activeFeeCell ? getActiveFeeCellValue() : buildWorkbookClipboardText(), activeFeeCell ? 'Cell copied' : 'Workbook copied');
+    copyTextToClipboard(
+      activeFeeCell ? buildSelectedRangeClipboardText() : buildWorkbookClipboardText(),
+      activeFeeCell ? `${selectedFeeCells.length > 1 ? 'Range' : 'Cell'} copied` : 'Workbook copied'
+    );
 
   const cutActiveCell = async () => {
     if (!activeFeeCell) {
       await copyTextToClipboard(buildWorkbookClipboardText(), 'Workbook copied');
       return;
     }
-    const value = getActiveFeeCellValue();
-    await copyTextToClipboard(value, 'Cell cut');
-    await writeActiveFeeCellValue('');
+    await copyTextToClipboard(buildSelectedRangeClipboardText(), selectedFeeCells.length > 1 ? 'Range cut' : 'Cell cut');
+    const targets = selectedFeeCells.length > 0 ? selectedFeeCells : [activeFeeCell];
+    for (const target of targets) {
+      await writeFeeCellTargetValue(target, '', {
+        historyLabel: `Cell Cut: ${target.cellName}`,
+      });
+    }
   };
 
   const pasteActiveCell = async () => {
     try {
       if (!navigator.clipboard?.readText) throw new Error('Clipboard read is not available.');
       const text = await navigator.clipboard.readText();
-      await writeActiveFeeCellValue(text.trim());
+      const targets = selectedFeeCells.length > 1 ? selectedFeeCells : activeFeeCell ? [activeFeeCell] : [];
+      if (targets.length === 0) {
+        await writeActiveFeeCellValue(text.trim());
+        return;
+      }
+
+      const pastedValues = text
+        .split(/\r?\n/)
+        .flatMap((row) => row.split('\t'))
+        .map((value) => value.trim());
+      const fallbackValue = pastedValues[0] || '';
+
+      for (let index = 0; index < targets.length; index += 1) {
+        await writeFeeCellTargetValue(targets[index], pastedValues[index] ?? fallbackValue, {
+          historyLabel: `Cell Pasted: ${targets[index].cellName}`,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Paste failed');
     }
@@ -1891,6 +1974,535 @@ export default function FeeReportBuilderPage() {
       ? 'attorneyFee'
       : 'officialFee';
 
+  const visibleFeeCellTargets = useMemo<ActiveFeeCellTarget[]>(() => {
+    if (!showProcedureColumns) return [];
+
+    return pagedCountryRows.flatMap((countryRow, rowIndex) =>
+      procedureColumns.flatMap((procedure, procedureIndex) => {
+        const rule = countryRow.rulesByProcedure[procedure];
+        const worksheetRowNumber = page * rowsPerPage + rowIndex + 2;
+        const firstFeeColumnIndex =
+          (columnVisibility.country ? 3 : 0) + procedureIndex * visibleFeeColumnCount;
+        const targets: ActiveFeeCellTarget[] = [];
+
+        if (columnVisibility.officeFee) {
+          targets.push({
+            cellName: `${getExcelColumnLabel(firstFeeColumnIndex)}${worksheetRowNumber}`,
+            countryKey: countryRow.key,
+            procedure,
+            field: 'officialFee',
+            ruleId: rule?._id,
+          });
+        }
+
+        if (columnVisibility.attorneyFee) {
+          targets.push({
+            cellName: `${getExcelColumnLabel(firstFeeColumnIndex + (columnVisibility.officeFee ? 1 : 0))}${worksheetRowNumber}`,
+            countryKey: countryRow.key,
+            procedure,
+            field: 'attorneyFee',
+            ruleId: rule?._id,
+          });
+        }
+
+        return targets;
+      })
+    );
+  }, [
+    columnVisibility.attorneyFee,
+    columnVisibility.country,
+    columnVisibility.officeFee,
+    page,
+    pagedCountryRows,
+    procedureColumns,
+    rowsPerPage,
+    showProcedureColumns,
+    visibleFeeColumnCount,
+  ]);
+
+  const sortedVisibleFeeCellTargets = useMemo(
+    () =>
+      [...visibleFeeCellTargets].sort((a, b) => {
+        const aPosition = getCellCoordinates(a.cellName);
+        const bPosition = getCellCoordinates(b.cellName);
+        if (!aPosition || !bPosition) return a.cellName.localeCompare(b.cellName);
+        if (aPosition.row !== bPosition.row) return aPosition.row - bPosition.row;
+        return aPosition.column - bPosition.column;
+      }),
+    [visibleFeeCellTargets]
+  );
+
+  const visibleFeeCellByName = useMemo(() => {
+    const cells = new Map<string, ActiveFeeCellTarget>();
+    visibleFeeCellTargets.forEach((target) => {
+      cells.set(target.cellName.toUpperCase(), target);
+    });
+    return cells;
+  }, [visibleFeeCellTargets]);
+
+  const selectedFeeCellKeys = useMemo(
+    () => new Set(selectedFeeCells.map((target) => getFeeCellKey(target))),
+    [selectedFeeCells]
+  );
+
+  const selectedWorksheetColumns = useMemo(
+    () =>
+      new Set(
+        selectedFeeCells
+          .map((target) => target.cellName.match(/^[A-Z]+/i)?.[0]?.toUpperCase())
+          .filter((value): value is string => Boolean(value))
+      ),
+    [selectedFeeCells]
+  );
+
+  const selectedWorksheetRows = useMemo(
+    () =>
+      new Set(
+        selectedFeeCells
+          .map((target) => target.cellName.match(/\d+$/)?.[0])
+          .filter((value): value is string => Boolean(value))
+      ),
+    [selectedFeeCells]
+  );
+
+  const getFeeCellTargetValue = (target: ActiveFeeCellTarget) => {
+    const countryRow = countryRows.find((row) => row.key === target.countryKey);
+    const rule =
+      (target.ruleId ? pricingRules.find((item) => item._id === target.ruleId) : null) ||
+      countryRow?.rulesByProcedure[target.procedure];
+
+    if (rule) return getFeeValue(rule, target.field);
+    return countryRow ? getMissingFeeValue(countryRow, target.procedure, target.field) : '';
+  };
+
+  const getTargetsFromRangeLabel = (rangeLabel: string) => {
+    const [startCell, endCell] = rangeLabel
+      .split(':')
+      .map((item) => item.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (!startCell) return [];
+    if (!endCell) {
+      const target = visibleFeeCellByName.get(startCell);
+      return target ? [target] : [];
+    }
+
+    return sortedVisibleFeeCellTargets.filter((target) =>
+      isCellBetween(target.cellName, startCell, endCell)
+    );
+  };
+
+  const getFeeTargetsFromFormula = (formula: string) => {
+    const references = Array.from(formula.matchAll(/([A-Z]+\d+)(?::([A-Z]+\d+))?/gi));
+    const targets = references.flatMap((match) => getTargetsFromRangeLabel(match[2] ? `${match[1]}:${match[2]}` : match[1]));
+    const seen = new Set<string>();
+
+    return targets.filter((target) => {
+      const key = getFeeCellKey(target);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const getSelectedFormulaValues = (formula = '') => {
+    const referencedTargets = formula ? getFeeTargetsFromFormula(formula) : [];
+    const targets = referencedTargets.length > 0
+      ? referencedTargets
+      : selectedFeeCells.length > 0
+      ? selectedFeeCells
+      : activeFeeCell
+        ? [activeFeeCell]
+        : [];
+
+    const values = targets
+      .map((target) => normalizeNumberInput(getFeeCellTargetValue(target)))
+      .filter((value): value is number => value !== null);
+
+    return values.length > 0 ? values : getVisibleFormulaValues();
+  };
+
+  const evaluateArithmeticFormula = (formula: string) => {
+    if (!formula.startsWith('=')) return null;
+    const expression = formula
+      .slice(1)
+      .replace(/([A-Z]+\d+)/gi, (cellName) => {
+        const target = visibleFeeCellByName.get(cellName.toUpperCase());
+        const value = target ? normalizeNumberInput(getFeeCellTargetValue(target)) : 0;
+        return String(value ?? 0);
+      })
+      .replace(/,/g, '');
+
+    if (!/^[0-9+\-*/().\s]+$/.test(expression)) return null;
+
+    try {
+      // The expression is restricted to numbers and arithmetic operators before evaluation.
+      const result = Function(`"use strict"; return (${expression});`)();
+      return typeof result === 'number' && Number.isFinite(result) ? result : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const normalizeFormulaResultNumber = (result: string) => {
+    const trimmed = result.trim();
+    if (!trimmed) return null;
+    const accountingMatch = trimmed.match(/^\((.+)\)$/);
+    const normalized = (accountingMatch ? `-${accountingMatch[1]}` : trimmed)
+      .replace(/[$,%\s,]/g, '');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const selectedRangeLabel = useMemo(() => {
+    if (selectedFeeCells.length === 0) return activeCell;
+    if (selectedFeeCells.length === 1) return selectedFeeCells[0].cellName;
+
+    const sortedCells = [...selectedFeeCells].sort((a, b) => {
+      const aPosition = getCellCoordinates(a.cellName);
+      const bPosition = getCellCoordinates(b.cellName);
+      if (!aPosition || !bPosition) return a.cellName.localeCompare(b.cellName);
+      if (aPosition.row !== bPosition.row) return aPosition.row - bPosition.row;
+      return aPosition.column - bPosition.column;
+    });
+
+    return `${sortedCells[0].cellName}:${sortedCells[sortedCells.length - 1].cellName}`;
+  }, [activeCell, selectedFeeCells]);
+
+  const selectionStats = useMemo(() => {
+    const values = selectedFeeCells
+      .map((target) => normalizeNumberInput(getFeeCellTargetValue(target)))
+      .filter((value): value is number => value !== null);
+    const sum = values.reduce((total, value) => total + value, 0);
+    const average = values.length ? sum / values.length : 0;
+
+    return { count: selectedFeeCells.length, numericCount: values.length, sum, average };
+  }, [selectedFeeCells, editedFees, missingFeeDrafts, pricingRules, countryRows]);
+
+  const pushFeeEditHistory = (
+    target: ActiveFeeCellTarget,
+    previousValue: string,
+    nextValue: string,
+    label: string
+  ) => {
+    if (previousValue === nextValue) return;
+
+    setUndoStack((current) => [
+      { id: makeId('fee-edit'), target: { ...target }, previousValue, nextValue, label },
+      ...current,
+    ].slice(0, 40));
+    setRedoStack([]);
+    addAudit(label);
+  };
+
+  const writeFeeCellTargetValue = async (
+    target: ActiveFeeCellTarget,
+    value: string,
+    options: { save?: boolean; historyLabel?: string; skipHistory?: boolean } = {}
+  ) => {
+    const previousValue = getFeeCellTargetValue(target);
+    const countryRow = countryRows.find((row) => row.key === target.countryKey);
+    const rule =
+      (target.ruleId ? pricingRules.find((item) => item._id === target.ruleId) : null) ||
+      countryRow?.rulesByProcedure[target.procedure];
+
+    if (rule) {
+      const officialFee = target.field === 'officialFee' ? value : getFeeValue(rule, 'officialFee');
+      const attorneyFee = target.field === 'attorneyFee' ? value : getFeeValue(rule, 'attorneyFee');
+      updateFee(rule, target.field, value);
+      if (options.save !== false) await saveRuleFees(rule, officialFee, attorneyFee);
+    } else if (countryRow) {
+      const officialFee = target.field === 'officialFee'
+        ? value
+        : getMissingFeeValue(countryRow, target.procedure, 'officialFee');
+      const attorneyFee = target.field === 'attorneyFee'
+        ? value
+        : getMissingFeeValue(countryRow, target.procedure, 'attorneyFee');
+      updateMissingFee(countryRow, target.procedure, target.field, value);
+      if (options.save !== false) await saveMissingRuleFees(countryRow, target.procedure, officialFee, attorneyFee);
+    } else {
+      setError('The selected fee cell is no longer visible.');
+      return;
+    }
+
+    if (!options.skipHistory) {
+      pushFeeEditHistory(
+        target,
+        previousValue,
+        value,
+        options.historyLabel || `Cell Updated: ${target.cellName}`
+      );
+    }
+
+    setActiveCell(target.cellName);
+    setActiveFeeCell(target);
+  };
+
+  const undoLastFeeEdit = async () => {
+    const [lastEdit, ...remainingUndo] = undoStack;
+    if (!lastEdit) {
+      showSuccessToast('Nothing to undo');
+      return;
+    }
+
+    await writeFeeCellTargetValue(lastEdit.target, lastEdit.previousValue, {
+      skipHistory: true,
+      historyLabel: `Undo: ${lastEdit.label}`,
+    });
+    setUndoStack(remainingUndo);
+    setRedoStack((current) => [lastEdit, ...current].slice(0, 40));
+    addAudit(`Undo: ${lastEdit.label}`);
+    showSuccessToast(`Undo ${lastEdit.target.cellName}`);
+  };
+
+  const redoLastFeeEdit = async () => {
+    const [lastEdit, ...remainingRedo] = redoStack;
+    if (!lastEdit) {
+      showSuccessToast('Nothing to redo');
+      return;
+    }
+
+    await writeFeeCellTargetValue(lastEdit.target, lastEdit.nextValue, {
+      skipHistory: true,
+      historyLabel: `Redo: ${lastEdit.label}`,
+    });
+    setRedoStack(remainingRedo);
+    setUndoStack((current) => [lastEdit, ...current].slice(0, 40));
+    addAudit(`Redo: ${lastEdit.label}`);
+    showSuccessToast(`Redo ${lastEdit.target.cellName}`);
+  };
+
+  const selectFeeCell = (target: ActiveFeeCellTarget, extendRange = false) => {
+    setActiveCell(target.cellName);
+    setActiveFeeCell(target);
+    editStartValueRef.current[getFeeCellKey(target)] = getFeeCellTargetValue(target);
+
+    if (extendRange && selectionAnchorCell) {
+      const rangeTargets = visibleFeeCellTargets.filter((cellTarget) =>
+        isCellBetween(cellTarget.cellName, selectionAnchorCell.cellName, target.cellName)
+      );
+      setSelectedFeeCells(rangeTargets.length > 0 ? rangeTargets : [target]);
+      return;
+    }
+
+    setSelectionAnchorCell(target);
+    setSelectedFeeCells([target]);
+  };
+
+  const commitFeeCellEdit = (target: ActiveFeeCellTarget, nextValue: string) => {
+    const targetKey = getFeeCellKey(target);
+    const previousValue = editStartValueRef.current[targetKey];
+    delete editStartValueRef.current[targetKey];
+
+    if (previousValue !== undefined && previousValue !== nextValue) {
+      pushFeeEditHistory(target, previousValue, nextValue, `Cell Edited: ${target.cellName}`);
+    }
+  };
+
+  const focusFeeCellTarget = (target: ActiveFeeCellTarget, extendRange = false, selectText = false) => {
+    selectFeeCell(target, extendRange);
+    window.requestAnimationFrame(() => {
+      const input = document.querySelector<HTMLInputElement>(`input[data-fee-cell="${target.cellName}"]`);
+      input?.focus();
+      if (selectText) input?.select();
+    });
+  };
+
+  const selectFeeCellByName = (cellName: string, focusCell = true) => {
+    const normalizedCell = cellName.trim().toUpperCase();
+    const target = visibleFeeCellByName.get(normalizedCell);
+
+    if (!target) {
+      setActiveCell(normalizedCell || 'B2');
+      setActiveFeeCell(null);
+      setSelectedFeeCells([]);
+      setSelectionAnchorCell(null);
+      setError(normalizedCell ? `${normalizedCell} is not an editable visible fee cell.` : '');
+      return;
+    }
+
+    setError('');
+    if (focusCell) focusFeeCellTarget(target, false, true);
+    else selectFeeCell(target);
+  };
+
+  const selectFeeColumnByLetter = (letter: string) => {
+    const targets = sortedVisibleFeeCellTargets.filter((target) =>
+      target.cellName.toUpperCase().startsWith(letter.toUpperCase())
+    );
+    if (targets.length === 0) return;
+    setActiveCell(targets[0].cellName);
+    setActiveFeeCell(targets[0]);
+    setSelectionAnchorCell(targets[0]);
+    setSelectedFeeCells(targets);
+    addAudit(`Column Selected: ${letter}`);
+  };
+
+  const selectFeeRowByNumber = (rowNumber: number) => {
+    const targets = sortedVisibleFeeCellTargets.filter((target) => {
+      const position = getCellCoordinates(target.cellName);
+      return position?.row === rowNumber - 1;
+    });
+    if (targets.length === 0) return;
+    setActiveCell(targets[0].cellName);
+    setActiveFeeCell(targets[0]);
+    setSelectionAnchorCell(targets[0]);
+    setSelectedFeeCells(targets);
+    addAudit(`Row Selected: ${rowNumber}`);
+  };
+
+  const getNextFeeCellTarget = (target: ActiveFeeCellTarget, direction: 'up' | 'down' | 'left' | 'right') => {
+    const currentPosition = getCellCoordinates(target.cellName);
+    if (!currentPosition) return target;
+
+    if (direction === 'left' || direction === 'right') {
+      const rowTargets = sortedVisibleFeeCellTargets.filter((cellTarget) => {
+        const position = getCellCoordinates(cellTarget.cellName);
+        return position?.row === currentPosition.row;
+      });
+      const currentIndex = rowTargets.findIndex((cellTarget) => getFeeCellKey(cellTarget) === getFeeCellKey(target));
+      const nextIndex = currentIndex + (direction === 'right' ? 1 : -1);
+      return rowTargets[nextIndex] || target;
+    }
+
+    const columnTargets = sortedVisibleFeeCellTargets.filter((cellTarget) => {
+      const position = getCellCoordinates(cellTarget.cellName);
+      return position?.column === currentPosition.column;
+    });
+    const currentIndex = columnTargets.findIndex((cellTarget) => getFeeCellKey(cellTarget) === getFeeCellKey(target));
+    const nextIndex = currentIndex + (direction === 'down' ? 1 : -1);
+    return columnTargets[nextIndex] || target;
+  };
+
+  const clearSelectedRange = async () => {
+    const targets = selectedFeeCells.length > 0 ? selectedFeeCells : activeFeeCell ? [activeFeeCell] : [];
+    if (targets.length === 0) {
+      setError('Select fee cells before clearing contents.');
+      return;
+    }
+
+    for (const target of targets) {
+      await writeFeeCellTargetValue(target, '', {
+        historyLabel: `Clear Contents: ${target.cellName}`,
+      });
+    }
+    showSuccessToast(`${targets.length} cell${targets.length === 1 ? '' : 's'} cleared`);
+  };
+
+  const fillSelectedRangeFromActiveCell = async () => {
+    if (!activeFeeCell) {
+      setError('Select a source fee cell before using Fill.');
+      return;
+    }
+
+    const sourceValue = getFeeCellTargetValue(activeFeeCell);
+    const activeKey = getFeeCellKey(activeFeeCell);
+    const selectedTargets = selectedFeeCells.filter((target) => getFeeCellKey(target) !== activeKey);
+    const targets = selectedTargets.length > 0
+      ? selectedTargets
+      : [getNextFeeCellTarget(activeFeeCell, 'down')].filter((target) => getFeeCellKey(target) !== activeKey);
+
+    if (targets.length === 0) {
+      setError('Select another fee cell or range to fill.');
+      return;
+    }
+
+    for (const target of targets) {
+      await writeFeeCellTargetValue(target, sourceValue, {
+        historyLabel: `Fill: ${activeFeeCell.cellName} -> ${target.cellName}`,
+      });
+    }
+    showSuccessToast(`Filled ${targets.length} cell${targets.length === 1 ? '' : 's'}`);
+  };
+
+  const startFillDrag = (event: React.DragEvent<HTMLElement>, target: ActiveFeeCellTarget) => {
+    event.stopPropagation();
+    event.dataTransfer.setData('application/x-fee-cell', target.cellName);
+    event.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleFillDrop = async (event: React.DragEvent<HTMLElement>, target: ActiveFeeCellTarget) => {
+    const sourceCellName = event.dataTransfer.getData('application/x-fee-cell');
+    if (!sourceCellName) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const sourceTarget = visibleFeeCellByName.get(sourceCellName.toUpperCase());
+    if (!sourceTarget) return;
+
+    await writeFeeCellTargetValue(target, getFeeCellTargetValue(sourceTarget), {
+      historyLabel: `Drag Fill: ${sourceTarget.cellName} -> ${target.cellName}`,
+    });
+    setSelectedFeeCells([sourceTarget, target]);
+    setSelectionAnchorCell(sourceTarget);
+    showSuccessToast(`Filled ${target.cellName}`);
+  };
+
+  const handleFeeCellKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+    target: ActiveFeeCellTarget
+  ) => {
+    if (event.key === 'Escape') {
+      event.currentTarget.blur();
+      return;
+    }
+
+    if (event.key === 'Delete' && selectedFeeCells.length > 1) {
+      event.preventDefault();
+      clearSelectedRange();
+      return;
+    }
+
+    const directionMap: Record<string, 'up' | 'down' | 'left' | 'right'> = {
+      ArrowUp: 'up',
+      ArrowDown: 'down',
+      ArrowLeft: 'left',
+      ArrowRight: 'right',
+    };
+    const navigationDirection =
+      event.key === 'Enter'
+        ? event.shiftKey
+          ? 'up'
+          : 'down'
+        : event.key === 'Tab'
+          ? event.shiftKey
+            ? 'left'
+            : 'right'
+          : directionMap[event.key];
+
+    if (!navigationDirection) return;
+
+    event.preventDefault();
+    const nextTarget = getNextFeeCellTarget(target, navigationDirection);
+    event.currentTarget.blur();
+    window.setTimeout(() => focusFeeCellTarget(nextTarget, event.shiftKey && event.key.startsWith('Arrow'), true), 0);
+  };
+
+  const renderFillHandle = (target: ActiveFeeCellTarget) => (
+    <Box
+      component="span"
+      draggable
+      title={`Drag to fill from ${target.cellName}`}
+      onDragStart={(event: React.DragEvent<HTMLElement>) => startFillDrag(event, target)}
+      onDoubleClick={(event) => {
+        event.stopPropagation();
+        fillSelectedRangeFromActiveCell();
+      }}
+      sx={{
+        position: 'absolute',
+        right: 1,
+        bottom: 1,
+        width: 8,
+        height: 8,
+        bgcolor: '#217346',
+        border: '1px solid #FFFFFF',
+        boxShadow: '0 0 0 1px #217346',
+        cursor: 'crosshair',
+        zIndex: 6,
+      }}
+    />
+  );
+
   const procedureGrandTotals = useMemo(() => {
     const totals: Record<string, number> = {};
     procedureColumns.forEach((procedure) => {
@@ -2185,17 +2797,23 @@ export default function FeeReportBuilderPage() {
   const statusText = loading
     ? 'Calculating...'
     : `${countryRows.length} row${countryRows.length === 1 ? '' : 's'} | ${procedureColumns.length} procedure${procedureColumns.length === 1 ? '' : 's'} | ${tableMode === 'all' ? 'All fees' : 'Quotation table'}`;
-  const renderRibbonButton = (label: string, onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void) => (
+  const renderRibbonButton = (
+    label: string,
+    onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void,
+    options: { disabled?: boolean; title?: string } = {}
+  ) => (
     <Button
       key={label}
       size="small"
       variant="text"
       onClick={onClick}
+      disabled={options.disabled}
+      title={options.title || label}
       sx={{
         minWidth: 0,
         px: 0.9,
         py: 0.45,
-        color: darkMode ? '#E5F3EA' : '#1F2937',
+        color: options.disabled ? (darkMode ? '#6B8B77' : '#94A3B8') : darkMode ? '#E5F3EA' : '#1F2937',
         borderRadius: 0.75,
         fontSize: 12,
         textTransform: 'none',
@@ -2254,8 +2872,14 @@ export default function FeeReportBuilderPage() {
             >
               <Stack direction="row" spacing={0.35} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                 {renderRibbonButton('Save', openSaveDraftDialog)}
-                {renderRibbonButton('Undo', resetWorkbookFormatting)}
-                {renderRibbonButton('Redo', () => applyStylePreset('excel'))}
+                {renderRibbonButton('Undo', undoLastFeeEdit, {
+                  disabled: undoStack.length === 0,
+                  title: undoStack[0] ? `Undo ${undoStack[0].label}` : 'No fee edit to undo',
+                })}
+                {renderRibbonButton('Redo', redoLastFeeEdit, {
+                  disabled: redoStack.length === 0,
+                  title: redoStack[0] ? `Redo ${redoStack[0].label}` : 'No fee edit to redo',
+                })}
                 {renderRibbonButton('Print', openPrintView)}
                 {renderRibbonButton('Share', copyWorkbookLink)}
               </Stack>
@@ -2319,6 +2943,8 @@ export default function FeeReportBuilderPage() {
                       {renderRibbonButton('Paste', pasteActiveCell)}
                       {renderRibbonButton('Cut', cutActiveCell)}
                       {renderRibbonButton('Copy', copyActiveCellOrWorkbook)}
+                      {renderRibbonButton('Fill Down', fillSelectedRangeFromActiveCell)}
+                      {renderRibbonButton('Clear', clearSelectedRange)}
                       {renderRibbonButton('Format Painter', () => applyStylePreset('legal'))}
                       {renderRibbonButton('Import', () => importInputRef.current?.click())}
                       {renderRibbonButton('Export', (event) => setExportAnchor(event.currentTarget))}
@@ -2403,32 +3029,42 @@ export default function FeeReportBuilderPage() {
                   {renderRibbonGroup('Function Library', (
                     <>
                       {renderRibbonButton('Insert Function (fx)', acceptFormula)}
+                      {renderRibbonButton('Apply Result', applyFormulaResultToActiveCell)}
                       {renderRibbonButton('AutoSum', () => {
-                        setFormulaInput('=SUM()');
-                        setFormulaResult(formatSheetNumber(grandTotalAmount));
+                        const formula = `=SUM(${selectedRangeLabel})`;
+                        const result = evaluateFormula(formula);
+                        setFormulaInput(formula);
+                        setFormulaResult(result);
+                        addAudit(`AutoSum: ${selectedRangeLabel}`);
                       })}
-                      {renderRibbonButton('Financial', () => insertFormula('=SUM()'))}
+                      {renderRibbonButton('Financial', () => insertFormula(`=SUM(${selectedRangeLabel})`))}
                       {renderRibbonButton('Logical', () => insertFormula(DEFAULT_FORMULA_TEXT))}
-                      {renderRibbonButton('Text', () => insertFormula('=TEXTJOIN(", ",TRUE,A2:B2)'))}
+                      {renderRibbonButton('Text', () => insertFormula(`=TEXTJOIN(", ",TRUE,${selectedRangeLabel})`))}
                       {renderRibbonButton('Date & Time', () => insertFormula('=TODAY()'))}
-                      {renderRibbonButton('Lookup & Reference', () => insertFormula('=XLOOKUP()'))}
-                      {renderRibbonButton('Math & Trig', () => insertFormula('=MAX()'))}
+                      {renderRibbonButton('Lookup & Reference', () => insertFormula(`=${selectedRangeLabel}`))}
+                      {renderRibbonButton('Math & Trig', () => insertFormula(`=MAX(${selectedRangeLabel})`))}
                     </>
                   ))}
                   {renderRibbonGroup('Formula Auditing', (
                     <>
-                      {renderRibbonButton('Trace Precedents', () => showSuccessToast(activeCell ? `${activeCell} uses visible fee inputs` : 'Select a cell first'))}
-                      {renderRibbonButton('Trace Dependents', () => showSuccessToast('Totals and grand totals depend on fee inputs'))}
-                      {renderRibbonButton('Show Formulas', () => setFormulaInput(DEFAULT_FORMULA_TEXT))}
+                      {renderRibbonButton('Trace Precedents', () => showSuccessToast(`${selectedRangeLabel} uses ${selectionStats.numericCount || getSelectedFormulaValues().length} fee input${(selectionStats.numericCount || getSelectedFormulaValues().length) === 1 ? '' : 's'}`))}
+                      {renderRibbonButton('Trace Dependents', () => showSuccessToast(`${selectedRangeLabel} feeds procedure totals and grand totals`))}
+                      {renderRibbonButton('Show Formulas', () => setFormulaInput(`=SUM(${selectedRangeLabel})`))}
                       {renderRibbonButton('Error Checking', validateWorksheet)}
                       {renderRibbonButton('Evaluate Formula', acceptFormula)}
-                      {renderRibbonButton('Watch Window', () => setFormulaResult(`Grand total: ${formatSheetNumber(grandTotalAmount)}`))}
+                      {renderRibbonButton('Watch Window', () => {
+                        const watchedSum = selectionStats.count > 0 ? selectionStats.sum : grandTotalAmount;
+                        setFormulaResult(`Range ${selectedRangeLabel}: Sum ${formatSheetNumber(watchedSum)}`);
+                      })}
                     </>
                   ))}
                   {renderRibbonGroup('Common Functions', (
                     <>
-                      {['SUM()', 'AVERAGE()', 'COUNT()', 'MAX()', 'MIN()', 'IF()', 'IFERROR()', 'VLOOKUP()', 'XLOOKUP()', 'INDEX()', 'MATCH()', 'CONCAT()', 'TEXTJOIN()', 'TODAY()', 'NOW()'].map((label) =>
-                        renderRibbonButton(label, () => insertFormula(`=${label}`))
+                      {['SUM', 'AVERAGE', 'COUNT', 'MAX', 'MIN'].map((label) =>
+                        renderRibbonButton(`${label}()`, () => insertFormula(`=${label}(${selectedRangeLabel})`))
+                      )}
+                      {['IF()', 'IFERROR()', 'VLOOKUP()', 'XLOOKUP()', 'INDEX()', 'MATCH()', 'CONCAT()', 'TEXTJOIN()', 'TODAY()', 'NOW()'].map((label) =>
+                        renderRibbonButton(label, () => insertFormula(label === 'TODAY()' || label === 'NOW()' ? `=${label}` : `=${label}`))
                       )}
                     </>
                   ))}
@@ -2553,6 +3189,7 @@ export default function FeeReportBuilderPage() {
                           {renderRibbonButton('Check Fees', validateWorksheet)}
                           {renderRibbonButton('Audit Log', (event) => setAdvancedAnchor(event.currentTarget))}
                           {renderRibbonButton('Protect Sheet', () => showSuccessToast('Draft is protected by your account permissions'))}
+                          {renderRibbonButton('Trace Selection', () => setFormulaResult(`${selectedRangeLabel}: ${selectionStats.numericCount} numeric cell${selectionStats.numericCount === 1 ? '' : 's'}, sum ${formatSheetNumber(selectionStats.sum)}`))}
                           {renderRibbonButton('Comments', () => setFormulaResult(`Last action: ${auditLog[0]?.action || 'No audit entries yet'}`))}
                         </>
                       )}
@@ -2567,7 +3204,7 @@ export default function FeeReportBuilderPage() {
                       )}
                       {activeRibbonTab === 'Help' && (
                         <>
-                          {renderRibbonButton('Keyboard Shortcuts', () => setFormulaResult('Ctrl+S save, Ctrl+P print, Enter accepts formula'))}
+                          {renderRibbonButton('Keyboard Shortcuts', () => setFormulaResult('Ctrl+S save, Ctrl+P print, Enter/Tab/Arrow keys move cells, Shift+Arrow selects ranges, Delete clears ranges'))}
                           {renderRibbonButton('Formula Help', () => setFormulaInput(DEFAULT_FORMULA_TEXT))}
                           {renderRibbonButton('Saved Drafts', () => {
                             if (typeof window !== 'undefined') window.location.href = '/reports/fee-builder/drafts';
@@ -2606,14 +3243,22 @@ export default function FeeReportBuilderPage() {
               size="small"
               value={activeCell}
               onChange={(event) => {
-                setActiveCell(event.target.value);
-                setActiveFeeCell(null);
+                setActiveCell(event.target.value.toUpperCase());
               }}
+              onBlur={(event) => selectFeeCellByName(event.target.value, false)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  selectFeeCellByName((event.target as HTMLInputElement).value, true);
+                }
+              }}
+              placeholder="B2"
               sx={{ '& .MuiInputBase-input': { py: 0.65, fontWeight: 800, textAlign: 'center' } }}
             />
             <Stack direction="row" spacing={0.4}>
               <Button size="small" variant="outlined" onClick={cancelFormula} sx={{ minWidth: 34 }}>x</Button>
               <Button size="small" variant="outlined" onClick={acceptFormula} sx={{ minWidth: 34 }}>OK</Button>
+              <Button size="small" variant="outlined" onClick={applyFormulaResultToActiveCell} sx={{ minWidth: 48 }}>Apply</Button>
               <Button size="small" variant="outlined" onClick={() => setActiveRibbonTab('Formulas')} sx={{ minWidth: 42, fontStyle: 'italic' }}>fx</Button>
             </Stack>
             <TextField
@@ -2628,6 +3273,9 @@ export default function FeeReportBuilderPage() {
             />
             <Typography sx={{ fontSize: 12, color: darkMode ? '#CFE7D7' : '#475569', whiteSpace: 'nowrap' }}>
               Result: {formulaResult}
+            </Typography>
+            <Typography sx={{ fontSize: 11.5, color: darkMode ? '#A8CDB5' : '#64748B', gridColumn: { xs: '1 / -1', md: '3 / -1' } }}>
+              Range {selectedRangeLabel} | Cells {selectionStats.count || 1} | Numeric {selectionStats.numericCount || 0} | Sum {formatSheetNumber(selectionStats.sum)} | Avg {formatSheetNumber(selectionStats.average)}
             </Typography>
           </Box>
 
@@ -2737,15 +3385,23 @@ export default function FeeReportBuilderPage() {
                   <Box
                     key={column.key}
                     title={column.label}
+                    onClick={() => selectFeeColumnByLetter(column.letter)}
                     sx={{
                       height: 28,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       borderRight: `1px solid ${ribbonBorder}`,
-                      color: darkMode ? '#D8EBDD' : '#334155',
+                      bgcolor: selectedWorksheetColumns.has(column.letter)
+                        ? darkMode
+                          ? '#2F6B49'
+                          : '#D9EAD3'
+                        : 'transparent',
+                      color: selectedWorksheetColumns.has(column.letter) ? '#14532D' : darkMode ? '#D8EBDD' : '#334155',
                       fontSize: 12,
                       fontWeight: 800,
+                      cursor: 'pointer',
+                      userSelect: 'none',
                     }}
                   >
                     {column.letter}
@@ -2992,6 +3648,8 @@ export default function FeeReportBuilderPage() {
                   const flagSrc = getFlagSrc(countryRow.flagRule);
                   const currentRowHeight = getCountryRowHeight(countryRow.key);
                   const rowGrandTotal = getCountryGrandTotal(countryRow);
+                  const worksheetRowNumber = page * rowsPerPage + rowIndex + 2;
+                  const rowSelected = selectedWorksheetRows.has(String(worksheetRowNumber));
 
                   return (
                     <TableRow
@@ -3014,6 +3672,7 @@ export default function FeeReportBuilderPage() {
                       {columnVisibility.country && (
                         <>
                           <TableCell
+                            onClick={() => selectFeeRowByNumber(worksheetRowNumber)}
                             sx={{
                               width: rowNumberWidth,
                               px: 0.25,
@@ -3021,9 +3680,12 @@ export default function FeeReportBuilderPage() {
                               fontWeight: 900,
                               fontSize: 12,
                               position: 'relative',
+                              bgcolor: rowSelected ? '#D9EAD3 !important' : undefined,
+                              cursor: 'pointer',
+                              userSelect: 'none',
                             }}
                           >
-                            {page * rowsPerPage + rowIndex + 2}
+                            {worksheetRowNumber}
                             <Box
                               onMouseDown={(event) => startRowResize(event, countryRow.key)}
                               sx={{
@@ -3124,50 +3786,64 @@ export default function FeeReportBuilderPage() {
                             (columnVisibility.country ? 3 : 0) + procedureIndex * visibleFeeColumnCount;
                           const officialCellName = `${getExcelColumnLabel(firstFeeColumnIndex)}${worksheetRowNumber}`;
                           const attorneyCellName = `${getExcelColumnLabel(firstFeeColumnIndex + (columnVisibility.officeFee ? 1 : 0))}${worksheetRowNumber}`;
+                          const officialTarget: ActiveFeeCellTarget = {
+                            cellName: officialCellName,
+                            countryKey: countryRow.key,
+                            procedure,
+                            field: 'officialFee',
+                            ruleId: rule?._id,
+                          };
+                          const attorneyTarget: ActiveFeeCellTarget = {
+                            cellName: attorneyCellName,
+                            countryKey: countryRow.key,
+                            procedure,
+                            field: 'attorneyFee',
+                            ruleId: rule?._id,
+                          };
+                          const officialSelected = selectedFeeCellKeys.has(getFeeCellKey(officialTarget));
+                          const attorneySelected = selectedFeeCellKeys.has(getFeeCellKey(attorneyTarget));
 
                           return (
                             <React.Fragment key={`${countryRow.key}-${procedure}`}>
                               {columnVisibility.officeFee && (
                                 <TableCell
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={(event) => handleFillDrop(event, officialTarget)}
                                   sx={{
                                     width: procedureWidth,
                                     px: 0.25,
                                     textAlign: 'center',
                                     borderRight: lastVisibleFeeColumn === 'officialFee' ? '2px solid #111827' : '1px solid #1F2937',
+                                    position: 'relative',
                                   }}
                                 >
                                   {rule ? (
                                     <Box
                                       component="input"
+                                      data-fee-cell={officialCellName}
                                       value={getFeeValue(rule, 'officialFee')}
-                                      onFocus={() => {
-                                        setActiveCell(officialCellName);
-                                        setActiveFeeCell({
-                                          cellName: officialCellName,
-                                          countryKey: countryRow.key,
-                                          procedure,
-                                          field: 'officialFee',
-                                          ruleId: rule._id,
-                                        });
+                                      onFocus={() => selectFeeCell(officialTarget)}
+                                      onClick={(event) => {
+                                        if (event.shiftKey) selectFeeCell(officialTarget, true);
                                       }}
+                                      onDoubleClick={fillSelectedRangeFromActiveCell}
                                       onChange={(event) => updateFee(rule, 'officialFee', event.target.value)}
                                       onBlur={(event) => {
+                                        commitFeeCellEdit(officialTarget, event.target.value);
                                         saveRuleFees(rule, event.target.value, getFeeValue(rule, 'attorneyFee'));
                                       }}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') event.currentTarget.blur();
-                                      }}
+                                      onKeyDown={(event) => handleFeeCellKeyDown(event, officialTarget)}
                                       title={errors.officialFee || 'Official Fees'}
                                       inputMode="decimal"
                                       style={{
                                         width: '100%',
                                         height: Math.max(18, currentRowHeight - 2),
-                                        border: errors.officialFee ? '1px solid #DC2626' : '0',
+                                        border: errors.officialFee ? '1px solid #DC2626' : officialSelected ? '2px solid #217346' : '0',
                                         outline: 'none',
-                                        background: 'transparent',
+                                        background: officialSelected ? 'rgba(33, 115, 70, 0.14)' : 'transparent',
                                         color: fontColor,
                                         fontFamily,
-                                        fontSize: 12,
+                                        fontSize,
                                         fontWeight: boldText ? 900 : 800,
                                         fontStyle: italicText ? 'italic' : 'normal',
                                         textDecoration: underlineText ? 'underline' : 'none',
@@ -3178,18 +3854,16 @@ export default function FeeReportBuilderPage() {
                                   ) : (
                                     <Box
                                       component="input"
+                                      data-fee-cell={officialCellName}
                                       value={getMissingFeeValue(countryRow, procedure, 'officialFee')}
-                                      onFocus={() => {
-                                        setActiveCell(officialCellName);
-                                        setActiveFeeCell({
-                                          cellName: officialCellName,
-                                          countryKey: countryRow.key,
-                                          procedure,
-                                          field: 'officialFee',
-                                        });
+                                      onFocus={() => selectFeeCell(officialTarget)}
+                                      onClick={(event) => {
+                                        if (event.shiftKey) selectFeeCell(officialTarget, true);
                                       }}
+                                      onDoubleClick={fillSelectedRangeFromActiveCell}
                                       onChange={(event) => updateMissingFee(countryRow, procedure, 'officialFee', event.target.value)}
                                       onBlur={(event) => {
+                                        commitFeeCellEdit(officialTarget, event.target.value);
                                         saveMissingRuleFees(
                                           countryRow,
                                           procedure,
@@ -3197,20 +3871,18 @@ export default function FeeReportBuilderPage() {
                                           getMissingFeeValue(countryRow, procedure, 'attorneyFee')
                                         );
                                       }}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') event.currentTarget.blur();
-                                      }}
+                                      onKeyDown={(event) => handleFeeCellKeyDown(event, officialTarget)}
                                       title={errors.officialFee || 'Official Fees'}
                                       inputMode="decimal"
                                       style={{
                                         width: '100%',
                                         height: Math.max(18, currentRowHeight - 2),
-                                        border: errors.officialFee ? '1px solid #DC2626' : '0',
+                                        border: errors.officialFee ? '1px solid #DC2626' : officialSelected ? '2px solid #217346' : '0',
                                         outline: 'none',
-                                        background: 'transparent',
+                                        background: officialSelected ? 'rgba(33, 115, 70, 0.14)' : 'transparent',
                                         color: fontColor,
                                         fontFamily,
-                                        fontSize: 12,
+                                        fontSize,
                                         fontWeight: boldText ? 900 : 800,
                                         fontStyle: italicText ? 'italic' : 'normal',
                                         textDecoration: underlineText ? 'underline' : 'none',
@@ -3219,49 +3891,48 @@ export default function FeeReportBuilderPage() {
                                       }}
                                     />
                                   )}
+                                  {officialSelected && renderFillHandle(officialTarget)}
                                 </TableCell>
                               )}
                               {columnVisibility.attorneyFee && (
                                 <TableCell
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={(event) => handleFillDrop(event, attorneyTarget)}
                                   sx={{
                                     width: procedureWidth,
                                     px: 0.25,
                                     textAlign: 'center',
                                     borderRight: lastVisibleFeeColumn === 'attorneyFee' ? '2px solid #111827' : '1px solid #1F2937',
+                                    position: 'relative',
                                   }}
                                 >
                                   {rule ? (
                                     <Box
                                       component="input"
+                                      data-fee-cell={attorneyCellName}
                                       value={getFeeValue(rule, 'attorneyFee')}
-                                      onFocus={() => {
-                                        setActiveCell(attorneyCellName);
-                                        setActiveFeeCell({
-                                          cellName: attorneyCellName,
-                                          countryKey: countryRow.key,
-                                          procedure,
-                                          field: 'attorneyFee',
-                                          ruleId: rule._id,
-                                        });
+                                      onFocus={() => selectFeeCell(attorneyTarget)}
+                                      onClick={(event) => {
+                                        if (event.shiftKey) selectFeeCell(attorneyTarget, true);
                                       }}
+                                      onDoubleClick={fillSelectedRangeFromActiveCell}
                                       onChange={(event) => updateFee(rule, 'attorneyFee', event.target.value)}
                                       onBlur={(event) => {
+                                        commitFeeCellEdit(attorneyTarget, event.target.value);
                                         saveRuleFees(rule, getFeeValue(rule, 'officialFee'), event.target.value);
                                       }}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') event.currentTarget.blur();
-                                      }}
+                                      onKeyDown={(event) => handleFeeCellKeyDown(event, attorneyTarget)}
                                       title={errors.attorneyFee || 'Attorney Fees'}
                                       inputMode="decimal"
                                       style={{
                                         width: '100%',
                                         height: Math.max(18, currentRowHeight - 2),
-                                        border: errors.attorneyFee ? '1px solid #DC2626' : '0',
+                                        border: errors.attorneyFee ? '1px solid #DC2626' : attorneySelected ? '2px solid #217346' : '0',
                                         outline: 'none',
-                                        background: 'transparent',
+                                        background: attorneySelected ? 'rgba(33, 115, 70, 0.14)' : 'transparent',
                                         color: fontColor,
                                         fontFamily,
-                                        fontSize: 12,
+                                        fontSize,
                                         fontWeight: boldText ? 900 : 800,
                                         fontStyle: italicText ? 'italic' : 'normal',
                                         textDecoration: underlineText ? 'underline' : 'none',
@@ -3272,18 +3943,16 @@ export default function FeeReportBuilderPage() {
                                   ) : (
                                     <Box
                                       component="input"
+                                      data-fee-cell={attorneyCellName}
                                       value={getMissingFeeValue(countryRow, procedure, 'attorneyFee')}
-                                      onFocus={() => {
-                                        setActiveCell(attorneyCellName);
-                                        setActiveFeeCell({
-                                          cellName: attorneyCellName,
-                                          countryKey: countryRow.key,
-                                          procedure,
-                                          field: 'attorneyFee',
-                                        });
+                                      onFocus={() => selectFeeCell(attorneyTarget)}
+                                      onClick={(event) => {
+                                        if (event.shiftKey) selectFeeCell(attorneyTarget, true);
                                       }}
+                                      onDoubleClick={fillSelectedRangeFromActiveCell}
                                       onChange={(event) => updateMissingFee(countryRow, procedure, 'attorneyFee', event.target.value)}
                                       onBlur={(event) => {
+                                        commitFeeCellEdit(attorneyTarget, event.target.value);
                                         saveMissingRuleFees(
                                           countryRow,
                                           procedure,
@@ -3291,20 +3960,18 @@ export default function FeeReportBuilderPage() {
                                           event.target.value
                                         );
                                       }}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter') event.currentTarget.blur();
-                                      }}
+                                      onKeyDown={(event) => handleFeeCellKeyDown(event, attorneyTarget)}
                                       title={errors.attorneyFee || 'Attorney Fees'}
                                       inputMode="decimal"
                                       style={{
                                         width: '100%',
                                         height: Math.max(18, currentRowHeight - 2),
-                                        border: errors.attorneyFee ? '1px solid #DC2626' : '0',
+                                        border: errors.attorneyFee ? '1px solid #DC2626' : attorneySelected ? '2px solid #217346' : '0',
                                         outline: 'none',
-                                        background: 'transparent',
+                                        background: attorneySelected ? 'rgba(33, 115, 70, 0.14)' : 'transparent',
                                         color: fontColor,
                                         fontFamily,
-                                        fontSize: 12,
+                                        fontSize,
                                         fontWeight: boldText ? 900 : 800,
                                         fontStyle: italicText ? 'italic' : 'normal',
                                         textDecoration: underlineText ? 'underline' : 'none',
@@ -3313,6 +3980,7 @@ export default function FeeReportBuilderPage() {
                                       }}
                                     />
                                   )}
+                                  {attorneySelected && renderFillHandle(attorneyTarget)}
                                 </TableCell>
                               )}
                               {columnVisibility.total && (
@@ -3493,7 +4161,7 @@ export default function FeeReportBuilderPage() {
                 whiteSpace: 'nowrap',
               }}
             >
-              Ready | {statusText}
+              Ready | {statusText} | {selectedRangeLabel} | Sum {formatSheetNumber(selectionStats.sum)}
             </Typography>
             <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexShrink: 0 }}>
               <Button size="small" variant="outlined" onClick={() => setZoomLevel((current) => Math.max(70, current - 10))}>-</Button>

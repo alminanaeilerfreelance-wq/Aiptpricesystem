@@ -240,6 +240,8 @@ const RequirementCartToolbar = ({ toolbarId }: { toolbarId: string }) => (
   </Box>
 );
 
+const REPORT_BRAND_BLUE = '#005C97';
+const REPORT_NAVY_BLUE = '#052B55';
 const REPORT_LEGAL_BORDER = '#111111';
 const REPORT_LEGAL_HEADER_GRAY = '#F2F2F2';
 const REPORT_LEGAL_LIGHT_BLUE = '#DCECF2';
@@ -270,16 +272,17 @@ const defaultInvoiceServiceTableColors: InvoiceServiceTableColors = {
   totalColText: REPORT_LEGAL_TEXT,
 };
 
-const INVOICE_TABLE_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceTableColors.v3';
-const INVOICE_CELL_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceCellColors.v3';
+const INVOICE_TABLE_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceTableColors.v4';
+const INVOICE_CELL_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceCellColors.v4';
 const REPORT_PDF_FONT = 'times';
 const REPORT_CSS_FONT_STACK = '"Times New Roman", Times, serif';
 const REPORT_INK = '#111111';
-const REPORT_NAVY = REPORT_INK;
-const REPORT_DARK_NAVY = REPORT_INK;
-const REPORT_GOLD = REPORT_INK;
-const REPORT_BORDER = REPORT_INK;
+const REPORT_NAVY = REPORT_NAVY_BLUE;
+const REPORT_DARK_NAVY = REPORT_NAVY_BLUE;
+const REPORT_GOLD = REPORT_BRAND_BLUE;
+const REPORT_BORDER = REPORT_NAVY_BLUE;
 const REPORT_MUTED = '#475569';
+const CLIENT_QUOTATION_REPORT_TITLE = 'QUOTATION';
 const REPORT_FEE_CURRENCY_LABEL = 'US$';
 const REPORT_FEE_SUBTITLE = '"per mark per class"';
 const REPORT_SERVICE_COLUMNS = ['country', 'procedure', 'official', 'attorney', 'vat', 'discount', 'total'] as const;
@@ -469,6 +472,14 @@ const getReportCompanyLines = (company: CompanyDetail | null | undefined): strin
 
 const getReportCompanyLogoUrl = (company: CompanyDetail | null | undefined): string =>
   String(company?.logoUrl || '').trim();
+
+const getReportCompanyDisplayName = (company: CompanyDetail | null | undefined): string =>
+  valueOrDash(company?.companyName || 'IP LAW FIRM');
+
+const getReportFooterLines = (company: CompanyDetail | null | undefined): [string, string] => [
+  `Thank you for considering ${getReportCompanyDisplayName(company)}.`,
+  'We look forward to assisting you with your IP needs.',
+];
 
 const resolveReportAssetUrl = (url: string): string => {
   if (!url || url.startsWith('data:') || /^https?:\/\//i.test(url)) return url;
@@ -833,28 +844,49 @@ const getReportFeeColumnDefaultBg = (
   columnKey: ReportServiceColumnKey,
   role: ReportFeeColumnRole = 'body'
 ): string => {
+  if (role === 'header') {
+    switch (columnKey) {
+      case 'country':
+      case 'procedure':
+      case 'service':
+        return REPORT_LEGAL_HEADER_GRAY;
+      case 'attorney':
+        return REPORT_LEGAL_MEDIUM_BLUE;
+      case 'official':
+      case 'vat':
+      case 'discount':
+      case 'total':
+        return REPORT_LEGAL_LIGHT_BLUE;
+      default:
+        return REPORT_LEGAL_HEADER_GRAY;
+    }
+  }
+
   switch (columnKey) {
     case 'procedure':
-      return role === 'header' ? REPORT_LEGAL_HEADER_GRAY : '#FFFFFF';
+      return '#FFFFFF';
     case 'official':
-      return REPORT_LEGAL_LIGHT_BLUE;
+      return '#FFFFFF';
     case 'attorney':
-      return REPORT_LEGAL_MEDIUM_BLUE;
+      return '#FFFFFF';
     case 'total':
-      return REPORT_LEGAL_LIGHT_BLUE;
+      return '#FFFFFF';
     case 'vat':
     case 'discount':
-      return REPORT_LEGAL_LIGHT_BLUE;
+      return '#FFFFFF';
     case 'country':
-      return role === 'header' ? REPORT_LEGAL_HEADER_GRAY : '#FFFFFF';
+      return '#FFFFFF';
     case 'service':
-      return REPORT_LEGAL_HEADER_GRAY;
+      return '#FFFFFF';
     default:
       return '#FFFFFF';
   }
 };
 
-const getReportFeeColumnDefaultText = (_columnKey: ReportServiceColumnKey): string => REPORT_LEGAL_TEXT;
+const getReportFeeColumnDefaultText = (
+  _columnKey: ReportServiceColumnKey,
+  _role: ReportFeeColumnRole = 'body'
+): string => REPORT_LEGAL_TEXT;
 
 const getReportServiceProcedureText = (service: ClientQuotationServiceItem): string =>
   valueOrDash(service.procedureName);
@@ -1625,9 +1657,10 @@ export default function ClientQuotationsPage() {
       }
       const company = getCompanyDetailForQuotation(quotation, companyDetails);
       const companyLines = getReportCompanyLines(company);
+      const footerLines = getReportFooterLines(company);
       let companyLogoLayout: { dataUrl: string; width: number; height: number } | null = null;
       try {
-        companyLogoLayout = await getReportImageLayout(getReportCompanyLogoUrl(company), 92, 54);
+        companyLogoLayout = await getReportImageLayout(getReportCompanyLogoUrl(company), pageWidth, 96);
       } catch {
         companyLogoLayout = null;
       }
@@ -1635,17 +1668,37 @@ export default function ClientQuotationsPage() {
       const requirementRows = getRequirementDisplayRows(quotation);
       const feeColumns = getReportFeeTableColumns(quotation);
       const showGrandTotalRow = shouldShowReportFeeGrandTotalRow(quotation);
+      const headerBannerHeight = 96;
 
       const drawDecorativeChrome = () => {
-        doc.setFillColor(...hexToRgbTuple(REPORT_DARK_NAVY));
-        doc.rect(0, 0, pageWidth, 32, 'F');
-        doc.setDrawColor(...hexToRgbTuple(REPORT_GOLD));
-        doc.setLineWidth(1);
-        doc.line(0, 32, pageWidth, 32);
-        doc.setFillColor(...hexToRgbTuple(REPORT_DARK_NAVY));
-        doc.rect(0, pageHeight - 18, pageWidth, 18, 'F');
-        doc.setDrawColor(...hexToRgbTuple(REPORT_GOLD));
-        doc.line(0, pageHeight - 18, pageWidth, pageHeight - 18);
+        doc.setFillColor(221, 240, 246);
+        doc.rect(0, 0, pageWidth, headerBannerHeight, 'F');
+        if (companyLogoLayout) {
+          try {
+            doc.addImage(
+              companyLogoLayout.dataUrl,
+              getReportPdfImageFormat(companyLogoLayout.dataUrl),
+              (pageWidth - companyLogoLayout.width) / 2,
+              (headerBannerHeight - companyLogoLayout.height) / 2,
+              companyLogoLayout.width,
+              companyLogoLayout.height
+            );
+          } catch {
+            // Keep the report usable even if the uploaded logo cannot be embedded.
+          }
+        } else {
+          doc.setFont(REPORT_PDF_FONT, 'bold');
+          doc.setFontSize(15);
+          doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
+          doc.text(companyLines[0] || 'IP LAW FIRM', pageWidth / 2, 38, { align: 'center' });
+          doc.setFont(REPORT_PDF_FONT, 'italic');
+          doc.setFontSize(10);
+          doc.text(companyLines.slice(1, 3).join('   '), pageWidth / 2, 58, { align: 'center' });
+        }
+        doc.setDrawColor(...hexToRgbTuple(REPORT_NAVY));
+        doc.setLineWidth(1.4);
+        doc.line(0, headerBannerHeight, pageWidth, headerBannerHeight);
+        doc.line(6, pageHeight - 22, pageWidth - 6, pageHeight - 22);
       };
 
       const drawDetailPanel = (
@@ -1694,58 +1747,28 @@ export default function ClientQuotationsPage() {
       };
 
       const drawReportFooter = () => {
-        const footerY = pageHeight - 74;
+        const footerY = pageHeight - 70;
         doc.setDrawColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.setLineWidth(1);
-        doc.line(pageWidth / 2 - 150, footerY, pageWidth / 2 + 150, footerY);
-        doc.setFillColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.circle(pageWidth / 2, footerY, 4, 'F');
-        doc.setFont(REPORT_PDF_FONT, 'bold');
-        doc.setFontSize(13);
-        doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.text('Thank you for your business!', pageWidth / 2, footerY + 28, { align: 'center' });
-        doc.setFont(REPORT_PDF_FONT, 'italic');
-        doc.setFontSize(8.5);
+        doc.setLineWidth(0.8);
+        doc.setFont(REPORT_PDF_FONT, 'normal');
+        doc.setFontSize(9.5);
         doc.setTextColor(...hexToRgbTuple(REPORT_INK));
-        doc.text('This is a computer-generated report and does not require a signature.', pageWidth / 2, footerY + 46, { align: 'center' });
+        doc.text(footerLines[0], margin, footerY);
+        doc.text(footerLines[1], margin, footerY + 18);
       };
 
       const drawInvoiceHeader = () => {
-        const topY = 62;
-        let companyLineY = topY;
-        let logoDrawn = false;
-        if (companyLogoLayout) {
-          try {
-            doc.addImage(
-              companyLogoLayout.dataUrl,
-              getReportPdfImageFormat(companyLogoLayout.dataUrl),
-              (pageWidth - companyLogoLayout.width) / 2,
-              topY - 6,
-              companyLogoLayout.width,
-              companyLogoLayout.height
-            );
-            companyLineY = topY + companyLogoLayout.height + 16;
-            logoDrawn = true;
-          } catch {
-            companyLineY = topY;
-          }
-        }
-
         doc.setFont(REPORT_PDF_FONT, 'bold');
-        doc.setFontSize(13);
+        doc.setFontSize(29);
         doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
-        doc.text(companyLines[0] || 'IP LAW FIRM', pageWidth / 2, companyLineY, { align: 'center' });
-        doc.setFont(REPORT_PDF_FONT, 'normal');
-        doc.setFontSize(9.2);
-        doc.setTextColor(...hexToRgbTuple(REPORT_INK));
-        companyLineY += 18;
-        companyLines.slice(1, 7).forEach((line) => {
-          const visibleLines = doc.splitTextToSize(line, 330).slice(0, 2);
-          doc.text(visibleLines, pageWidth / 2, companyLineY, { align: 'center' });
-          companyLineY += Math.max(1, visibleLines.length) * 11;
-        });
+        const titleY = headerBannerHeight + 64;
+        doc.text(CLIENT_QUOTATION_REPORT_TITLE, pageWidth / 2, titleY, { align: 'center' });
+        doc.setDrawColor(...hexToRgbTuple(REPORT_BRAND_BLUE));
+        doc.setLineWidth(1.4);
+        doc.line(margin + 28, titleY - 16, pageWidth / 2 - 94, titleY - 16);
+        doc.line(pageWidth / 2 + 94, titleY - 16, pageWidth - margin - 28, titleY - 16);
 
-        return Math.max(companyLineY + 22, topY + (logoDrawn ? 116 : 74));
+        return titleY + 38;
       };
 
       drawDecorativeChrome();
@@ -1755,8 +1778,8 @@ export default function ClientQuotationsPage() {
       const panelWidth = pageWidth - margin * 2;
       const projectHeight = drawDetailPanel(margin, panelTop, panelWidth, 'Project Details', projectRows);
 
-      const contentTop = 58;
-      const contentBottom = pageHeight - 102;
+      const contentTop = headerBannerHeight + 38;
+      const contentBottom = pageHeight - 94;
       const ensurePdfRoom = (currentY: number, neededHeight: number) => {
         if (currentY + neededHeight <= contentBottom) return currentY;
         doc.addPage();
@@ -1832,6 +1855,10 @@ export default function ClientQuotationsPage() {
         if (data.section === 'head') {
           cellKey = `header-${columnKey}`;
           defaultBg = getReportFeeColumnDefaultBg(columnKey, 'header');
+          defaultText = getReportFeeColumnDefaultText(columnKey, 'header');
+          data.cell.styles.fillColor = hexToRgbTuple(defaultBg);
+          data.cell.styles.textColor = hexToRgbTuple(defaultText);
+          return;
         } else {
           const isGrandTotalRow = showGrandTotalRow && data.row.index === serviceRows.length;
           if (isGrandTotalRow) {
@@ -1870,9 +1897,9 @@ export default function ClientQuotationsPage() {
         },
         headStyles: {
           fontStyle: 'bold',
-          fontSize: 10.5,
+          fontSize: 12,
           halign: 'center',
-          minCellHeight: 45,
+          minCellHeight: 50,
         },
         columnStyles: pdfColumnStyles,
         didParseCell: (data: any) => {
@@ -1899,13 +1926,13 @@ export default function ClientQuotationsPage() {
           const centerX = data.cell.x + data.cell.width / 2;
           const labelLines = doc.splitTextToSize(column.label, data.cell.width - 12);
           const subtitleLines = column.subtitle ? doc.splitTextToSize(column.subtitle, data.cell.width - 12) : [];
-          const lineHeight = 10;
+          const lineHeight = 12;
           const blockHeight = labelLines.length * lineHeight + (subtitleLines.length ? subtitleLines.length * 9 + 2 : 0);
-          let textY = data.cell.y + (data.cell.height - blockHeight) / 2 + 8;
+          let textY = data.cell.y + (data.cell.height - blockHeight) / 2 + 10;
 
           doc.setTextColor(...hexToRgbTuple(REPORT_LEGAL_TEXT));
           doc.setFont(REPORT_PDF_FONT, 'bold');
-          doc.setFontSize(10.5);
+          doc.setFontSize(12);
           labelLines.forEach((line: string) => {
             doc.text(line, centerX, textY, { align: 'center' });
             textY += lineHeight;
@@ -1951,6 +1978,7 @@ export default function ClientQuotationsPage() {
       }
       const company = getCompanyDetailForQuotation(quotation, companyDetails);
       const companyLines = getReportCompanyLines(company);
+      const footerLines = getReportFooterLines(company);
       let companyLogoDataUrl = '';
       try {
         companyLogoDataUrl = await getReportImageDataUrl(getReportCompanyLogoUrl(company));
@@ -1966,12 +1994,17 @@ export default function ClientQuotationsPage() {
         columnKey: ReportServiceColumnKey,
         role: ReportFeeColumnRole = 'body'
       ) => {
-        const { backgroundColor, textColor } = getInvoiceExportCellColors(
-          cellKey,
-          getReportFeeColumnDefaultBg(columnKey, role),
-          getReportFeeColumnDefaultText(columnKey),
-          invoiceCellColors
-        );
+        const { backgroundColor, textColor } = role === 'header'
+          ? {
+              backgroundColor: getReportFeeColumnDefaultBg(columnKey, 'header'),
+              textColor: getReportFeeColumnDefaultText(columnKey, 'header'),
+            }
+          : getInvoiceExportCellColors(
+              cellKey,
+              getReportFeeColumnDefaultBg(columnKey, role),
+              getReportFeeColumnDefaultText(columnKey, role),
+              invoiceCellColors
+            );
         return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)};padding:10pt 7pt;text-align:center;vertical-align:middle;font-family:${REPORT_CSS_FONT_STACK};font-size:${role === 'header' ? '12pt' : '10pt'};line-height:1.25;`;
       };
       const detailRowsHtml = (rows: Array<[string, string]>) => rows.map(([label, value]) => `
@@ -1984,7 +2017,7 @@ export default function ClientQuotationsPage() {
         <div class="${index === 0 ? 'company-name-line' : 'company-line'}">${escapeHtml(line)}</div>
       `).join('');
       const companyLogoHtml = companyLogoDataUrl
-        ? `<div class="company-logo-wrap"><img class="company-logo" src="${escapeHtml(companyLogoDataUrl)}" alt="Company logo" /></div>`
+        ? `<img class="company-logo-banner" src="${escapeHtml(companyLogoDataUrl)}" alt="Company logo" />`
         : '';
       const referenceRequirementRowsHtml = requirementRows.length > 0
         ? requirementRows.map((requirement) => `
@@ -2038,15 +2071,18 @@ export default function ClientQuotationsPage() {
             <style>
               @page { size: A4 portrait; margin: 28pt; }
 	              body { font-family: ${REPORT_CSS_FONT_STACK}; color: ${REPORT_LEGAL_TEXT}; margin: 0; background: #fff; font-size: 10pt; }
-	              .top-band { height: 32pt; background: ${REPORT_DARK_NAVY}; border-bottom: 1pt solid ${REPORT_GOLD}; margin: -28pt -28pt 28pt; }
-	              .bottom-band { height: 18pt; background: ${REPORT_DARK_NAVY}; border-top: 1pt solid ${REPORT_GOLD}; margin: 20pt -28pt -28pt; }
+	              .top-band { min-height: 86pt; background: #DDF0F6; border-bottom: 1.5pt solid ${REPORT_NAVY}; margin: -28pt -28pt 28pt; text-align: center; overflow: hidden; }
+	              .company-logo-banner { display: block; width: 100%; max-width: 100%; max-height: 86pt; height: auto; object-fit: contain; margin: 0 auto; }
+	              .top-band-fallback { padding-top: 18pt; color: ${REPORT_NAVY}; }
+	              .bottom-band { height: 1pt; background: ${REPORT_NAVY}; margin: 20pt -28pt -28pt; }
 	              .page { width: 100%; }
 	              .layout-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
 	              .layout-table td { vertical-align: top; }
-	              .invoice-header { width: 100%; margin-bottom: 22pt; text-align: center; }
+	              .report-title-row { width: 100%; margin: 0 0 22pt; text-align: center; white-space: nowrap; }
+	              .report-title-line { display: inline-block; width: 96pt; border-top: 1.3pt solid ${REPORT_BRAND_BLUE}; vertical-align: middle; }
+	              .report-title { display: inline-block; color: ${REPORT_NAVY}; font-size: 32pt; font-weight: 900; letter-spacing: 1pt; margin: 0 24pt; vertical-align: middle; }
+	              .invoice-header { width: 100%; margin-bottom: 12pt; text-align: center; }
 	              .company-block { color: ${REPORT_INK}; font-size: 9.2pt; line-height: 1.4; text-align: center; max-width: 330pt; margin: 0 auto; }
-	              .company-logo-wrap { text-align: center; margin: 0 auto 10pt; }
-	              .company-logo { max-width: 92pt; max-height: 54pt; width: auto; height: auto; object-fit: contain; }
 	              .company-name-line { color: ${REPORT_NAVY}; font-size: 13pt; font-weight: 800; margin-bottom: 8pt; }
 	              .company-line { margin-bottom: 2pt; }
 		              .summary-layout { width: 100%; margin-bottom: 10pt; }
@@ -2080,18 +2116,19 @@ export default function ClientQuotationsPage() {
               .requirement-description td, .requirement-description th { border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, '#D1D5DB')}; padding: 6pt 8pt; vertical-align: top; word-break: normal; overflow-wrap: break-word; }
               .requirement-description th { background: ${normalizeHexColor(invoiceServiceTableColors.subHeaderBg, '#F8FAFC')}; font-weight: 700; }
               .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
-	              .footer { margin-top: 26pt; text-align: center; color: ${REPORT_INK}; font-size: 8.5pt; padding-top: 16pt; }
-	              .footer-line { width: 300pt; border-top: 1pt solid ${REPORT_NAVY}; margin: 0 auto 12pt; }
-	              .footer-dot { width: 8pt; height: 8pt; border-radius: 50%; background: ${REPORT_NAVY}; margin: -17pt auto 10pt; }
-	              .footer-thanks { color: ${REPORT_NAVY}; font-size: 13pt; font-weight: 800; margin-bottom: 4pt; }
-	              .footer-note { font-style: italic; font-size: 8.5pt; }
+	              .footer { margin-top: 130pt; text-align: left; color: ${REPORT_INK}; font-size: 9.5pt; line-height: 1.5; padding-top: 16pt; }
+	              .footer-line { border-top: 1pt solid ${REPORT_NAVY}; margin: 28pt -28pt 0; }
+	              .footer-thanks { color: ${REPORT_INK}; font-size: 9.5pt; margin-bottom: 3pt; }
+	              .footer-note { color: ${REPORT_INK}; font-size: 9.5pt; }
             </style>
           </head>
 	          <body>
-	            <div class="top-band"></div>
+	            <div class="top-band">${companyLogoHtml || `<div class="top-band-fallback">${companyLinesHtml}</div>`}</div>
 	            <div class="page">
-	              <div class="invoice-header">
-	                <div class="company-block">${companyLogoHtml}${companyLinesHtml}</div>
+	              <div class="report-title-row">
+	                <span class="report-title-line"></span>
+	                <span class="report-title">${CLIENT_QUOTATION_REPORT_TITLE}</span>
+	                <span class="report-title-line"></span>
 	              </div>
 	              <div class="summary-layout">
 	                <div class="info-panel">
@@ -2118,10 +2155,9 @@ export default function ClientQuotationsPage() {
                   </tbody>
                 </table>
 	              <div class="footer">
+	                <div class="footer-thanks">${escapeHtml(footerLines[0])}</div>
+	                <div class="footer-note">${escapeHtml(footerLines[1])}</div>
 	                <div class="footer-line"></div>
-	                <div class="footer-dot"></div>
-	                <div class="footer-thanks">Thank you for your business!</div>
-	                <div class="footer-note">This is a computer-generated report and does not require a signature.</div>
 	              </div>
             </div>
             <div class="bottom-band"></div>
@@ -2896,6 +2932,7 @@ export default function ClientQuotationsPage() {
   );
   const viewingCompanyLines = getReportCompanyLines(selectedInvoiceCompanyDetail);
   const viewingCompanyLogoUrl = getReportCompanyLogoUrl(selectedInvoiceCompanyDetail);
+  const viewingFooterLines = getReportFooterLines(selectedInvoiceCompanyDetail);
   const viewingProjectRows = viewingItem ? getReportProjectDetails(viewingItem) : [];
   const viewingRequirementRows = viewingItem ? getRequirementDisplayRows(viewingItem) : [];
   const viewingFeeColumns = viewingItem ? getReportFeeTableColumns(viewingItem) : [];
@@ -2910,18 +2947,51 @@ export default function ClientQuotationsPage() {
             margin: '12mm',
           },
           '.client-quotation-invoice-print .invoice-report-top-band': {
-            height: 32,
+            minHeight: 120,
             marginLeft: -24,
             marginRight: -24,
             marginTop: -24,
-            marginBottom: 24,
-            backgroundColor: REPORT_DARK_NAVY,
-            borderBottom: `2px solid ${REPORT_GOLD}`,
+            marginBottom: 26,
+            backgroundColor: '#DDF0F6',
+            borderBottom: `3px solid ${REPORT_NAVY}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          },
+          '.client-quotation-invoice-print .invoice-report-logo-banner': {
+            display: 'block',
+            width: '100%',
+            maxWidth: '100%',
+            maxHeight: 120,
+            objectFit: 'contain',
           },
           '.client-quotation-invoice-print .invoice-report-header': {
             backgroundColor: '#FFFFFF',
             color: REPORT_NAVY,
             marginBottom: 16,
+          },
+          '.client-quotation-invoice-print .invoice-report-title-row': {
+            display: 'grid',
+            gridTemplateColumns: '1fr auto 1fr',
+            alignItems: 'center',
+            gap: 32,
+            paddingLeft: 48,
+            paddingRight: 48,
+            marginBottom: 18,
+          },
+          '.client-quotation-invoice-print .invoice-report-title-row::before, .client-quotation-invoice-print .invoice-report-title-row::after': {
+            content: '""',
+            display: 'block',
+            borderTop: `3px solid ${REPORT_BRAND_BLUE}`,
+          },
+          '.client-quotation-invoice-print .invoice-report-title-text': {
+            color: REPORT_NAVY,
+            fontFamily: `${REPORT_CSS_FONT_STACK} !important`,
+            fontSize: 54,
+            fontWeight: 900,
+            lineHeight: 1,
+            letterSpacing: 1,
           },
           '.client-quotation-invoice-print .invoice-report-meta': {
             borderLeft: `2px solid ${REPORT_NAVY}`,
@@ -2957,19 +3027,18 @@ export default function ClientQuotationsPage() {
             paddingBottom: '3px !important',
           },
           '.client-quotation-invoice-print .invoice-report-footer': {
-            marginTop: 28,
+            marginTop: 110,
             paddingTop: 16,
             color: REPORT_INK,
-            textAlign: 'center',
+            textAlign: 'left',
           },
           '.client-quotation-invoice-print .invoice-report-bottom-band': {
-            height: 18,
+            height: 2,
             marginLeft: -24,
             marginRight: -24,
             marginBottom: -24,
             marginTop: 20,
-            backgroundColor: REPORT_DARK_NAVY,
-            borderTop: `2px solid ${REPORT_GOLD}`,
+            backgroundColor: REPORT_NAVY,
           },
           '@media print': {
             'body *': {
@@ -3001,6 +3070,13 @@ export default function ClientQuotationsPage() {
               marginRight: '-12mm !important',
               marginTop: '-12mm !important',
               marginBottom: '18px !important',
+              minHeight: '28mm !important',
+            },
+            '.client-quotation-invoice-print .invoice-report-logo-banner': {
+              maxHeight: '28mm !important',
+            },
+            '.client-quotation-invoice-print .invoice-report-title-text': {
+              fontSize: '44px !important',
             },
             '.client-quotation-invoice-print .invoice-report-bottom-band': {
               marginLeft: '-12mm !important',
@@ -4046,39 +4122,23 @@ export default function ClientQuotationsPage() {
 	                fontFamily: REPORT_CSS_FONT_STACK,
 	              }}
             >
-	              <Box className="invoice-report-top-band" />
-	              <Box className="invoice-report-header">
-	                <Box
-	                  sx={{
-	                    textAlign: 'center',
-	                    mb: 2.5,
-	                  }}
-	                >
-	                  <Box sx={{ color: REPORT_INK, fontSize: 14, lineHeight: 1.55, maxWidth: 620, mx: 'auto' }}>
-	                    {viewingCompanyLogoUrl && (
-	                      <Box
-	                        component="img"
-	                        src={viewingCompanyLogoUrl}
-	                        alt="Company logo"
-	                        sx={{
-	                          display: 'block',
-	                          maxWidth: 128,
-	                          maxHeight: 74,
-	                          width: 'auto',
-	                          height: 'auto',
-	                          objectFit: 'contain',
-	                          mx: 'auto',
-	                          mb: 1.25,
-	                        }}
-	                      />
-	                    )}
+	              <Box className="invoice-report-top-band">
+	                {viewingCompanyLogoUrl ? (
+	                  <Box
+	                    component="img"
+	                    className="invoice-report-logo-banner"
+	                    src={resolveReportAssetUrl(viewingCompanyLogoUrl)}
+	                    alt="Company logo"
+	                  />
+	                ) : (
+	                  <Box sx={{ color: REPORT_INK, fontSize: 14, lineHeight: 1.55, maxWidth: 760, mx: 'auto', py: 2 }}>
 	                    {viewingCompanyLines.map((line, index) => (
 	                      <Typography
 	                        key={`${line}-${index}`}
 	                        sx={{
 	                          color: index === 0 ? REPORT_NAVY : REPORT_INK,
 	                          fontFamily: REPORT_CSS_FONT_STACK,
-	                          fontSize: index === 0 ? 18 : 14,
+	                          fontSize: index === 0 ? 22 : 14,
 	                          fontWeight: index === 0 ? 900 : 500,
 	                          lineHeight: 1.35,
 	                          mb: index === 0 ? 0.5 : 0.25,
@@ -4088,6 +4148,11 @@ export default function ClientQuotationsPage() {
 	                      </Typography>
 	                    ))}
 	                  </Box>
+	                )}
+	              </Box>
+	              <Box className="invoice-report-title-row">
+	                <Box component="span" className="invoice-report-title-text">
+	                  {CLIENT_QUOTATION_REPORT_TITLE}
 	                </Box>
 	              </Box>
 
@@ -4309,22 +4374,16 @@ export default function ClientQuotationsPage() {
                         <TableRow>
                           {viewingFeeColumns.map((column) => {
                             const defaultBg = getReportFeeColumnDefaultBg(column.key, 'header');
-                            const defaultText = getReportFeeColumnDefaultText(column.key);
+                            const defaultText = getReportFeeColumnDefaultText(column.key, 'header');
                             return (
                               <TableCell
                                 key={`header-${column.key}`}
                                 align="center"
-                                onClick={(event) =>
-                                  openInvoiceCellPicker(
-                                    event,
-                                    `header-${column.key}`,
-                                    `Header: ${column.label}`,
-                                    defaultBg
-                                  )
-                                }
                                 sx={{
                                   p: 1.5,
-                                  ...getInvoiceCellSx(`header-${column.key}`, defaultBg, defaultText),
+                                  bgcolor: defaultBg,
+                                  color: defaultText,
+                                  cursor: 'default',
                                 }}
                               >
                                 <Box component="span" className="fee-header-title">
@@ -4467,14 +4526,11 @@ export default function ClientQuotationsPage() {
               </Card>
 
 	              <Box className="invoice-report-footer">
-	                <Box sx={{ width: { xs: '72%', md: '70%' }, borderTop: `2px solid ${REPORT_NAVY}`, mx: 'auto', position: 'relative', mb: 1.5 }}>
-	                  <Box sx={{ position: 'absolute', left: '50%', top: -6, width: 12, height: 12, borderRadius: '50%', bgcolor: REPORT_NAVY, transform: 'translateX(-50%)' }} />
-	                </Box>
-	                <Typography sx={{ color: REPORT_NAVY, fontWeight: 900, fontFamily: REPORT_CSS_FONT_STACK, fontSize: { xs: 20, md: 24 }, mt: 2.5 }}>
-	                  Thank you for your business!
+	                <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontSize: 15, lineHeight: 1.45, mb: 0.75 }}>
+	                  {viewingFooterLines[0]}
 	                </Typography>
-	                <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontStyle: 'italic', fontSize: 13 }}>
-	                  This is a computer-generated report and does not require a signature.
+	                <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontSize: 15, lineHeight: 1.45 }}>
+	                  {viewingFooterLines[1]}
 	                </Typography>
 	              </Box>
               <Box className="invoice-report-bottom-band" />

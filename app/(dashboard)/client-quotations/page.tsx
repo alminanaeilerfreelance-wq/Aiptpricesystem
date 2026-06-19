@@ -285,6 +285,20 @@ const REPORT_MUTED = '#475569';
 const CLIENT_QUOTATION_REPORT_TITLE = 'QUOTATION';
 const REPORT_FEE_CURRENCY_LABEL = 'US$';
 const REPORT_FEE_SUBTITLE = '"per mark per class"';
+const REPORT_PAGE_ORIENTATION = 'portrait' as const;
+const REPORT_PAGE_WIDTH_MM = 210;
+const REPORT_PAGE_HEIGHT_MM = 297;
+const REPORT_BANNER_HEIGHT_PT = 96;
+const REPORT_TITLE_FONT_SIZE_PT = 32;
+const REPORT_PANEL_TITLE_FONT_SIZE_PT = 11;
+const REPORT_SECTION_TITLE_FONT_SIZE_PT = 14;
+const REPORT_COMPANY_NAME_FONT_SIZE_PT = 15;
+const REPORT_DETAIL_FONT_SIZE_PT = 8.8;
+const REPORT_BODY_FONT_SIZE_PT = 10;
+const REPORT_FEE_HEADER_FONT_SIZE_PT = 12;
+const REPORT_FEE_SUBTITLE_FONT_SIZE_PT = 8.6;
+const REPORT_FOOTER_FONT_SIZE_PT = 9.5;
+const reportPtToPx = (value: number): number => Math.round(value * (4 / 3) * 10) / 10;
 const REPORT_SERVICE_COLUMNS = ['country', 'procedure', 'official', 'attorney', 'vat', 'discount', 'total'] as const;
 type ReportServiceColumnKey = 'service' | (typeof REPORT_SERVICE_COLUMNS)[number];
 type ReportFeeColumnRole = 'header' | 'body' | 'total';
@@ -544,7 +558,6 @@ const getReportProjectDetails = (quotation: ClientQuotation): Array<[string, str
   ['Service Type', valueOrDash(quotation.serviceCategory || quotation.inquirySnapshot?.serviceCategory)],
   ['Procedure', valueOrDash(quotation.inquirySnapshot?.procedureName)],
   ['Country', valueOrDash(quotation.inquirySnapshot?.countryNames?.join(', '))],
-  ['Status', valueOrDash(quotation.status || 'Submitted')],
 ];
 
 const EyeIcon = () => (
@@ -1644,7 +1657,11 @@ export default function ClientQuotationsPage() {
     try {
       const jsPDF = await import('jspdf');
       const autoTable = await import('jspdf-autotable');
-      const doc = new jsPDF.jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+      const doc = new jsPDF.jsPDF({
+        orientation: REPORT_PAGE_ORIENTATION,
+        unit: 'pt',
+        format: 'a4',
+      });
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 28;
@@ -1660,7 +1677,11 @@ export default function ClientQuotationsPage() {
       const footerLines = getReportFooterLines(company);
       let companyLogoLayout: { dataUrl: string; width: number; height: number } | null = null;
       try {
-        companyLogoLayout = await getReportImageLayout(getReportCompanyLogoUrl(company), pageWidth, 96);
+        companyLogoLayout = await getReportImageLayout(
+          getReportCompanyLogoUrl(company),
+          pageWidth,
+          REPORT_BANNER_HEIGHT_PT
+        );
       } catch {
         companyLogoLayout = null;
       }
@@ -1668,7 +1689,7 @@ export default function ClientQuotationsPage() {
       const requirementRows = getRequirementDisplayRows(quotation);
       const feeColumns = getReportFeeTableColumns(quotation);
       const showGrandTotalRow = shouldShowReportFeeGrandTotalRow(quotation);
-      const headerBannerHeight = 96;
+      const headerBannerHeight = REPORT_BANNER_HEIGHT_PT;
 
       const drawDecorativeChrome = () => {
         const absPageWidth = doc.internal.pageSize.getWidth
@@ -1696,11 +1717,11 @@ export default function ClientQuotationsPage() {
           }
         } else {
           doc.setFont(REPORT_PDF_FONT, 'bold');
-          doc.setFontSize(15);
+          doc.setFontSize(REPORT_COMPANY_NAME_FONT_SIZE_PT);
           doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
           doc.text(companyLines[0] || 'IP LAW FIRM', absPageWidth / 2, 38, { align: 'center' });
           doc.setFont(REPORT_PDF_FONT, 'italic');
-          doc.setFontSize(10);
+          doc.setFontSize(REPORT_BODY_FONT_SIZE_PT);
           doc.text(companyLines.slice(1, 3).join('   '), absPageWidth / 2, 58, { align: 'center' });
         }
 
@@ -1721,7 +1742,7 @@ export default function ClientQuotationsPage() {
         const rowHeight = 18;
         const panelHeight = headerHeight + rows.length * rowHeight + 2;
         doc.setFont(REPORT_PDF_FONT, 'bold');
-        doc.setFontSize(11);
+        doc.setFontSize(REPORT_PANEL_TITLE_FONT_SIZE_PT);
         doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
         doc.text(title.toUpperCase(), x, y + 12);
         doc.setDrawColor(...hexToRgbTuple(REPORT_NAVY));
@@ -1735,7 +1756,7 @@ export default function ClientQuotationsPage() {
           doc.line(x + width * 0.46, rowY, x + width * 0.46, rowY + rowHeight);
           doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
           doc.setFont(REPORT_PDF_FONT, 'bold');
-          doc.setFontSize(8.8);
+          doc.setFontSize(REPORT_DETAIL_FONT_SIZE_PT);
           doc.text(label, x, rowY + 12);
           doc.setTextColor(15, 23, 42);
           doc.setFont(REPORT_PDF_FONT, 'normal');
@@ -1748,7 +1769,7 @@ export default function ClientQuotationsPage() {
       const drawSectionTitle = (title: string, x: number, y: number) => {
         doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
         doc.setFont(REPORT_PDF_FONT, 'bold');
-        doc.setFontSize(14);
+        doc.setFontSize(REPORT_SECTION_TITLE_FONT_SIZE_PT);
         doc.text(title.toUpperCase(), x, y);
         doc.setDrawColor(...hexToRgbTuple(REPORT_GOLD));
         doc.setLineWidth(1);
@@ -1760,7 +1781,7 @@ export default function ClientQuotationsPage() {
         doc.setDrawColor(...hexToRgbTuple(REPORT_NAVY));
         doc.setLineWidth(0.8);
         doc.setFont(REPORT_PDF_FONT, 'normal');
-        doc.setFontSize(9.5);
+        doc.setFontSize(REPORT_FOOTER_FONT_SIZE_PT);
         doc.setTextColor(...hexToRgbTuple(REPORT_INK));
         doc.text(footerLines[0], margin, footerY);
         doc.text(footerLines[1], margin, footerY + 18);
@@ -1768,7 +1789,7 @@ export default function ClientQuotationsPage() {
 
       const drawInvoiceHeader = () => {
         doc.setFont(REPORT_PDF_FONT, 'bold');
-        doc.setFontSize(29);
+        doc.setFontSize(REPORT_TITLE_FONT_SIZE_PT);
         doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
         const titleY = headerBannerHeight + 64;
         doc.text(CLIENT_QUOTATION_REPORT_TITLE, pageWidth / 2, titleY, { align: 'center' });
@@ -1797,7 +1818,7 @@ export default function ClientQuotationsPage() {
       const drawRequirementHeader = (y: number, continued = false) => {
         drawSectionTitle(`Requirement Details${continued ? ' (continued)' : ''}`, margin + 8, y);
         doc.setFont(REPORT_PDF_FONT, 'bold');
-        doc.setFontSize(10);
+        doc.setFontSize(REPORT_BODY_FONT_SIZE_PT);
         doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
         doc.text('Description', margin + 8, y + 27);
         doc.setDrawColor(...hexToRgbTuple(REPORT_BORDER));
@@ -1810,7 +1831,7 @@ export default function ClientQuotationsPage() {
       cursorY = ensurePdfRoom(cursorY, 78);
       cursorY = drawRequirementHeader(cursorY);
       doc.setFont(REPORT_PDF_FONT, 'normal');
-      doc.setFontSize(8.8);
+      doc.setFontSize(REPORT_DETAIL_FONT_SIZE_PT);
       doc.setTextColor(15, 23, 42);
       const requirementTextBlocks = requirementRows.length > 0
         ? requirementRows.map((requirement) => requirement.requirementsText)
@@ -1822,7 +1843,7 @@ export default function ClientQuotationsPage() {
           if (cursorY === contentTop) {
             cursorY = drawRequirementHeader(cursorY, true);
             doc.setFont(REPORT_PDF_FONT, 'normal');
-            doc.setFontSize(8.8);
+            doc.setFontSize(REPORT_DETAIL_FONT_SIZE_PT);
             doc.setTextColor(15, 23, 42);
           }
           doc.text(line, margin + 8, cursorY);
@@ -1895,7 +1916,7 @@ export default function ClientQuotationsPage() {
         theme: 'grid',
         styles: {
           font: REPORT_PDF_FONT,
-          fontSize: 10,
+          fontSize: REPORT_BODY_FONT_SIZE_PT,
           cellPadding: { top: 10, right: 7, bottom: 10, left: 7 },
           lineColor: borderRgb,
           lineWidth: 0.6,
@@ -1906,7 +1927,7 @@ export default function ClientQuotationsPage() {
         },
         headStyles: {
           fontStyle: 'bold',
-          fontSize: 12,
+          fontSize: REPORT_FEE_HEADER_FONT_SIZE_PT,
           halign: 'center',
           minCellHeight: 50,
         },
@@ -1941,7 +1962,7 @@ export default function ClientQuotationsPage() {
 
           doc.setTextColor(...hexToRgbTuple(REPORT_LEGAL_TEXT));
           doc.setFont(REPORT_PDF_FONT, 'bold');
-          doc.setFontSize(12);
+          doc.setFontSize(REPORT_FEE_HEADER_FONT_SIZE_PT);
           labelLines.forEach((line: string) => {
             doc.text(line, centerX, textY, { align: 'center' });
             textY += lineHeight;
@@ -1949,7 +1970,7 @@ export default function ClientQuotationsPage() {
 
           if (subtitleLines.length > 0) {
             doc.setFont(REPORT_PDF_FONT, 'italic');
-            doc.setFontSize(8.6);
+            doc.setFontSize(REPORT_FEE_SUBTITLE_FONT_SIZE_PT);
             textY += 1;
             subtitleLines.forEach((line: string) => {
               doc.text(line, centerX, textY, { align: 'center' });
@@ -2014,7 +2035,7 @@ export default function ClientQuotationsPage() {
               getReportFeeColumnDefaultText(columnKey, role),
               invoiceCellColors
             );
-        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)};padding:10pt 7pt;text-align:center;vertical-align:middle;font-family:${REPORT_CSS_FONT_STACK};font-size:${role === 'header' ? '12pt' : '10pt'};line-height:1.25;`;
+        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)};padding:10pt 7pt;text-align:center;vertical-align:middle;font-family:${REPORT_CSS_FONT_STACK};font-size:${role === 'header' ? `${REPORT_FEE_HEADER_FONT_SIZE_PT}pt` : `${REPORT_BODY_FONT_SIZE_PT}pt`};line-height:1.25;`;
       };
       const detailRowsHtml = (rows: Array<[string, string]>) => rows.map(([label, value]) => `
         <tr>
@@ -2078,10 +2099,10 @@ export default function ClientQuotationsPage() {
             <meta charset="utf-8" />
             <title>${escapeHtml(invoiceNo)} Report</title>
             <style>
-              @page { size: A4 portrait; margin: 28pt; }
-	              body { font-family: ${REPORT_CSS_FONT_STACK}; color: ${REPORT_LEGAL_TEXT}; margin: 0; background: #fff; font-size: 10pt; }
-	              .top-band { min-height: 86pt; background: #DDF0F6; border-bottom: 1.5pt solid ${REPORT_NAVY}; margin: -28pt -28pt 28pt; text-align: center; overflow: hidden; }
-	              .company-logo-banner { display: block; width: 100%; max-width: none; height: 86pt; max-height: none; object-fit: fill; margin: 0; }
+              @page { size: ${REPORT_PAGE_WIDTH_MM}mm ${REPORT_PAGE_HEIGHT_MM}mm; margin: 28pt; }
+	              body { font-family: ${REPORT_CSS_FONT_STACK}; color: ${REPORT_LEGAL_TEXT}; margin: 0; background: #fff; font-size: ${REPORT_BODY_FONT_SIZE_PT}pt; }
+	              .top-band { min-height: ${REPORT_BANNER_HEIGHT_PT}pt; background: #DDF0F6; border-bottom: 1.5pt solid ${REPORT_NAVY}; margin: -28pt -28pt 28pt; text-align: center; overflow: hidden; }
+	              .company-logo-banner { display: block; width: 100%; max-width: none; height: ${REPORT_BANNER_HEIGHT_PT}pt; max-height: none; object-fit: fill; margin: 0; }
 	              .top-band-fallback { padding-top: 18pt; color: ${REPORT_NAVY}; }
 	              .bottom-band { height: 1pt; background: ${REPORT_NAVY}; margin: 20pt -28pt -28pt; }
 	              .page { width: 100%; }
@@ -2089,35 +2110,35 @@ export default function ClientQuotationsPage() {
 	              .layout-table td { vertical-align: top; }
 	              .report-title-row { width: 100%; margin: 0 0 22pt; text-align: center; white-space: nowrap; }
 	              .report-title-line { display: inline-block; width: 96pt; border-top: 1.3pt solid ${REPORT_BRAND_BLUE}; vertical-align: middle; }
-	              .report-title { display: inline-block; color: ${REPORT_NAVY}; font-size: 32pt; font-weight: 900; letter-spacing: 1pt; margin: 0 24pt; vertical-align: middle; }
+	              .report-title { display: inline-block; color: ${REPORT_NAVY}; font-size: ${REPORT_TITLE_FONT_SIZE_PT}pt; font-weight: 900; letter-spacing: 1pt; margin: 0 24pt; vertical-align: middle; }
 	              .invoice-header { width: 100%; margin-bottom: 12pt; text-align: center; }
 	              .company-block { color: ${REPORT_INK}; font-size: 9.2pt; line-height: 1.4; text-align: center; max-width: 330pt; margin: 0 auto; }
-	              .company-name-line { color: ${REPORT_NAVY}; font-size: 13pt; font-weight: 800; margin-bottom: 8pt; }
-	              .company-line { margin-bottom: 2pt; }
+	              .company-name-line { color: ${REPORT_NAVY}; font-size: ${REPORT_COMPANY_NAME_FONT_SIZE_PT}pt; font-weight: 800; margin-bottom: 8pt; }
+	              .company-line { margin-bottom: 2pt; font-size: ${REPORT_BODY_FONT_SIZE_PT}pt; }
 		              .summary-layout { width: 100%; margin-bottom: 10pt; }
               .info-panel { padding: 0; background: #fff; }
               .section-box { border: 1px solid ${REPORT_BORDER}; border-radius: 0; padding: 8pt; background: #fff; }
-              .panel-title { color: ${REPORT_NAVY}; padding: 0; font-size: 11pt; font-weight: 800; line-height: 1.1; text-transform: uppercase; }
+              .panel-title { color: ${REPORT_NAVY}; padding: 0; font-size: ${REPORT_PANEL_TITLE_FONT_SIZE_PT}pt; font-weight: 800; line-height: 1.1; text-transform: uppercase; }
               .panel-title-rule { width: 46pt; border-top: 0.8pt solid ${REPORT_NAVY}; margin: 3pt 0 4pt; }
-              .detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 8.8pt; line-height: 1.12; }
+              .detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: ${REPORT_DETAIL_FONT_SIZE_PT}pt; line-height: 1.12; }
               .detail-table td { border-bottom: 1px solid #e2e8f0; padding: 3pt 6pt; vertical-align: middle; line-height: 1.12; }
               .detail-table tr:last-child td { border-bottom: 0; }
               .detail-label { width: 46%; color: ${REPORT_NAVY}; font-weight: 800; border-right: 1px solid #e2e8f0; }
               .detail-value { color: #111827; }
               .section-box { margin-top: 10pt; padding: 12pt; }
               .requirement-flow-section { margin-top: 18pt; padding: 0 8pt 12pt; page-break-inside: auto; }
-              .section-title { color: ${REPORT_NAVY}; font-size: 14pt; font-weight: 800; text-transform: uppercase; margin: 0; }
+              .section-title { color: ${REPORT_NAVY}; font-size: ${REPORT_SECTION_TITLE_FONT_SIZE_PT}pt; font-weight: 800; text-transform: uppercase; margin: 0; }
               .title-underline { width: 42pt; border-top: 1pt solid ${REPORT_GOLD}; margin: 5pt 0 13pt; }
               .section-note { margin: 4pt 0 12pt; color: #111827; font-size: 10pt; }
-              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18pt; font-size: 10pt; page-break-inside: avoid; border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)}; background: #fff; }
+              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18pt; font-size: ${REPORT_BODY_FONT_SIZE_PT}pt; page-break-inside: avoid; border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)}; background: #fff; }
               .service-table th { font-weight: 800; letter-spacing: 0; }
               .service-table td, .service-table th { word-break: normal; overflow-wrap: break-word; }
               .fee-header-title { font-weight: 800; }
-              .fee-header-subtitle { font-style: italic; font-size: 8.6pt; font-weight: 400; margin-top: 2pt; }
+              .fee-header-subtitle { font-style: italic; font-size: ${REPORT_FEE_SUBTITLE_FONT_SIZE_PT}pt; font-weight: 400; margin-top: 2pt; }
               .procedure-main { font-weight: 800; color: inherit; }
               .requirement-heading { color: ${REPORT_NAVY}; font-size: 10pt; font-weight: 800; margin: 0 0 8pt; }
               .requirement-rule { border-top: 0.6pt solid ${REPORT_BORDER}; margin: 0 0 12pt; }
-              .requirement-description { color: #111827; font-size: 8.8pt; line-height: 1.35; overflow-wrap: anywhere; word-break: normal; }
+              .requirement-description { color: #111827; font-size: ${REPORT_DETAIL_FONT_SIZE_PT}pt; line-height: 1.35; overflow-wrap: anywhere; word-break: normal; }
               .requirement-description p { margin: 0 0 7pt; }
               .requirement-description p:last-child { margin-bottom: 0; }
               .requirement-description ul, .requirement-description ol { margin: 4pt 0 4pt 18pt; padding: 0; }
@@ -2125,10 +2146,10 @@ export default function ClientQuotationsPage() {
               .requirement-description td, .requirement-description th { border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, '#D1D5DB')}; padding: 6pt 8pt; vertical-align: top; word-break: normal; overflow-wrap: break-word; }
               .requirement-description th { background: ${normalizeHexColor(invoiceServiceTableColors.subHeaderBg, '#F8FAFC')}; font-weight: 700; }
               .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
-	              .footer { margin-top: 130pt; text-align: left; color: ${REPORT_INK}; font-size: 9.5pt; line-height: 1.5; padding-top: 16pt; }
+	              .footer { margin-top: 130pt; text-align: left; color: ${REPORT_INK}; font-size: ${REPORT_FOOTER_FONT_SIZE_PT}pt; line-height: 1.5; padding-top: 16pt; }
 	              .footer-line { border-top: 1pt solid ${REPORT_NAVY}; margin: 28pt -28pt 0; }
-	              .footer-thanks { color: ${REPORT_INK}; font-size: 9.5pt; margin-bottom: 3pt; }
-	              .footer-note { color: ${REPORT_INK}; font-size: 9.5pt; }
+	              .footer-thanks { color: ${REPORT_INK}; font-size: ${REPORT_FOOTER_FONT_SIZE_PT}pt; margin-bottom: 3pt; }
+	              .footer-note { color: ${REPORT_INK}; font-size: ${REPORT_FOOTER_FONT_SIZE_PT}pt; }
             </style>
           </head>
 	          <body>
@@ -2952,11 +2973,11 @@ export default function ClientQuotationsPage() {
       <GlobalStyles
         styles={{
           '@page': {
-            size: 'A4 portrait',
+            size: `${REPORT_PAGE_WIDTH_MM}mm ${REPORT_PAGE_HEIGHT_MM}mm`,
             margin: '12mm',
           },
           '.client-quotation-invoice-print .invoice-report-top-band': {
-            minHeight: 120,
+            minHeight: reportPtToPx(REPORT_BANNER_HEIGHT_PT),
             marginLeft: -24,
             marginRight: -24,
             marginTop: -24,
@@ -2972,7 +2993,7 @@ export default function ClientQuotationsPage() {
             display: 'block',
             width: '100%',
             maxWidth: 'none',
-            height: 120,
+            height: reportPtToPx(REPORT_BANNER_HEIGHT_PT),
             maxHeight: 'none',
             objectFit: 'fill',
           },
@@ -2998,7 +3019,7 @@ export default function ClientQuotationsPage() {
           '.client-quotation-invoice-print .invoice-report-title-text': {
             color: REPORT_NAVY,
             fontFamily: `${REPORT_CSS_FONT_STACK} !important`,
-            fontSize: 54,
+            fontSize: reportPtToPx(REPORT_TITLE_FONT_SIZE_PT),
             fontWeight: 900,
             lineHeight: 1,
             letterSpacing: 1,
@@ -3025,22 +3046,26 @@ export default function ClientQuotationsPage() {
             color: REPORT_NAVY,
             padding: '0 0 3px',
             fontFamily: `${REPORT_CSS_FONT_STACK} !important`,
+            fontSize: reportPtToPx(REPORT_PANEL_TITLE_FONT_SIZE_PT),
             fontWeight: 900,
             letterSpacing: '0.01em',
             lineHeight: 1.1,
           },
           '.client-quotation-invoice-print .invoice-detail-table .MuiTableCell-root': {
             borderColor: REPORT_TEAL_LIGHT,
-            fontSize: 13,
+            fontSize: reportPtToPx(REPORT_DETAIL_FONT_SIZE_PT),
             lineHeight: 1.12,
             paddingTop: '3px !important',
             paddingBottom: '3px !important',
           },
           '.client-quotation-invoice-print .invoice-report-footer': {
-            marginTop: 110,
+            marginTop: '130pt',
             paddingTop: 16,
             color: REPORT_INK,
             textAlign: 'left',
+          },
+          '.client-quotation-invoice-print .invoice-report-footer .MuiTypography-root': {
+            fontSize: `${reportPtToPx(REPORT_FOOTER_FONT_SIZE_PT)}px !important`,
           },
           '.client-quotation-invoice-print .invoice-report-bottom-band': {
             height: 2,
@@ -3064,8 +3089,8 @@ export default function ClientQuotationsPage() {
               position: 'absolute',
               left: 0,
               top: 0,
-              width: '210mm',
-              minHeight: '297mm',
+              width: `${REPORT_PAGE_WIDTH_MM}mm`,
+              minHeight: `${REPORT_PAGE_HEIGHT_MM}mm`,
               fontFamily: `${REPORT_CSS_FONT_STACK} !important`,
               color: '#0F172A !important',
               padding: '0 !important',
@@ -3080,17 +3105,17 @@ export default function ClientQuotationsPage() {
               marginRight: '-12mm !important',
               marginTop: '-12mm !important',
               marginBottom: '18px !important',
-              minHeight: '28mm !important',
+              minHeight: '34mm !important',
             },
             '.client-quotation-invoice-print .invoice-report-logo-banner': {
               width: '100% !important',
-              height: '28mm !important',
+              height: '34mm !important',
               maxWidth: 'none !important',
               maxHeight: 'none !important',
               objectFit: 'fill !important',
             },
             '.client-quotation-invoice-print .invoice-report-title-text': {
-              fontSize: '44px !important',
+              fontSize: `${reportPtToPx(REPORT_TITLE_FONT_SIZE_PT)}px !important`,
             },
             '.client-quotation-invoice-print .invoice-report-bottom-band': {
               marginLeft: '-12mm !important',
@@ -3120,8 +3145,11 @@ export default function ClientQuotationsPage() {
               padding: '8px !important',
             },
             '.client-quotation-invoice-print .invoice-service-card': {
-              border: `1px solid ${REPORT_NAVY} !important`,
+              border: '0 !important',
               boxShadow: 'none !important',
+            },
+            '.client-quotation-invoice-print .invoice-service-card .MuiCardContent-root': {
+              padding: '0 !important',
             },
             '.client-quotation-invoice-print .invoice-service-heading': {
               backgroundColor: `${REPORT_TEAL_LIGHT} !important`,
@@ -3130,7 +3158,8 @@ export default function ClientQuotationsPage() {
             },
             '.client-quotation-invoice-print .invoice-service-table th': {
               border: `1px solid ${invoiceServiceTableColors.borderColor} !important`,
-              fontSize: '16px !important',
+              fontSize: `${reportPtToPx(REPORT_FEE_HEADER_FONT_SIZE_PT)}px !important`,
+              padding: '10pt 7pt !important',
               textTransform: 'none',
               letterSpacing: '0',
               textAlign: 'center',
@@ -3138,12 +3167,13 @@ export default function ClientQuotationsPage() {
             },
             '.client-quotation-invoice-print .invoice-service-table td': {
               border: `1px solid ${invoiceServiceTableColors.borderColor} !important`,
-              fontSize: '14px !important',
+              fontSize: `${reportPtToPx(REPORT_BODY_FONT_SIZE_PT)}px !important`,
+              padding: '10pt 7pt !important',
               textAlign: 'center',
               verticalAlign: 'middle',
             },
             '.client-quotation-invoice-print .invoice-service-table .fee-header-subtitle': {
-              fontSize: '13px !important',
+              fontSize: `${reportPtToPx(REPORT_FEE_SUBTITLE_FONT_SIZE_PT)}px !important`,
               fontStyle: 'italic',
               fontWeight: 400,
             },
@@ -3158,7 +3188,7 @@ export default function ClientQuotationsPage() {
             },
             '.client-quotation-invoice-print .invoice-requirement-description': {
               color: '#111827 !important',
-              fontSize: '10.5px !important',
+              fontSize: `${reportPtToPx(REPORT_DETAIL_FONT_SIZE_PT)}px !important`,
               lineHeight: '1.45 !important',
               overflowWrap: 'anywhere !important',
               wordBreak: 'normal !important',
@@ -3190,6 +3220,12 @@ export default function ClientQuotationsPage() {
             '.client-quotation-invoice-print .invoice-money-cell': {
               whiteSpace: 'nowrap',
               fontVariantNumeric: 'tabular-nums',
+            },
+            '.client-quotation-invoice-print .invoice-requirement-title': {
+              fontSize: `${reportPtToPx(REPORT_SECTION_TITLE_FONT_SIZE_PT)}px !important`,
+            },
+            '.client-quotation-invoice-print .invoice-requirement-heading': {
+              fontSize: `${reportPtToPx(REPORT_BODY_FONT_SIZE_PT)}px !important`,
             },
             '.MuiDialog-root, .MuiDialog-container, .MuiDialog-paper, .MuiDialogContent-root': {
               position: 'static !important',
@@ -4145,14 +4181,16 @@ export default function ClientQuotationsPage() {
 	                    alt="Company logo"
 	                  />
 	                ) : (
-	                  <Box sx={{ color: REPORT_INK, fontSize: 14, lineHeight: 1.55, maxWidth: 760, mx: 'auto', py: 2 }}>
+	                  <Box sx={{ color: REPORT_INK, fontSize: reportPtToPx(REPORT_BODY_FONT_SIZE_PT), lineHeight: 1.55, maxWidth: 760, mx: 'auto', py: 2 }}>
 	                    {viewingCompanyLines.map((line, index) => (
 	                      <Typography
 	                        key={`${line}-${index}`}
 	                        sx={{
 	                          color: index === 0 ? REPORT_NAVY : REPORT_INK,
 	                          fontFamily: REPORT_CSS_FONT_STACK,
-	                          fontSize: index === 0 ? 22 : 14,
+	                          fontSize: index === 0
+	                            ? reportPtToPx(REPORT_COMPANY_NAME_FONT_SIZE_PT)
+	                            : reportPtToPx(REPORT_BODY_FONT_SIZE_PT),
 	                          fontWeight: index === 0 ? 900 : 500,
 	                          lineHeight: 1.35,
 	                          mb: index === 0 ? 0.5 : 0.25,
@@ -4203,7 +4241,7 @@ export default function ClientQuotationsPage() {
                   '& .invoice-requirement-description': {
                     color: '#111827',
                     fontFamily: REPORT_CSS_FONT_STACK,
-                    fontSize: 13,
+                    fontSize: reportPtToPx(REPORT_DETAIL_FONT_SIZE_PT),
                     lineHeight: 1.55,
                     overflowWrap: 'anywhere',
                     wordBreak: 'normal',
@@ -4232,11 +4270,29 @@ export default function ClientQuotationsPage() {
                   },
                 }}
               >
-                <Typography sx={{ color: REPORT_NAVY, fontFamily: REPORT_CSS_FONT_STACK, fontSize: 24, fontWeight: 900, lineHeight: 1.1 }}>
+                <Typography
+                  className="invoice-requirement-title"
+                  sx={{
+                    color: REPORT_NAVY,
+                    fontFamily: REPORT_CSS_FONT_STACK,
+                    fontSize: reportPtToPx(REPORT_SECTION_TITLE_FONT_SIZE_PT),
+                    fontWeight: 900,
+                    lineHeight: 1.1,
+                  }}
+                >
                   Requirement Details
                 </Typography>
                 <Box sx={{ width: 58, borderTop: `2px solid ${REPORT_NAVY}`, mt: 0.75, mb: 1.25 }} />
-                <Typography sx={{ color: REPORT_NAVY, fontFamily: REPORT_CSS_FONT_STACK, fontSize: 14, fontWeight: 900, mb: 1 }}>
+                <Typography
+                  className="invoice-requirement-heading"
+                  sx={{
+                    color: REPORT_NAVY,
+                    fontFamily: REPORT_CSS_FONT_STACK,
+                    fontSize: reportPtToPx(REPORT_BODY_FONT_SIZE_PT),
+                    fontWeight: 900,
+                    mb: 1,
+                  }}
+                >
                   Description
                 </Typography>
                 {viewingRequirementRows.length > 0 ? (
@@ -4251,7 +4307,7 @@ export default function ClientQuotationsPage() {
                     />
                   ))
                 ) : (
-                  <Typography sx={{ color: REPORT_MUTED, fontFamily: REPORT_CSS_FONT_STACK, fontSize: 13 }}>
+                  <Typography sx={{ color: REPORT_MUTED, fontFamily: REPORT_CSS_FONT_STACK, fontSize: reportPtToPx(REPORT_DETAIL_FONT_SIZE_PT) }}>
                     No requirement details available.
                   </Typography>
                 )}
@@ -4353,14 +4409,14 @@ export default function ClientQuotationsPage() {
                         '& .MuiTableCell-root': {
                           borderColor: invoiceServiceTableColors.borderColor,
                           fontFamily: REPORT_CSS_FONT_STACK,
-                          fontSize: 14,
+                          fontSize: reportPtToPx(REPORT_BODY_FONT_SIZE_PT),
                           lineHeight: 1.25,
                           textAlign: 'center',
                           verticalAlign: 'middle',
                         },
                         '& thead .MuiTableCell-root': {
                           letterSpacing: 0,
-                          fontSize: 16,
+                          fontSize: reportPtToPx(REPORT_FEE_HEADER_FONT_SIZE_PT),
                           fontWeight: 900,
                         },
                         '& .fee-header-title': {
@@ -4370,7 +4426,7 @@ export default function ClientQuotationsPage() {
                           display: 'block',
                           fontStyle: 'italic',
                           fontWeight: 400,
-                          fontSize: 13,
+                          fontSize: reportPtToPx(REPORT_FEE_SUBTITLE_FONT_SIZE_PT),
                           mt: 0.25,
                         },
                         '& tbody .MuiTableCell-root:not(:first-of-type)': {
@@ -4540,10 +4596,10 @@ export default function ClientQuotationsPage() {
               </Card>
 
 	              <Box className="invoice-report-footer">
-	                <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontSize: 15, lineHeight: 1.45, mb: 0.75 }}>
+	                <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontSize: reportPtToPx(REPORT_FOOTER_FONT_SIZE_PT), lineHeight: 1.45, mb: 0.75 }}>
 	                  {viewingFooterLines[0]}
 	                </Typography>
-	                <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontSize: 15, lineHeight: 1.45 }}>
+	                <Typography sx={{ color: REPORT_INK, fontFamily: REPORT_CSS_FONT_STACK, fontSize: reportPtToPx(REPORT_FOOTER_FONT_SIZE_PT), lineHeight: 1.45 }}>
 	                  {viewingFooterLines[1]}
 	                </Typography>
 	              </Box>

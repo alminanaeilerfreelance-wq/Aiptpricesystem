@@ -1671,17 +1671,25 @@ export default function ClientQuotationsPage() {
       const headerBannerHeight = 96;
 
       const drawDecorativeChrome = () => {
+        const absPageWidth = doc.internal.pageSize.getWidth
+          ? doc.internal.pageSize.getWidth()
+          : doc.internal.pageSize.width;
+        const absPageHeight = doc.internal.pageSize.getHeight
+          ? doc.internal.pageSize.getHeight()
+          : doc.internal.pageSize.height;
+
         doc.setFillColor(221, 240, 246);
-        doc.rect(0, 0, pageWidth, headerBannerHeight, 'F');
+        doc.rect(0, 0, absPageWidth, headerBannerHeight, 'F');
+
         if (companyLogoLayout) {
           try {
             doc.addImage(
               companyLogoLayout.dataUrl,
               getReportPdfImageFormat(companyLogoLayout.dataUrl),
-              (pageWidth - companyLogoLayout.width) / 2,
-              (headerBannerHeight - companyLogoLayout.height) / 2,
-              companyLogoLayout.width,
-              companyLogoLayout.height
+              0,
+              0,
+              absPageWidth,
+              headerBannerHeight
             );
           } catch {
             // Keep the report usable even if the uploaded logo cannot be embedded.
@@ -1690,15 +1698,16 @@ export default function ClientQuotationsPage() {
           doc.setFont(REPORT_PDF_FONT, 'bold');
           doc.setFontSize(15);
           doc.setTextColor(...hexToRgbTuple(REPORT_NAVY));
-          doc.text(companyLines[0] || 'IP LAW FIRM', pageWidth / 2, 38, { align: 'center' });
+          doc.text(companyLines[0] || 'IP LAW FIRM', absPageWidth / 2, 38, { align: 'center' });
           doc.setFont(REPORT_PDF_FONT, 'italic');
           doc.setFontSize(10);
-          doc.text(companyLines.slice(1, 3).join('   '), pageWidth / 2, 58, { align: 'center' });
+          doc.text(companyLines.slice(1, 3).join('   '), absPageWidth / 2, 58, { align: 'center' });
         }
+
         doc.setDrawColor(...hexToRgbTuple(REPORT_NAVY));
         doc.setLineWidth(1.4);
-        doc.line(0, headerBannerHeight, pageWidth, headerBannerHeight);
-        doc.line(6, pageHeight - 22, pageWidth - 6, pageHeight - 22);
+        doc.line(0, headerBannerHeight, absPageWidth, headerBannerHeight);
+        doc.line(0, absPageHeight - 22, absPageWidth, absPageHeight - 22);
       };
 
       const drawDetailPanel = (
@@ -2072,7 +2081,7 @@ export default function ClientQuotationsPage() {
               @page { size: A4 portrait; margin: 28pt; }
 	              body { font-family: ${REPORT_CSS_FONT_STACK}; color: ${REPORT_LEGAL_TEXT}; margin: 0; background: #fff; font-size: 10pt; }
 	              .top-band { min-height: 86pt; background: #DDF0F6; border-bottom: 1.5pt solid ${REPORT_NAVY}; margin: -28pt -28pt 28pt; text-align: center; overflow: hidden; }
-	              .company-logo-banner { display: block; width: 100%; max-width: 100%; max-height: 86pt; height: auto; object-fit: contain; margin: 0 auto; }
+	              .company-logo-banner { display: block; width: 100%; max-width: none; height: 86pt; max-height: none; object-fit: fill; margin: 0; }
 	              .top-band-fallback { padding-top: 18pt; color: ${REPORT_NAVY}; }
 	              .bottom-band { height: 1pt; background: ${REPORT_NAVY}; margin: 20pt -28pt -28pt; }
 	              .page { width: 100%; }
@@ -2962,9 +2971,10 @@ export default function ClientQuotationsPage() {
           '.client-quotation-invoice-print .invoice-report-logo-banner': {
             display: 'block',
             width: '100%',
-            maxWidth: '100%',
-            maxHeight: 120,
-            objectFit: 'contain',
+            maxWidth: 'none',
+            height: 120,
+            maxHeight: 'none',
+            objectFit: 'fill',
           },
           '.client-quotation-invoice-print .invoice-report-header': {
             backgroundColor: '#FFFFFF',
@@ -3073,7 +3083,11 @@ export default function ClientQuotationsPage() {
               minHeight: '28mm !important',
             },
             '.client-quotation-invoice-print .invoice-report-logo-banner': {
-              maxHeight: '28mm !important',
+              width: '100% !important',
+              height: '28mm !important',
+              maxWidth: 'none !important',
+              maxHeight: 'none !important',
+              objectFit: 'fill !important',
             },
             '.client-quotation-invoice-print .invoice-report-title-text': {
               fontSize: '44px !important',

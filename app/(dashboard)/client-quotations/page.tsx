@@ -129,6 +129,12 @@ interface InvoiceServiceTableColors {
   totalColText: string;
 }
 
+interface InvoiceServiceTableFontSizes {
+  header: number;
+  body: number;
+  subtitle: number;
+}
+
 const defaultServiceDraft: ServiceDraft = {
   procedureName: '',
   countryName: '',
@@ -274,6 +280,7 @@ const defaultInvoiceServiceTableColors: InvoiceServiceTableColors = {
 
 const INVOICE_TABLE_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceTableColors.v4';
 const INVOICE_CELL_COLOR_STORAGE_KEY = 'aipt.clientQuotation.invoiceCellColors.v4';
+const INVOICE_TABLE_FONT_SIZE_STORAGE_KEY = 'aipt.clientQuotation.invoiceTableFontSizes.v1';
 const REPORT_PDF_FONT = 'times';
 const REPORT_CSS_FONT_STACK = '"Times New Roman", Times, serif';
 const REPORT_INK = '#111111';
@@ -298,6 +305,11 @@ const REPORT_BODY_FONT_SIZE_PT = 10;
 const REPORT_FEE_HEADER_FONT_SIZE_PT = 12;
 const REPORT_FEE_SUBTITLE_FONT_SIZE_PT = 8.6;
 const REPORT_FOOTER_FONT_SIZE_PT = 9.5;
+const DEFAULT_INVOICE_TABLE_FONT_SIZES: InvoiceServiceTableFontSizes = {
+  header: REPORT_FEE_HEADER_FONT_SIZE_PT,
+  body: REPORT_BODY_FONT_SIZE_PT,
+  subtitle: REPORT_FEE_SUBTITLE_FONT_SIZE_PT,
+};
 const reportPtToPx = (value: number): number => Math.round(value * (4 / 3) * 10) / 10;
 const REPORT_SERVICE_COLUMNS = ['country', 'procedure', 'official', 'attorney', 'vat', 'discount', 'total'] as const;
 type ReportServiceColumnKey = 'service' | (typeof REPORT_SERVICE_COLUMNS)[number];
@@ -1148,6 +1160,9 @@ export default function ClientQuotationsPage() {
     defaultInvoiceServiceTableColors
   );
   const [invoiceCellColors, setInvoiceCellColors] = useState<Record<string, string>>({});
+  const [invoiceTableFontSizes, setInvoiceTableFontSizes] = useState<InvoiceServiceTableFontSizes>(
+    DEFAULT_INVOICE_TABLE_FONT_SIZES
+  );
   const [invoiceCellPickerAnchor, setInvoiceCellPickerAnchor] = useState<HTMLElement | null>(null);
   const [selectedInvoiceCell, setSelectedInvoiceCell] = useState<{ key: string; label: string } | null>(null);
   const [invoiceCellColorDraft, setInvoiceCellColorDraft] = useState('#FFFFFF');
@@ -1365,7 +1380,21 @@ export default function ClientQuotationsPage() {
       INVOICE_CELL_COLOR_STORAGE_KEY,
       JSON.stringify(invoiceCellColors)
     );
-    notifySuccess('Default Service Details table color design saved.');
+    window.localStorage.setItem(
+      INVOICE_TABLE_FONT_SIZE_STORAGE_KEY,
+      JSON.stringify(invoiceTableFontSizes)
+    );
+    notifySuccess('Default Service Details table design saved.');
+  };
+
+  const updateInvoiceTableFontSize = (key: keyof InvoiceServiceTableFontSizes, delta: number) => {
+    setInvoiceTableFontSizes((prev: InvoiceServiceTableFontSizes) => {
+      const nextValue = Math.max(7, Math.min(18, Math.round((prev[key] + delta) * 10) / 10));
+      return {
+        ...prev,
+        [key]: nextValue,
+      };
+    });
   };
 
   const ensureInvoiceCompanyDetails = useCallback(async (): Promise<CompanyDetail[]> => {
@@ -1400,6 +1429,21 @@ export default function ClientQuotationsPage() {
         if (parsed && typeof parsed === 'object') {
           setInvoiceCellColors(parsed);
         }
+      } catch {
+        // ignore invalid local storage value
+      }
+    }
+
+    const rawFontSizes = window.localStorage.getItem(INVOICE_TABLE_FONT_SIZE_STORAGE_KEY);
+    if (rawFontSizes) {
+      try {
+        const parsed = JSON.parse(rawFontSizes) as Partial<InvoiceServiceTableFontSizes>;
+        setInvoiceTableFontSizes((prev: InvoiceServiceTableFontSizes) => ({
+          ...prev,
+          header: typeof parsed.header === 'number' ? parsed.header : prev.header,
+          body: typeof parsed.body === 'number' ? parsed.body : prev.body,
+          subtitle: typeof parsed.subtitle === 'number' ? parsed.subtitle : prev.subtitle,
+        }));
       } catch {
         // ignore invalid local storage value
       }
@@ -1916,7 +1960,7 @@ export default function ClientQuotationsPage() {
         theme: 'grid',
         styles: {
           font: REPORT_PDF_FONT,
-          fontSize: REPORT_BODY_FONT_SIZE_PT,
+          fontSize: invoiceTableFontSizes.body,
           cellPadding: { top: 10, right: 7, bottom: 10, left: 7 },
           lineColor: borderRgb,
           lineWidth: 0.6,
@@ -1927,7 +1971,7 @@ export default function ClientQuotationsPage() {
         },
         headStyles: {
           fontStyle: 'bold',
-          fontSize: REPORT_FEE_HEADER_FONT_SIZE_PT,
+          fontSize: invoiceTableFontSizes.header,
           halign: 'center',
           minCellHeight: 50,
         },
@@ -1962,7 +2006,7 @@ export default function ClientQuotationsPage() {
 
           doc.setTextColor(...hexToRgbTuple(REPORT_LEGAL_TEXT));
           doc.setFont(REPORT_PDF_FONT, 'bold');
-          doc.setFontSize(REPORT_FEE_HEADER_FONT_SIZE_PT);
+          doc.setFontSize(invoiceTableFontSizes.header);
           labelLines.forEach((line: string) => {
             doc.text(line, centerX, textY, { align: 'center' });
             textY += lineHeight;
@@ -1970,7 +2014,7 @@ export default function ClientQuotationsPage() {
 
           if (subtitleLines.length > 0) {
             doc.setFont(REPORT_PDF_FONT, 'italic');
-            doc.setFontSize(REPORT_FEE_SUBTITLE_FONT_SIZE_PT);
+            doc.setFontSize(invoiceTableFontSizes.subtitle);
             textY += 1;
             subtitleLines.forEach((line: string) => {
               doc.text(line, centerX, textY, { align: 'center' });
@@ -2035,7 +2079,7 @@ export default function ClientQuotationsPage() {
               getReportFeeColumnDefaultText(columnKey, role),
               invoiceCellColors
             );
-        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)};padding:10pt 7pt;text-align:center;vertical-align:middle;font-family:${REPORT_CSS_FONT_STACK};font-size:${role === 'header' ? `${REPORT_FEE_HEADER_FONT_SIZE_PT}pt` : `${REPORT_BODY_FONT_SIZE_PT}pt`};line-height:1.25;`;
+        return `background:${backgroundColor};color:${textColor};border:1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)};padding:10pt 7pt;text-align:center;vertical-align:middle;font-family:${REPORT_CSS_FONT_STACK};font-size:${role === 'header' ? `${invoiceTableFontSizes.header}pt` : `${invoiceTableFontSizes.body}pt`};line-height:1.25;`;
       };
       const detailRowsHtml = (rows: Array<[string, string]>) => rows.map(([label, value]) => `
         <tr>
@@ -2130,11 +2174,11 @@ export default function ClientQuotationsPage() {
               .section-title { color: ${REPORT_NAVY}; font-size: ${REPORT_SECTION_TITLE_FONT_SIZE_PT}pt; font-weight: 800; text-transform: uppercase; margin: 0; }
               .title-underline { width: 42pt; border-top: 1pt solid ${REPORT_GOLD}; margin: 5pt 0 13pt; }
               .section-note { margin: 4pt 0 12pt; color: #111827; font-size: 10pt; }
-              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18pt; font-size: ${REPORT_BODY_FONT_SIZE_PT}pt; page-break-inside: avoid; border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)}; background: #fff; }
+              .service-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 18pt; font-size: ${invoiceTableFontSizes.body}pt; page-break-inside: avoid; border: 1px solid ${normalizeHexColor(invoiceServiceTableColors.borderColor, REPORT_LEGAL_BORDER)}; background: #fff; }
               .service-table th { font-weight: 800; letter-spacing: 0; }
               .service-table td, .service-table th { word-break: normal; overflow-wrap: break-word; }
               .fee-header-title { font-weight: 800; }
-              .fee-header-subtitle { font-style: italic; font-size: ${REPORT_FEE_SUBTITLE_FONT_SIZE_PT}pt; font-weight: 400; margin-top: 2pt; }
+              .fee-header-subtitle { font-style: italic; font-size: ${invoiceTableFontSizes.subtitle}pt; font-weight: 400; margin-top: 2pt; }
               .procedure-main { font-weight: 800; color: inherit; }
               .requirement-heading { color: ${REPORT_NAVY}; font-size: 10pt; font-weight: 800; margin: 0 0 8pt; }
               .requirement-rule { border-top: 0.6pt solid ${REPORT_BORDER}; margin: 0 0 12pt; }
@@ -3158,7 +3202,7 @@ export default function ClientQuotationsPage() {
             },
             '.client-quotation-invoice-print .invoice-service-table th': {
               border: `1px solid ${invoiceServiceTableColors.borderColor} !important`,
-              fontSize: `${reportPtToPx(REPORT_FEE_HEADER_FONT_SIZE_PT)}px !important`,
+              fontSize: `${reportPtToPx(invoiceTableFontSizes.header)}px !important`,
               padding: '10pt 7pt !important',
               textTransform: 'none',
               letterSpacing: '0',
@@ -3167,13 +3211,13 @@ export default function ClientQuotationsPage() {
             },
             '.client-quotation-invoice-print .invoice-service-table td': {
               border: `1px solid ${invoiceServiceTableColors.borderColor} !important`,
-              fontSize: `${reportPtToPx(REPORT_BODY_FONT_SIZE_PT)}px !important`,
+              fontSize: `${reportPtToPx(invoiceTableFontSizes.body)}px !important`,
               padding: '10pt 7pt !important',
               textAlign: 'center',
               verticalAlign: 'middle',
             },
             '.client-quotation-invoice-print .invoice-service-table .fee-header-subtitle': {
-              fontSize: `${reportPtToPx(REPORT_FEE_SUBTITLE_FONT_SIZE_PT)}px !important`,
+              fontSize: `${reportPtToPx(invoiceTableFontSizes.subtitle)}px !important`,
               fontStyle: 'italic',
               fontWeight: 400,
             },
@@ -4351,6 +4395,20 @@ export default function ClientQuotationsPage() {
                       </Typography>
                     </Box>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
+                      <Stack direction="row" spacing={0.5} className="invoice-print-hidden" sx={{ flexWrap: 'wrap' }}>
+                        <Button size="small" variant="outlined" onClick={() => updateInvoiceTableFontSize('header', -0.5)}>
+                          A- Header
+                        </Button>
+                        <Button size="small" variant="outlined" onClick={() => updateInvoiceTableFontSize('header', 0.5)}>
+                          A+ Header
+                        </Button>
+                        <Button size="small" variant="outlined" onClick={() => updateInvoiceTableFontSize('body', -0.5)}>
+                          A- Rows
+                        </Button>
+                        <Button size="small" variant="outlined" onClick={() => updateInvoiceTableFontSize('body', 0.5)}>
+                          A+ Rows
+                        </Button>
+                      </Stack>
                       {viewingServiceStats && (
                         <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', rowGap: 0.75 }}>
                           {[
@@ -4409,14 +4467,14 @@ export default function ClientQuotationsPage() {
                         '& .MuiTableCell-root': {
                           borderColor: invoiceServiceTableColors.borderColor,
                           fontFamily: REPORT_CSS_FONT_STACK,
-                          fontSize: reportPtToPx(REPORT_BODY_FONT_SIZE_PT),
+                          fontSize: reportPtToPx(invoiceTableFontSizes.body),
                           lineHeight: 1.25,
                           textAlign: 'center',
                           verticalAlign: 'middle',
                         },
                         '& thead .MuiTableCell-root': {
                           letterSpacing: 0,
-                          fontSize: reportPtToPx(REPORT_FEE_HEADER_FONT_SIZE_PT),
+                          fontSize: reportPtToPx(invoiceTableFontSizes.header),
                           fontWeight: 900,
                         },
                         '& .fee-header-title': {
@@ -4426,7 +4484,7 @@ export default function ClientQuotationsPage() {
                           display: 'block',
                           fontStyle: 'italic',
                           fontWeight: 400,
-                          fontSize: reportPtToPx(REPORT_FEE_SUBTITLE_FONT_SIZE_PT),
+                          fontSize: reportPtToPx(invoiceTableFontSizes.subtitle),
                           mt: 0.25,
                         },
                         '& tbody .MuiTableCell-root:not(:first-of-type)': {

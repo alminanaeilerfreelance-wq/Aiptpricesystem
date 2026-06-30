@@ -39,6 +39,9 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Only administrators can manage pricing rules' }, { status: 403 });
+    }
 
     await connectDB();
 
@@ -79,6 +82,9 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
     const user = getUserFromRequest(req);
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Only administrators can manage pricing rules' }, { status: 403 });
     }
 
     await connectDB();

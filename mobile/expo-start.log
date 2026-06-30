@@ -1,0 +1,7 @@
+
+> mobile@1.0.0 android
+> expo start --android --localhost --port 8081
+
+Starting project at D:\Aiptpricesystem\mobile
+› Port 8081 is being used by another process
+› Skipping dev server

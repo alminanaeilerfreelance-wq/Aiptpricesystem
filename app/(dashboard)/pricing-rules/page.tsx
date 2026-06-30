@@ -44,6 +44,7 @@ import { CreatePricingRuleDto, pricingRulesService } from '@/services/pricing-ru
 import { Country, countriesService } from '@/services/countries.service';
 import { Procedure, proceduresService } from '@/services/procedures.service';
 import useDebounce from '@/hooks/useDebounce';
+import { useAuth } from '@/hooks/useAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +52,7 @@ type ServiceKey = 'Trademark' | 'Patent' | 'Design' | 'Copyright' | 'Litigation'
 type StatusFilter = 'all' | 'active' | 'inactive';
 type FeeField = 'officialFee' | 'attorneyFee' | 'classFee';
 type ColumnKey = 'country' | 'procedure' | 'officeFee' | 'attorneyFee' | 'classFee' | 'total' | 'status' | 'updatedAt';
+type EditableCellField = 'country' | 'procedure' | FeeField | 'status';
 
 interface PricingRuleRow {
   _id: string;
@@ -178,6 +180,12 @@ const TrashIcon = () => (
   </SvgIcon>
 );
 
+const PlusIcon = () => (
+  <SvgIcon fontSize="small" viewBox="0 0 24 24">
+    <path d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6v-2Z" />
+  </SvgIcon>
+);
+
 const formatMoney = (value: number) =>
   value.toLocaleString(undefined, {
     minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
@@ -281,11 +289,13 @@ const makeProcedureValue = (name: string, serviceCategory: ServiceKey): Procedur
 };
 
 export default function PricingRulesPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [selectedService, setSelectedService] = useState<ServiceKey>('Trademark');
   const [pricingRules, setPricingRules] = useState<PricingRuleRow[]>([]);
   const [totalRows, setTotalRows] = useState(0);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [countryOptions, setCountryOptions] = useState<Country[]>([]);
@@ -298,9 +308,13 @@ export default function PricingRulesPage() {
   const [editProcedureLoading, setEditProcedureLoading] = useState(false);
   const [createProcedureInput, setCreateProcedureInput] = useState('');
   const [editProcedureInput, setEditProcedureInput] = useState('');
+  const [cellCountryInput, setCellCountryInput] = useState('');
+  const [cellProcedureInput, setCellProcedureInput] = useState('');
+  const [activeCell, setActiveCell] = useState<{ rowId: string; field: EditableCellField } | null>(null);
   const [rowEdits, setRowEdits] = useState<Record<string, EditableRule>>({});
   const [dirtyRows, setDirtyRows] = useState<Record<string, boolean>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, RowValidation>>({});
+  const [savingRows, setSavingRows] = useState<Record<string, boolean>>({});
   const [rowOrder, setRowOrder] = useState<string[]>([]);
   const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
   const [columnVisibility, setColumnVisibility] = useState<Record<ColumnKey, boolean>>(DEFAULT_COLUMNS);
@@ -329,13 +343,16 @@ export default function PricingRulesPage() {
   const [advancedAnchor, setAdvancedAnchor] = useState<HTMLElement | null>(null);
   const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
   const [hydrated, setHydrated] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
   const debouncedCreateCountryInput = useDebounce(createCountryInput, 250);
   const debouncedEditCountryInput = useDebounce(editCountryInput, 250);
+  const debouncedCellCountryInput = useDebounce(cellCountryInput, 250);
   const debouncedCreateProcedureInput = useDebounce(createProcedureInput, 250);
   const debouncedEditProcedureInput = useDebounce(editProcedureInput, 250);
+  const debouncedCellProcedureInput = useDebounce(cellProcedureInput, 250);
 
   const addAudit = (action: string) => {
     setAuditLog((current) => [
@@ -378,7 +395,6 @@ export default function PricingRulesPage() {
     setRowColor(draft.rowColor || '#FFFFFF');
     setDirtyRows({});
     setRowErrors({});
-    setPage(0);
     addAudit(`Draft Loaded: ${draft.name}`);
   };
 
@@ -486,6 +502,36 @@ export default function PricingRulesPage() {
   }, [createCountryId, debouncedEditCountryInput, editCountryId, editingRule]);
 
   useEffect(() => {
+    if (!activeCell || activeCell.field !== 'country') return;
+    let active = true;
+
+    const loadCountries = async () => {
+      setCountryOptionsLoading(true);
+      try {
+        const response = await countriesService.list({
+          search: debouncedCellCountryInput.trim() || undefined,
+          page: 1,
+          limit: 50,
+        });
+
+        if (!active) return;
+
+        setCountryOptions((current) => uniqueById([...current, ...(response.countries || [])]));
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to search countries');
+      } finally {
+        if (active) setCountryOptionsLoading(false);
+      }
+    };
+
+    loadCountries();
+
+    return () => {
+      active = false;
+    };
+  }, [activeCell, debouncedCellCountryInput]);
+
+  useEffect(() => {
     if (!createDialogOpen) return;
     let active = true;
 
@@ -558,28 +604,56 @@ export default function PricingRulesPage() {
   }, [debouncedEditProcedureInput, editForm.serviceCategory, editProcedureId, editingRule]);
 
   useEffect(() => {
+    if (!activeCell || activeCell.field !== 'procedure') return;
+    let active = true;
+
+    const loadProcedures = async () => {
+      setEditProcedureLoading(true);
+      try {
+        const response = await proceduresService.list({
+          category: selectedService,
+          search: debouncedCellProcedureInput.trim() || undefined,
+          page: 1,
+          limit: 50,
+        });
+
+        if (!active) return;
+
+        setEditProcedureOptions((current) => uniqueById([...current, ...(response.procedures || [])]));
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : 'Failed to search procedures');
+      } finally {
+        if (active) setEditProcedureLoading(false);
+      }
+    };
+
+    loadProcedures();
+
+    return () => {
+      active = false;
+    };
+  }, [activeCell, debouncedCellProcedureInput, selectedService]);
+
+  useEffect(() => {
     let active = true;
 
     const loadPricingRules = async () => {
       setLoading(true);
       setError('');
       try {
-        const response = await pricingRulesService.list({
+        const nextRules = (await pricingRulesService.listAll({
           category: selectedService,
           search: search.trim() || undefined,
           status: statusFilter,
-          page: page + 1,
-          limit: rowsPerPage,
-        });
+        })) as PricingRuleRow[];
 
         if (!active) return;
 
-        const nextRules = (response.pricingRules || []) as PricingRuleRow[];
         setPricingRules((current) => {
           const unsavedRows = current.filter((rule) => rule.isNew);
           return [...unsavedRows, ...nextRules];
         });
-        setTotalRows(response.total || 0);
+        setTotalRows(nextRules.length);
         setRowEdits((current) => {
           const next = { ...current };
           nextRules.forEach((rule) => {
@@ -602,7 +676,7 @@ export default function PricingRulesPage() {
     return () => {
       active = false;
     };
-  }, [page, rowsPerPage, search, selectedService, statusFilter]);
+  }, [search, selectedService, statusFilter]);
 
   const orderedRules = useMemo(() => {
     const orderMap = new Map(rowOrder.map((id, index) => [id, index]));
@@ -615,6 +689,23 @@ export default function PricingRulesPage() {
       return 0;
     });
   }, [pricingRules, rowOrder]);
+
+  const pagedRules = useMemo(() => {
+    if (rowsPerPage === -1) return orderedRules;
+    const start = page * rowsPerPage;
+    return orderedRules.slice(start, start + rowsPerPage);
+  }, [orderedRules, page, rowsPerPage]);
+
+  useEffect(() => {
+    setPage(0);
+    setActiveCell(null);
+  }, [search, selectedService, statusFilter]);
+
+  useEffect(() => {
+    if (rowsPerPage === -1) return;
+    const lastPage = Math.max(0, Math.ceil(orderedRules.length / rowsPerPage) - 1);
+    if (page > lastPage) setPage(lastPage);
+  }, [orderedRules.length, page, rowsPerPage]);
 
   const getEdit = (rule: PricingRuleRow) => rowEdits[rule._id] || toEditableRule(rule);
 
@@ -681,6 +772,7 @@ export default function PricingRulesPage() {
   };
 
   const updateEdit = (rule: PricingRuleRow, patch: Partial<EditableRule>) => {
+    if (!isAdmin) return;
     setRowEdits((current) => ({
       ...current,
       [rule._id]: {
@@ -692,7 +784,53 @@ export default function PricingRulesPage() {
     setRowErrors((current) => ({ ...current, [rule._id]: {} }));
   };
 
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    const dirtyIds = Object.entries(dirtyRows)
+      .filter(([, dirty]) => dirty)
+      .map(([id]) => id)
+      .filter((id) => !savingRows[id]);
+
+    if (dirtyIds.length === 0) return;
+
+    const timers = dirtyIds.map((id) =>
+      window.setTimeout(async () => {
+        const rule = pricingRules.find((item) => item._id === id);
+        if (!rule || rule.isNew) return;
+
+        const validation = validateEditableRule(rowEdits[id] || toEditableRule(rule));
+        setRowErrors((current) => ({ ...current, [id]: validation.nextErrors }));
+        if (!validation.isValid) return;
+
+        setSavingRows((current) => ({ ...current, [id]: true }));
+        try {
+          const updated = (await pricingRulesService.update(id, validation.payload)) as PricingRuleRow;
+          setPricingRules((current) => current.map((item) => (item._id === id ? { ...item, ...updated } : item)));
+          setRowEdits((current) => ({ ...current, [id]: toEditableRule(updated) }));
+          setDirtyRows((current) => ({ ...current, [id]: false }));
+          addAudit(`Autosaved: ${updated.countryName} / ${updated.procedureName}`);
+          showSuccessToast('Pricing rule updated');
+        } catch (err) {
+          setError(err instanceof Error ? err.message : 'Failed to autosave pricing rule');
+        } finally {
+          setSavingRows((current) => {
+            const next = { ...current };
+            delete next[id];
+            return next;
+          });
+        }
+      }, 800)
+    );
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirtyRows, isAdmin, pricingRules, rowEdits, savingRows]);
+
   const openCreateDialog = () => {
+    if (!isAdmin) return;
     setCreateForm(makeDefaultRuleForm(selectedService));
     setCreateCountryId('');
     setCreateCountryInput('');
@@ -705,6 +843,7 @@ export default function PricingRulesPage() {
   };
 
   const createPricingRule = async () => {
+    if (!isAdmin) return;
     const validation = validateEditableRule(createForm);
     setCreateErrors(validation.nextErrors);
     if (!validation.isValid) return;
@@ -737,6 +876,7 @@ export default function PricingRulesPage() {
   };
 
   const editRow = (rule: PricingRuleRow) => {
+    if (!isAdmin) return;
     const edit = getEdit(rule);
     const ruleCountry: Country | null = rule.country?._id
       ? {
@@ -788,6 +928,7 @@ export default function PricingRulesPage() {
   };
 
   const updateRow = async () => {
+    if (!isAdmin) return;
     if (!editingRule) return;
     const validation = validateEditableRule(editForm);
     setEditErrors(validation.nextErrors);
@@ -821,6 +962,7 @@ export default function PricingRulesPage() {
   };
 
   const deleteRow = async (rule: PricingRuleRow) => {
+    if (!isAdmin) return;
     const confirmed = window.confirm('Delete this pricing rule?');
     if (!confirmed) return;
 
@@ -899,11 +1041,18 @@ export default function PricingRulesPage() {
     addAudit('Draft Deleted');
   };
 
+  const getRuleFlagSrc = (rule: PricingRuleRow) => {
+    const edit = getEdit(rule);
+    const flagCode = (rule.country?.flagCode || edit.countryAbbreviation || '').toLowerCase();
+    return flagCode ? `https://flagcdn.com/w80/${flagCode}.png` : '';
+  };
+
   const exportRows = () =>
     orderedRules.map((rule) => {
       const edit = getEdit(rule);
       return {
         ID: rule.isNew ? '' : rule._id,
+        Flag: getRuleFlagSrc(rule),
         Service: edit.serviceCategory,
         Country: edit.countryName,
         Code: edit.countryAbbreviation,
@@ -949,13 +1098,141 @@ export default function PricingRulesPage() {
   };
 
   const exportExcel = async () => {
-    const XLSX = await import('xlsx');
-    const worksheet = XLSX.utils.json_to_sheet(exportRows());
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, selectedService);
-    XLSX.writeFile(workbook, `pricing-rules-${selectedService.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    const rows = orderedRules.map((rule) => {
+      const edit = getEdit(rule);
+      const total = getRowTotal(rule);
+      return { rule, edit, total };
+    });
+    const escapeHtml = (value: unknown) =>
+      String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    const html = `
+      <html>
+        <head><meta charset="utf-8" /></head>
+        <body>
+          <table border="1">
+            <thead>
+              <tr>
+                <th>Flag</th>
+                <th>Service</th>
+                <th>Country</th>
+                <th>Code</th>
+                <th>Procedure</th>
+                <th>Office Fee</th>
+                <th>Attorney Fee</th>
+                <th>Class Fee</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map(({ rule, edit, total }) => {
+                  const flagSrc = getRuleFlagSrc(rule);
+                  return `
+                    <tr>
+                      <td>${flagSrc ? `<img src="${escapeHtml(flagSrc)}" width="32" height="22" />` : ''}</td>
+                      <td>${escapeHtml(edit.serviceCategory)}</td>
+                      <td>${escapeHtml(edit.countryName)}</td>
+                      <td>${escapeHtml(edit.countryAbbreviation)}</td>
+                      <td>${escapeHtml(edit.procedureName)}</td>
+                      <td>${escapeHtml(edit.officialFee)}</td>
+                      <td>${escapeHtml(edit.attorneyFee)}</td>
+                      <td>${escapeHtml(edit.classFee)}</td>
+                      <td>${escapeHtml(total === null ? '' : total)}</td>
+                      <td>${escapeHtml(edit.isActive ? 'Active' : 'Inactive')}</td>
+                      <td>${escapeHtml(rule.updatedAt)}</td>
+                    </tr>
+                  `;
+                })
+                .join('')}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pricing-rules-${selectedService.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xls`;
+    link.click();
+    URL.revokeObjectURL(url);
     addAudit('Excel Export Generated');
     showSuccessToast('Excel exported');
+  };
+
+  const imageToDataUrl = async (src: string) => {
+    const response = await fetch(src);
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const exportPdf = async () => {
+    setExporting(true);
+    try {
+      const [{ default: jsPDF }, autoTableModule] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const autoTable = (autoTableModule as unknown as { default: (doc: unknown, options: unknown) => void }).default;
+      const doc = new jsPDF({ orientation: 'landscape' });
+      const flagEntries = await Promise.all(
+        orderedRules.map(async (rule) => {
+          const src = getRuleFlagSrc(rule);
+          if (!src) return [rule._id, ''] as const;
+          try {
+            return [rule._id, await imageToDataUrl(src)] as const;
+          } catch {
+            return [rule._id, ''] as const;
+          }
+        })
+      );
+      const flagMap = new Map(flagEntries);
+
+      doc.setFontSize(14);
+      doc.text(`Pricing Rules - ${selectedService}`, 14, 14);
+      autoTable(doc, {
+        startY: 20,
+        head: [['Flag', 'Country', 'Code', 'Procedure', 'Office', 'Attorney', 'Class', 'Total', 'Status']],
+        body: orderedRules.map((rule) => {
+          const edit = getEdit(rule);
+          const total = getRowTotal(rule);
+          return [
+            '',
+            edit.countryName,
+            edit.countryAbbreviation,
+            edit.procedureName,
+            edit.officialFee,
+            edit.attorneyFee,
+            edit.classFee,
+            total === null ? '' : String(total),
+            edit.isActive ? 'Active' : 'Inactive',
+          ];
+        }),
+        styles: { fontSize: 8, cellPadding: 2, minCellHeight: 10 },
+        columnStyles: { 0: { cellWidth: 16 }, 3: { cellWidth: 52 } },
+        didDrawCell: (data: { section: string; column: { index: number }; row: { index: number }; cell: { x: number; y: number } }) => {
+          if (data.section !== 'body' || data.column.index !== 0) return;
+          const rule = orderedRules[data.row.index];
+          const image = rule ? flagMap.get(rule._id) : '';
+          if (image) doc.addImage(image, 'PNG', data.cell.x + 2, data.cell.y + 2, 10, 6);
+        },
+      });
+      doc.save(`pricing-rules-${selectedService.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.pdf`);
+      addAudit('PDF Export Generated');
+      showSuccessToast('PDF exported');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to export PDF');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const exportDraftJson = () => {
@@ -1021,9 +1298,191 @@ export default function PricingRulesPage() {
   };
 
   const getFlagSrc = (rule: PricingRuleRow) => {
+    return getRuleFlagSrc(rule);
+  };
+
+  const activateCell = (rule: PricingRuleRow, field: EditableCellField) => {
+    if (!isAdmin) return;
     const edit = getEdit(rule);
-    const flagCode = (rule.country?.flagCode || edit.countryAbbreviation || '').toLowerCase();
-    return flagCode ? `https://flagcdn.com/w80/${flagCode}.png` : '';
+    setActiveCell({ rowId: rule._id, field });
+    if (field === 'country') setCellCountryInput(edit.countryName);
+    if (field === 'procedure') setCellProcedureInput(edit.procedureName);
+  };
+
+  const isActiveCell = (rule: PricingRuleRow, field: EditableCellField) =>
+    Boolean(isAdmin && activeCell?.rowId === rule._id && activeCell.field === field);
+
+  const renderCountryCell = (rule: PricingRuleRow) => {
+    const edit = getEdit(rule);
+    const selectedCountry =
+      countryOptions.find(
+        (country) =>
+          country._id === rule.country?._id ||
+          country.name === edit.countryName ||
+          country.abbreviation === edit.countryAbbreviation
+      ) || makeCountryValue(edit.countryName, edit.countryAbbreviation);
+    const countrySearchOptions = uniqueById([...(selectedCountry ? [selectedCountry] : []), ...countryOptions]);
+
+    if (isActiveCell(rule, 'country')) {
+      return (
+        <Autocomplete
+          autoHighlight
+          openOnFocus
+          size="small"
+          options={countrySearchOptions}
+          value={selectedCountry}
+          inputValue={cellCountryInput}
+          loading={countryOptionsLoading}
+          filterOptions={(options) => options}
+          isOptionEqualToValue={(option, value) => option._id === value._id}
+          getOptionLabel={(option) => `${option.name}${option.abbreviation ? ` (${option.abbreviation})` : ''}`}
+          onInputChange={(_event, value) => {
+            setCellCountryInput(value);
+          }}
+          onChange={(_event, value) => {
+            if (!value) return;
+            updateEdit(rule, {
+              countryName: value.name || '',
+              countryAbbreviation: value.abbreviation || '',
+            });
+            setCellCountryInput(value.name || '');
+            setCountryOptions((current) => uniqueById([value, ...current]));
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              autoFocus
+              placeholder="Select country"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setActiveCell(null);
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 0.5,
+                  bgcolor: '#FFFFFF',
+                  py: 0,
+                },
+              }}
+            />
+          )}
+        />
+      );
+    }
+
+    return (
+      <Stack
+        direction="row"
+        spacing={1}
+        onClick={() => activateCell(rule, 'country')}
+        sx={{
+          alignItems: 'center',
+          minWidth: 0,
+          cursor: isAdmin ? 'cell' : 'default',
+          px: 0.5,
+          py: 0.5,
+          borderRadius: 0.5,
+          '&:hover': isAdmin ? { bgcolor: '#EFF6FF' } : undefined,
+        }}
+      >
+        {getFlagSrc(rule) ? (
+          <Box
+            component="img"
+            src={getFlagSrc(rule)}
+            alt={edit.countryName || 'Country flag'}
+            onError={(event) => {
+              event.currentTarget.style.display = 'none';
+            }}
+            sx={{
+              width: flagWidth,
+              height: flagHeight,
+              objectFit: 'cover',
+              border: '1px solid #CBD5E1',
+            }}
+          />
+        ) : null}
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          {renderEditableText(rule, 'countryName', 'Country', 150)}
+          <Typography sx={{ fontSize: 11, color: '#64748B', lineHeight: 1.2 }}>
+            {edit.countryAbbreviation || '-'}
+          </Typography>
+        </Box>
+      </Stack>
+    );
+  };
+
+  const renderProcedureCell = (rule: PricingRuleRow) => {
+    const edit = getEdit(rule);
+    const selectedProcedure =
+      editProcedureOptions.find(
+        (procedure) =>
+          procedure._id === rule.procedure?._id ||
+          (procedure.name === edit.procedureName && procedure.serviceCategory === edit.serviceCategory)
+      ) || makeProcedureValue(edit.procedureName, edit.serviceCategory);
+    const procedureSearchOptions = uniqueById([
+      ...(selectedProcedure ? [selectedProcedure] : []),
+      ...editProcedureOptions.filter((procedure) => procedure.serviceCategory === edit.serviceCategory),
+    ]);
+
+    if (isActiveCell(rule, 'procedure')) {
+      return (
+        <Autocomplete
+          autoHighlight
+          openOnFocus
+          size="small"
+          options={procedureSearchOptions}
+          value={selectedProcedure}
+          inputValue={cellProcedureInput}
+          loading={editProcedureLoading}
+          filterOptions={(options) => options}
+          isOptionEqualToValue={(option, value) => option._id === value._id}
+          getOptionLabel={(option) => `${option.name}${option.serviceCategory ? ` (${option.serviceCategory})` : ''}`}
+          onInputChange={(_event, value) => {
+            setCellProcedureInput(value);
+          }}
+          onChange={(_event, value) => {
+            if (!value) return;
+            updateEdit(rule, {
+              procedureName: value.name || '',
+              serviceCategory: (value.serviceCategory || edit.serviceCategory) as ServiceKey,
+            });
+            setCellProcedureInput(value.name || '');
+            setEditProcedureOptions((current) => uniqueById([value, ...current]));
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              autoFocus
+              placeholder="Select procedure"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setActiveCell(null);
+              }}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: 0.5,
+                  bgcolor: '#FFFFFF',
+                  py: 0,
+                },
+              }}
+            />
+          )}
+        />
+      );
+    }
+
+    return (
+      <Box
+        onClick={() => activateCell(rule, 'procedure')}
+        sx={{
+          cursor: isAdmin ? 'cell' : 'default',
+          px: 0.75,
+          py: 0.5,
+          borderRadius: 0.5,
+          '&:hover': isAdmin ? { bgcolor: '#EFF6FF' } : undefined,
+        }}
+      >
+        {renderEditableText(rule, 'procedureName', 'Procedure', columnWidth)}
+      </Box>
+    );
   };
 
   const renderEditableText = (
@@ -1038,8 +1497,54 @@ export default function PricingRulesPage() {
 
   const renderFeeInput = (rule: PricingRuleRow, field: FeeField, label: string) => {
     const edit = getEdit(rule);
+    if (isActiveCell(rule, field)) {
+      return (
+        <TextField
+          size="small"
+          type="number"
+          value={edit[field]}
+          autoFocus
+          disabled={Boolean(savingRows[rule._id])}
+          onChange={(event) => updateEdit(rule, { [field]: event.target.value })}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setActiveCell(null);
+          }}
+          slotProps={{
+            htmlInput: {
+              'aria-label': `${label} for ${edit.countryName}`,
+              min: 0,
+              step: '0.01',
+              style: { textAlign: 'right', fontSize: 13, padding: '5px 8px' },
+            },
+          }}
+          sx={{
+            width: '100%',
+            minWidth: 96,
+            '& .MuiOutlinedInput-root': {
+              borderRadius: 0.5,
+              bgcolor: '#FFFFFF',
+            },
+          }}
+        />
+      );
+    }
     const value = normalizeNumberInput(edit[field]) ?? 0;
-    return <Typography title={label} sx={{ fontSize: 13, textAlign: 'right' }}>{formatMoney(value)}</Typography>;
+    return (
+      <Box
+        onClick={() => activateCell(rule, field)}
+        sx={{
+          cursor: isAdmin ? 'cell' : 'default',
+          px: 0.75,
+          py: 0.5,
+          borderRadius: 0.5,
+          '&:hover': isAdmin ? { bgcolor: '#EFF6FF' } : undefined,
+        }}
+      >
+        <Typography title={label} sx={{ fontSize: 13, textAlign: 'right' }}>
+          {formatMoney(value)}
+        </Typography>
+      </Box>
+    );
   };
 
   const createCountryValue = useMemo(
@@ -1105,10 +1610,7 @@ export default function PricingRulesPage() {
                 size="small"
                 label="Search"
                 value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setPage(0);
-                }}
+                onChange={(event) => setSearch(event.target.value)}
                 sx={{ minWidth: { xs: '100%', sm: 240 } }}
               />
               <FormControl size="small" sx={{ minWidth: 130 }}>
@@ -1116,22 +1618,23 @@ export default function PricingRulesPage() {
                 <Select
                   label="Filter"
                   value={statusFilter}
-                  onChange={(event) => {
-                    setStatusFilter(event.target.value as StatusFilter);
-                    setPage(0);
-                  }}
+                  onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
                 >
                   <MenuItem value="all">All</MenuItem>
                   <MenuItem value="active">Active</MenuItem>
                   <MenuItem value="inactive">Inactive</MenuItem>
                 </Select>
               </FormControl>
-              <Button variant="contained" onClick={openCreateDialog}>Add Rule</Button>
-              <Button variant="outlined" onClick={() => importInputRef.current?.click()}>Import</Button>
-              <Button variant="outlined" onClick={(event) => setExportAnchor(event.currentTarget)}>Export</Button>
+              {isAdmin && (
+                <Button variant="contained" startIcon={<PlusIcon />} onClick={openCreateDialog}>
+                  Add Rule
+                </Button>
+              )}
+              {isAdmin && <Button variant="outlined" onClick={() => importInputRef.current?.click()}>Import</Button>}
+              <Button variant="outlined" disabled={exporting} onClick={(event) => setExportAnchor(event.currentTarget)}>Export</Button>
               <Button variant="outlined" onClick={(event) => setAdvancedAnchor(event.currentTarget)}>Tools</Button>
-              <Button variant="contained" onClick={saveDraft}>Save Draft</Button>
-              <Button variant="outlined" onClick={createNewDraft}>New Draft</Button>
+              {isAdmin && <Button variant="contained" onClick={saveDraft}>Save Draft</Button>}
+              {isAdmin && <Button variant="outlined" onClick={createNewDraft}>New Draft</Button>}
               <FormControl size="small" sx={{ minWidth: 160 }}>
                 <InputLabel>Font</InputLabel>
                 <Select label="Font" value={fontFamily} onChange={(event) => setFontFamily(event.target.value)}>
@@ -1172,6 +1675,10 @@ export default function PricingRulesPage() {
                 onChange={(event) => setFlagHeight(Math.max(12, Number(event.target.value) || 18))}
                 sx={{ width: 116 }}
               />
+              <Box sx={{ flex: 1 }} />
+              <Typography sx={{ color: '#475569', fontSize: 13, fontWeight: 700 }}>
+                {Object.keys(savingRows).length > 0 ? 'Saving changes...' : `${totalRows} records loaded`}
+              </Typography>
             </Stack>
           </Box>
 
@@ -1179,7 +1686,6 @@ export default function PricingRulesPage() {
             value={selectedService}
             onChange={(_event: React.SyntheticEvent, value: ServiceKey) => {
               setSelectedService(value);
-              setPage(0);
               setRowOrder([]);
             }}
             variant="scrollable"
@@ -1203,6 +1709,11 @@ export default function PricingRulesPage() {
           {error && (
             <Alert severity="warning" onClose={() => setError('')} sx={{ borderRadius: 0 }}>
               {error}
+            </Alert>
+          )}
+          {!isAdmin && (
+            <Alert severity="info" sx={{ borderRadius: 0 }}>
+              Pricing rules are view-only for this account. Only administrators can edit and autosave changes.
             </Alert>
           )}
 
@@ -1254,52 +1765,32 @@ export default function PricingRulesPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {orderedRules.map((rule) => {
+                {pagedRules.map((rule) => {
                   const edit = getEdit(rule);
                   const total = getRowTotal(rule);
                   const errors = rowErrors[rule._id] || {};
                   const validationMessage = Object.values(errors).filter(Boolean)[0] || '';
-                  const flagSrc = getFlagSrc(rule);
 
                   return (
                     <TableRow
                       key={rule._id}
-                      draggable
-                      onDragStart={() => setDraggedRowId(rule._id)}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={() => handleRowDrop(rule._id)}
-                      sx={{ cursor: 'grab' }}
+                      draggable={isAdmin}
+                      onDragStart={() => {
+                        if (isAdmin) setDraggedRowId(rule._id);
+                      }}
+                      onDragOver={(event) => {
+                        if (isAdmin) event.preventDefault();
+                      }}
+                      onDrop={() => {
+                        if (isAdmin) handleRowDrop(rule._id);
+                      }}
+                      sx={{ cursor: isAdmin ? 'grab' : 'default' }}
                     >
                       {columnVisibility.country && (
-                        <TableCell>
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', minWidth: 0 }}>
-                            {flagSrc ? (
-                              <Box
-                                component="img"
-                                src={flagSrc}
-                                alt={edit.countryName || 'Country flag'}
-                                onError={(event) => {
-                                  event.currentTarget.style.display = 'none';
-                                }}
-                                sx={{
-                                  width: flagWidth,
-                                  height: flagHeight,
-                                  objectFit: 'cover',
-                                  border: '1px solid #CBD5E1',
-                                }}
-                              />
-                            ) : null}
-                            <Box sx={{ minWidth: 0, flex: 1 }}>
-                              {renderEditableText(rule, 'countryName', 'Country', 150)}
-                              <Typography sx={{ fontSize: 11, color: '#64748B', lineHeight: 1.2 }}>
-                                {edit.countryAbbreviation || '-'}
-                              </Typography>
-                            </Box>
-                          </Stack>
-                        </TableCell>
+                        <TableCell>{renderCountryCell(rule)}</TableCell>
                       )}
                       {columnVisibility.procedure && (
-                        <TableCell>{renderEditableText(rule, 'procedureName', 'Procedure', columnWidth)}</TableCell>
+                        <TableCell>{renderProcedureCell(rule)}</TableCell>
                       )}
                       {columnVisibility.officeFee && <TableCell>{renderFeeInput(rule, 'officialFee', 'Office Fee')}</TableCell>}
                       {columnVisibility.attorneyFee && <TableCell>{renderFeeInput(rule, 'attorneyFee', 'Attorney Fee')}</TableCell>}
@@ -1311,9 +1802,43 @@ export default function PricingRulesPage() {
                       )}
                       {columnVisibility.status && (
                         <TableCell>
-                          <Typography sx={{ fontSize: 12, fontWeight: 800, color: edit.isActive ? '#047857' : '#B91C1C' }}>
-                            {edit.isActive ? 'Active' : 'Inactive'}
-                          </Typography>
+                          {isActiveCell(rule, 'status') ? (
+                            <Select
+                              size="small"
+                              value={edit.isActive ? 'active' : 'inactive'}
+                              disabled={Boolean(savingRows[rule._id])}
+                              onChange={(event) => updateEdit(rule, { isActive: event.target.value === 'active' })}
+                              onClose={() => setActiveCell(null)}
+                              sx={{
+                                minWidth: 108,
+                                '& .MuiSelect-select': {
+                                  py: 0.5,
+                                  fontSize: 12,
+                                  fontWeight: 800,
+                                  color: edit.isActive ? '#047857' : '#B91C1C',
+                                },
+                              }}
+                            >
+                              <MenuItem value="active">Active</MenuItem>
+                              <MenuItem value="inactive">Inactive</MenuItem>
+                            </Select>
+                          ) : (
+                            <Typography
+                              onClick={() => activateCell(rule, 'status')}
+                              sx={{
+                                fontSize: 12,
+                                fontWeight: 800,
+                                color: edit.isActive ? '#047857' : '#B91C1C',
+                                cursor: isAdmin ? 'cell' : 'default',
+                                px: 0.75,
+                                py: 0.5,
+                                borderRadius: 0.5,
+                                '&:hover': isAdmin ? { bgcolor: '#EFF6FF' } : undefined,
+                              }}
+                            >
+                              {edit.isActive ? 'Active' : 'Inactive'}
+                            </Typography>
+                          )}
                         </TableCell>
                       )}
                       {columnVisibility.updatedAt && (
@@ -1331,17 +1856,19 @@ export default function PricingRulesPage() {
                                 <EyeIcon />
                               </IconButton>
                             </Tooltip>
-                            <Tooltip title="Edit">
-                              <IconButton size="small" onClick={() => editRow(rule)} aria-label="Edit pricing rule">
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete">
-                              <IconButton size="small" color="error" onClick={() => deleteRow(rule)} aria-label="Delete pricing rule">
-                                <TrashIcon />
-                              </IconButton>
-                            </Tooltip>
+                            {isAdmin && (
+                              <Tooltip title="Delete">
+                                <IconButton size="small" color="error" onClick={() => deleteRow(rule)} aria-label="Delete pricing rule">
+                                  <TrashIcon />
+                                </IconButton>
+                              </Tooltip>
+                            )}
                           </Stack>
+                          {savingRows[rule._id] && (
+                            <Typography sx={{ fontSize: 10, color: '#2563EB', lineHeight: 1.1 }}>
+                              Autosaving...
+                            </Typography>
+                          )}
                           {validationMessage && (
                             <Typography sx={{ fontSize: 10, color: '#DC2626', lineHeight: 1.1 }}>
                               {validationMessage}
@@ -1374,16 +1901,33 @@ export default function PricingRulesPage() {
 
           <TablePagination
             component="div"
-            count={totalRows}
+            count={orderedRules.length}
             page={page}
             rowsPerPage={rowsPerPage}
-            rowsPerPageOptions={[10, 25, 50, 100]}
-            onPageChange={(_, nextPage) => setPage(nextPage)}
+            rowsPerPageOptions={[
+              { label: 'All', value: -1 },
+              10,
+              50,
+              100,
+              200,
+            ]}
+            onPageChange={(_, nextPage) => {
+              setPage(nextPage);
+              setActiveCell(null);
+            }}
             onRowsPerPageChange={(event) => {
               setRowsPerPage(Number(event.target.value));
               setPage(0);
+              setActiveCell(null);
             }}
-            sx={{ borderTop: '1px solid #D7DDE7', bgcolor: '#FFFFFF' }}
+            labelRowsPerPage="Rows"
+            sx={{
+              borderTop: '1px solid #D7DDE7',
+              bgcolor: '#FFFFFF',
+              '& .MuiTablePagination-toolbar': {
+                minHeight: 44,
+              },
+            }}
           />
         </Paper>
       </Box>
@@ -1804,9 +2348,10 @@ export default function PricingRulesPage() {
       </Dialog>
 
       <Menu anchorEl={exportAnchor} open={Boolean(exportAnchor)} onClose={() => setExportAnchor(null)}>
-        <MenuItem onClick={() => { setExportAnchor(null); exportExcel(); }}>Excel (.xlsx)</MenuItem>
+        <MenuItem onClick={() => { setExportAnchor(null); exportExcel(); }}>Excel (.xls with flags)</MenuItem>
+        <MenuItem onClick={() => { setExportAnchor(null); exportPdf(); }}>PDF (.pdf with flags)</MenuItem>
         <MenuItem onClick={() => { setExportAnchor(null); exportCsv(); }}>CSV (.csv)</MenuItem>
-        <MenuItem onClick={() => { setExportAnchor(null); exportDraftJson(); }}>Draft JSON</MenuItem>
+        {isAdmin && <MenuItem onClick={() => { setExportAnchor(null); exportDraftJson(); }}>Draft JSON</MenuItem>}
       </Menu>
 
       <Menu

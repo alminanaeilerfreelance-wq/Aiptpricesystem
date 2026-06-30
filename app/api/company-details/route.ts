@@ -15,10 +15,22 @@ const SERVICE_CATEGORIES = new Set([
 const isValidServiceCategory = (value: unknown): value is string =>
   typeof value === 'string' && SERVICE_CATEGORIES.has(value);
 
+type MultipartValue = string | {
+  name?: string;
+  size: number;
+  type?: string;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+};
+
+type MultipartFormData = {
+  forEach: (callback: (value: MultipartValue, key: string) => void) => void;
+  get: (key: string) => MultipartValue | null;
+};
+
 const readCompanyDetailBody = async (req: NextRequest) => {
   const contentType = req.headers.get('content-type') || '';
   if (contentType.toLowerCase().includes('multipart/form-data')) {
-    const formData = await req.formData();
+    const formData = (await req.formData()) as unknown as MultipartFormData;
     const body: Record<string, unknown> = {};
     formData.forEach((value, key) => {
       if (key !== 'logo') body[key] = value;

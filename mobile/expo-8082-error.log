@@ -1,0 +1,19 @@
+Error: adb.exe: failed to install C:\Users\pcdell\.expo\android-apk-cache\Expo-Go-56.0.1.apk:
+Error: C:\Users\pcdell\AppData\Local\Android\Sdk/platform-tools/adb -s emulator-5554 install -r -d --user 0 C:\Users\pcdell\.expo\android-apk-cache\Expo-Go-56.0.1.apk exited with non-zero code: 1
+    at ChildProcess.completionListener (D:\Aiptpricesystem\mobile\node_modules\@expo\spawn-async\build\spawnAsync.js:113:23)
+    at Object.onceWrapper (node:events:631:26)
+    at ChildProcess.emit (node:events:509:28)
+    at cp.emit (D:\Aiptpricesystem\mobile\node_modules\cross-spawn\lib\enoent.js:34:29)
+    at maybeClose (node:internal/child_process:1124:16)
+    at ChildProcess._handle.onexit (node:internal/child_process:306:5)
+    ...
+    at spawnAsync (D:\Aiptpricesystem\mobile\node_modules\@expo\spawn-async\build\spawnAsync.js:9:23)
+    at ADBServer.runAsync (D:\Aiptpricesystem\mobile\node_modules\expo\node_modules\@expo\cli\build\src\start\platforms\android\ADBServer.js:97:79)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Object.installAsync (D:\Aiptpricesystem\mobile\node_modules\expo\node_modules\@expo\cli\build\src\start\platforms\android\adb.js:209:12)
+    at async AndroidDeviceManager.installAppAsync (D:\Aiptpricesystem\mobile\node_modules\expo\node_modules\@expo\cli\build\src\start\platforms\android\AndroidDeviceManager.js:141:9)
+    at async ExpoGoInstaller.ensureAsync (D:\Aiptpricesystem\mobile\node_modules\expo\node_modules\@expo\cli\build\src\start\platforms\ExpoGoInstaller.js:166:17)
+    at async AndroidPlatformManager.openProjectInExpoGoAsync (D:\Aiptpricesystem\mobile\node_modules\expo\node_modules\@expo\cli\build\src\start\platforms\PlatformManager.js:87:9)
+    at async Promise.allSettled (index 0)
+    at async openPlatformsAsync (D:\Aiptpricesystem\mobile\node_modules\expo\node_modules\@expo\cli\build\src\start\server\openPlatforms.js:13:21)
+    at async startAsync (D:\Aiptpricesystem\mobile\node_modules\expo\node_modules\@expo\cli\build\src\start\startAsync.js:169:5)

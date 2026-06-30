@@ -1,0 +1,7 @@
+Starting project at D:\Aiptpricesystem\mobile
+Starting Metro Bundler
+
+Waiting on http://localhost:8083
+Logs for your project will appear below.
+Android Bundled 11231ms index.ts (693 modules)
+ WARN  SafeAreaView has been deprecated and will be removed in a future release. Please use 'react-native-safe-area-context' instead. See https://github.com/AppAndFlow/react-native-safe-area-context

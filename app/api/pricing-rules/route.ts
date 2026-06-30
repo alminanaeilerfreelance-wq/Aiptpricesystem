@@ -176,6 +176,9 @@ export async function POST(req: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Only administrators can manage pricing rules' }, { status: 403 });
+    }
 
     await connectDB();
 

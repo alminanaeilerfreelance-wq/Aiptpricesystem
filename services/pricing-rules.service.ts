@@ -73,6 +73,22 @@ export const pricingRulesService = {
     return response.data;
   },
 
+  async listAll(params?: Omit<PricingRuleListParams, 'page' | 'limit'>): Promise<PricingRule[]> {
+    const allRules: PricingRule[] = [];
+    const limit = 100;
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const response = await pricingRulesService.list({ ...params, page, limit });
+      allRules.push(...(response.pricingRules || []));
+      totalPages = Math.ceil((response.total || allRules.length) / limit) || 1;
+      page += 1;
+    } while (page <= totalPages);
+
+    return allRules;
+  },
+
   async getById(id: string): Promise<PricingRule> {
     const response = await apiClient.get<PricingRule>(`/api/pricing-rules/${id}`);
     return response.data;

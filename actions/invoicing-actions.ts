@@ -73,6 +73,7 @@ function serializeBank(bank: BankLean): BankRecord {
   return {
     id: String(bank._id),
     bankName: bank.bankName,
+    logoUrl: bank.logoUrl || null,
     bankHeader: bank.bankHeader,
     bankDescription: bank.bankDescription,
     accountName: bank.accountName || null,

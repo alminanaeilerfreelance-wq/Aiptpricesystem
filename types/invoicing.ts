@@ -7,6 +7,7 @@ export type ServiceModuleType = (typeof serviceModuleTypes)[number];
 export interface BankRecord {
   id: string;
   bankName: string;
+  logoUrl?: string | null;
   bankHeader: string;
   bankDescription: string;
   accountName?: string | null;

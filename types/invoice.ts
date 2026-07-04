@@ -18,8 +18,35 @@ export interface InvoiceRecord {
   bankName?: string | null;
   clientId: string;
   clientName: string;
+  serviceId?: string | null;
   countryId: string;
   countryName: string;
+  procedureId?: string | null;
+  bankId?: string | null;
+  clientReference?: string | null;
+  toAddress?: string | null;
+  applicationIds?: string[];
+  items?: Array<{
+    id?: string;
+    pricingRuleId?: string;
+    countryId?: string;
+    procedureId?: string;
+    item: string;
+    country: string;
+    procedure: string;
+    officialFee: number;
+    attorneyFee: number;
+    quantity: number;
+    vatPercentage: number;
+    vatAmount: number;
+    total: number;
+  }>;
+  vatable?: boolean;
+  vatPercentage?: number;
+  subtotalOfficialFee?: number;
+  subtotalAttorneyFee?: number;
+  totalVat?: number;
+  grandTotal?: number;
   invoiceDate: string;
   dueDate?: string | null;
   currency: string;
@@ -35,7 +62,7 @@ export interface InvoiceRecord {
 }
 
 export interface InvoiceListParams {
-  invoiceType: InvoiceType;
+  invoiceType?: InvoiceType;
   search?: string;
   status?: InvoiceStatus | 'All';
   page?: number;

@@ -394,7 +394,7 @@ export default function InvoicingModulePage({ moduleType }: { moduleType: Servic
     { label: 'Client', key: 'clientName', sortable: false },
     { label: 'Country', key: 'countryName', sortable: false },
     { label: 'AIPT Reference', key: 'aiptReference', sortable: true },
-    { label: 'Class', key: 'classNo', sortable: true },
+    ...(moduleType === 'Trademark' ? [{ label: 'Class', key: 'classNo', sortable: true }] : []),
     { label: 'Filing Number', key: 'filingNumber', sortable: true },
     { label: 'Application Name', key: 'applicationName', sortable: true },
     { label: 'Status', key: 'status', sortable: false },
@@ -521,7 +521,7 @@ export default function InvoicingModulePage({ moduleType }: { moduleType: Servic
                       <TableCell>{record.clientName}</TableCell>
                       <TableCell>{record.countryName}</TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>{record.aiptReference || '-'}</TableCell>
-                      <TableCell>{record.classNo || '-'}</TableCell>
+                      {moduleType === 'Trademark' && <TableCell>{record.classNo || '-'}</TableCell>}
                       <TableCell>{record.filingNumber || '-'}</TableCell>
                       <TableCell>{record.applicationName}</TableCell>
                       <TableCell>
@@ -656,15 +656,17 @@ export default function InvoicingModulePage({ moduleType }: { moduleType: Servic
                 )}
               />
 
-              <Autocomplete
-                size="small"
-                disabled={readOnly}
-                options={classOptions}
-                value={selectedClass}
-                getOptionLabel={(option) => String(option)}
-                onChange={(_, value) => updateForm('classNo', value || undefined)}
-                renderInput={(params) => <TextField {...params} label="Class" />}
-              />
+              {moduleType === 'Trademark' && (
+                <Autocomplete
+                  size="small"
+                  disabled={readOnly}
+                  options={classOptions}
+                  value={selectedClass}
+                  getOptionLabel={(option) => String(option)}
+                  onChange={(_, value) => updateForm('classNo', value || undefined)}
+                  renderInput={(params) => <TextField {...params} label="Class" />}
+                />
+              )}
 
               <TextField
                 size="small"

@@ -2,6 +2,7 @@ import mongoose, { Document, Model } from 'mongoose';
 
 export interface IBank extends Document {
   bankName: string;
+  logoUrl?: string;
   bankHeader: string;
   bankDescription: string;
   accountName?: string;
@@ -17,6 +18,7 @@ export interface IBank extends Document {
 const bankSchema = new mongoose.Schema<IBank>(
   {
     bankName: { type: String, required: true, trim: true, index: true },
+    logoUrl: { type: String, trim: true },
     bankHeader: { type: String, required: true, trim: true },
     bankDescription: { type: String, required: true, trim: true },
     accountName: { type: String, trim: true },

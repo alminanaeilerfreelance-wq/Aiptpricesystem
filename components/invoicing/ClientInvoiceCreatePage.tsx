@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Box,
   Button,
@@ -64,6 +64,7 @@ type ApplicationOption = OptionId & {
 };
 type BankOption = OptionId & {
   bankName: string;
+  logoUrl?: string;
   bankHeader?: string;
   bankDescription?: string;
   accountName?: string;
@@ -84,6 +85,25 @@ type PricingRuleOption = OptionId & {
   serviceCategory: string;
   country?: { _id?: string; name: string; abbreviation: string } | null;
   procedure?: { _id?: string; name: string } | null;
+};
+type SavedInvoice = {
+  id: string;
+  clientId: string;
+  serviceId?: string;
+  countryId: string;
+  procedureId?: string;
+  bankId?: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  clientReference?: string;
+  toAddress?: string;
+  subject?: string;
+  applicationIds?: string[];
+  items?: InvoiceItem[];
+  currency?: string;
+  vatable?: boolean;
+  vatPercentage?: number;
+  status?: string;
 };
 
 type CurrencyOption = { value: string; code: string; name: string; symbol: string };
@@ -286,6 +306,47 @@ function servicePrefix(service?: ServiceOption | null) {
   return 'O';
 }
 
+function getServiceKind(service?: ServiceOption | null) {
+  const key = `${service?.category || ''} ${service?.name || ''}`;
+  if (/trademark/i.test(key)) return 'trademark';
+  if (/patent/i.test(key)) return 'patent';
+  if (/design/i.test(key)) return 'design';
+  if (/copyright/i.test(key)) return 'copyright';
+  return 'other';
+}
+
+function buildInvoiceSubject(
+  service: ServiceOption | null,
+  procedure: ProcedureOption | null,
+  applications: ApplicationOption[],
+  country: CountryOption | null
+) {
+  if (!procedure || applications.length === 0) return procedure?.name || '';
+  const app = applications[0];
+  const countryText = country ? `${country.name}${country.abbreviation ? ` (${country.abbreviation})` : ''}` : '';
+  const applicationName = app.applicationName || app.referenceNo || 'application';
+  const filingNumber = app.filingNumber || '-';
+  const kind = getServiceKind(service);
+
+  if (kind === 'trademark') {
+    return `${procedure.name} of the mark ${applicationName}${app.classNo ? ` in class ${app.classNo}` : ''} with filing no. ${filingNumber} for ----- in ${countryText}.`;
+  }
+
+  if (kind === 'patent') {
+    return `${procedure.name} of a patent application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
+  }
+
+  if (kind === 'design') {
+    return `${procedure.name} of a design application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
+  }
+
+  if (kind === 'copyright') {
+    return `${procedure.name} of a copyright application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
+  }
+
+  return `${procedure.name} of application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
+}
+
 function calculateRow(item: InvoiceItem, vatable: boolean, vatPercentage: number): InvoiceItem {
   const quantity = Math.max(Number(item.quantity || 1), 1);
   const officialFee = Math.max(Number(item.officialFee || 0), 0);
@@ -297,8 +358,176 @@ function calculateRow(item: InvoiceItem, vatable: boolean, vatPercentage: number
   return { ...item, quantity, officialFee, attorneyFee, vatPercentage: vatRate, vatAmount, total };
 }
 
+function InvoiceDocumentPreview({
+  client,
+  bank,
+  invoiceDate,
+  invoiceNumber,
+  clientReference,
+  applications,
+  toAddress,
+  subject,
+  items,
+  totals,
+  currency,
+}: {
+  client: ClientOption | null;
+  bank: BankOption | null;
+  invoiceDate: string;
+  invoiceNumber: string;
+  clientReference: string;
+  applications: ApplicationOption[];
+  toAddress: string;
+  subject: string;
+  items: InvoiceItem[];
+  totals: { totalVat: number; grandTotal: number };
+  currency: string;
+}) {
+  const applicationNo = applications.map((app) => app.referenceNo || app.filingNumber).filter(Boolean).join(', ') || '-';
+
+  return (
+    <Paper
+      sx={{
+        maxWidth: 980,
+        mx: 'auto',
+        p: { xs: 2, md: 4 },
+        borderRadius: 2,
+        border: '1px solid #D8E0F3',
+        boxShadow: '0 16px 50px rgba(15, 23, 42, 0.08)',
+        color: '#071A5F',
+      }}
+    >
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 220px' }, gap: 2, alignItems: 'start' }}>
+        <Box>
+          <Typography sx={{ fontSize: 36, fontWeight: 950, letterSpacing: 0, color: '#081A5B' }}>INVOICE</Typography>
+          <Box sx={{ width: 84, height: 4, bgcolor: '#2A59FF', mt: 1 }} />
+        </Box>
+        <Box sx={{ textAlign: 'center' }}>
+          {bank?.logoUrl ? (
+            <Box component="img" src={bank.logoUrl} alt="Bank logo" sx={{ maxWidth: 86, maxHeight: 64, objectFit: 'contain', mb: 1 }} />
+          ) : (
+            <Typography sx={{ fontSize: 12, fontWeight: 900 }}>BANK LOGO</Typography>
+          )}
+          <Typography sx={{ fontSize: 34, fontWeight: 950, color: '#081A5B', mt: 2 }}>{bank?.bankHeader || 'HEADER'}</Typography>
+          <Typography sx={{ fontSize: 22, color: '#2A59FF' }}>{bank?.bankDescription || 'ADDRESS'}</Typography>
+          <Box sx={{ width: 68, height: 2, bgcolor: '#2A59FF', mx: 'auto', my: 2 }} />
+          <Typography sx={{ fontSize: 14, fontWeight: 800 }}>ADDRESS</Typography>
+          <Typography sx={{ fontSize: 13 }}>{bank?.bankDescription || '-'}</Typography>
+        </Box>
+        <Box sx={{ border: '2px solid #081A5B', borderRadius: 2, overflow: 'hidden', textAlign: 'center' }}>
+          <Typography sx={{ bgcolor: '#081A5B', color: '#fff', py: 1, fontWeight: 900, fontSize: 12 }}>SCAN TO VIEW INVOICE</Typography>
+          <Box sx={{ p: 2, display: 'grid', placeItems: 'center' }}>
+            <Box
+              sx={{
+                width: 132,
+                height: 132,
+                background:
+                  'repeating-linear-gradient(90deg,#111 0 7px,#fff 7px 14px), repeating-linear-gradient(0deg,rgba(0,0,0,.65) 0 7px,transparent 7px 14px)',
+                backgroundBlendMode: 'multiply',
+                border: '8px solid #fff',
+                outline: '1px solid #CBD5E1',
+              }}
+            />
+          </Box>
+        </Box>
+      </Box>
+
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mt: 4 }}>
+        <Paper variant="outlined" sx={{ p: 2.5, borderColor: '#C7D2FE', borderRadius: 2 }}>
+          <Typography sx={{ display: 'inline-block', bgcolor: '#081A5B', color: '#fff', px: 2, py: 0.75, borderRadius: 0.75, fontWeight: 900 }}>
+            BILLED TO
+          </Typography>
+          <Typography sx={{ mt: 2.5, fontWeight: 900 }}>{client ? clientLabel(client) : '-'}</Typography>
+          <Typography sx={{ mt: 2 }}>{toAddress || '-'}</Typography>
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 2.5, borderColor: '#C7D2FE', borderRadius: 2 }}>
+          {[
+            ['Invoice Date', invoiceDate || '-'],
+            ['Invoice No', invoiceNumber || '-'],
+            ['Application No', applicationNo],
+            ['Client Reference', clientReference || '-'],
+          ].map(([label, value]) => (
+            <Box key={label} sx={{ display: 'grid', gridTemplateColumns: '150px 20px 1fr', py: 0.85 }}>
+              <Typography sx={{ fontWeight: 900 }}>{label}</Typography>
+              <Typography sx={{ fontWeight: 900 }}>:</Typography>
+              <Typography>{value}</Typography>
+            </Box>
+          ))}
+        </Paper>
+      </Box>
+
+      <Paper variant="outlined" sx={{ p: 2.5, borderColor: '#C7D2FE', borderRadius: 2, mt: 2 }}>
+        <Typography sx={{ display: 'inline-block', bgcolor: '#081A5B', color: '#fff', px: 2, py: 0.75, borderRadius: 0.75, fontWeight: 900 }}>
+          SUBJECT
+        </Typography>
+        <Typography sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>{subject || '-'}</Typography>
+      </Paper>
+
+      <TableContainer sx={{ mt: 3, border: '1px solid #D8E0F3', borderRadius: 2 }}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              {['Procedure', 'Official Fee', 'Attorney Fee', 'Qty', 'VAT', 'Total'].map((header) => (
+                <TableCell key={header} sx={{ bgcolor: '#081A5B', color: '#fff', fontWeight: 900 }}>{header}</TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {items.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell sx={{ maxWidth: 330 }}>{item.procedure}</TableCell>
+                <TableCell>{item.officialFee.toFixed(2)}</TableCell>
+                <TableCell>{item.attorneyFee.toFixed(2)}</TableCell>
+                <TableCell>{item.quantity}</TableCell>
+                <TableCell>{item.vatAmount.toFixed(2)}</TableCell>
+                <TableCell sx={{ fontWeight: 900 }}>{item.total.toFixed(2)}</TableCell>
+              </TableRow>
+            ))}
+            <TableRow>
+              <TableCell colSpan={4} />
+              <TableCell sx={{ fontWeight: 900 }}>Totals</TableCell>
+              <TableCell sx={{ fontWeight: 900 }}>{currency} {totals.grandTotal.toFixed(2)}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 4, mt: 3, alignItems: 'center' }}>
+        <Paper variant="outlined" sx={{ borderColor: '#C7D2FE', borderRadius: 2, overflow: 'hidden' }}>
+          <Typography sx={{ bgcolor: '#081A5B', color: '#fff', px: 2, py: 1, fontWeight: 900 }}>BANK DETAILS</Typography>
+          <Box sx={{ p: 2 }}>
+            {[
+              ['Bank Name', bank?.bankName],
+              ['Account Name', bank?.accountName],
+              ['Account Number', bank?.accountNumber],
+              ['IBAN', bank?.iban],
+              ['SWIFT', bank?.swift],
+            ].map(([label, value]) => (
+              <Box key={label} sx={{ display: 'grid', gridTemplateColumns: '140px 18px 1fr', py: 0.25 }}>
+                <Typography>{label}</Typography>
+                <Typography>:</Typography>
+                <Typography>{value || '-'}</Typography>
+              </Box>
+            ))}
+          </Box>
+        </Paper>
+        <Box sx={{ textAlign: 'center' }}>
+          <Typography sx={{ fontSize: 28, fontFamily: 'cursive' }}>Signature</Typography>
+          <Box sx={{ width: 260, height: 2, bgcolor: '#2A59FF', mx: 'auto', my: 1 }} />
+          <Typography sx={{ fontWeight: 900 }}>Mohammad Saleh Alotaishan</Typography>
+          <Typography>Signature</Typography>
+        </Box>
+      </Box>
+    </Paper>
+  );
+}
+
 export default function ClientInvoiceCreatePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const invoiceId = searchParams.get('id');
+  const pageMode = searchParams.get('mode') === 'view' ? 'view' : searchParams.get('mode') === 'edit' ? 'edit' : 'create';
+  const readOnly = pageMode === 'view';
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [countries, setCountries] = useState<CountryOption[]>([]);
@@ -362,6 +591,7 @@ export default function ClientInvoiceCreatePage() {
   const [imageEditSource, setImageEditSource] = useState('');
   const [imageEditAppId, setImageEditAppId] = useState<string | null>(null);
   const [imageSaving, setImageSaving] = useState(false);
+  const [pendingApplicationIds, setPendingApplicationIds] = useState<string[]>([]);
   const { user } = useAuthContext();
 
   const selectedImageApplication = selectedApplications.find((app) => app._id === imageEditAppId) || null;
@@ -466,12 +696,60 @@ export default function ClientInvoiceCreatePage() {
   }, []);
 
   useEffect(() => {
-    setToAddress(client?.address || '');
-  }, [client]);
+    if (!invoiceId || loading) return;
+    let mounted = true;
+
+    async function loadInvoice() {
+      try {
+        const data = await getJson<{ invoice: SavedInvoice }>(`/api/invoices/${invoiceId}`);
+        if (!mounted) return;
+        const invoice = data.invoice;
+        const nextClient = clients.find((item) => item._id === invoice.clientId) || null;
+        const nextService = services.find((item) => item._id === invoice.serviceId) || null;
+        const nextCountry = countries.find((item) => item._id === invoice.countryId) || null;
+        const nextProcedure = procedures.find((item) => item._id === invoice.procedureId) || null;
+        const nextBank = banks.find((item) => item._id === invoice.bankId) || null;
+
+        setClient(nextClient);
+        setService(nextService);
+        setCountry(nextCountry);
+        setProcedure(nextProcedure);
+        setBank(nextBank);
+        setInvoiceNumber(invoice.invoiceNumber || '');
+        setInvoiceDate(invoice.invoiceDate ? invoice.invoiceDate.slice(0, 10) : new Date().toISOString().slice(0, 10));
+        setClientReference(invoice.clientReference || '');
+        setToAddress(invoice.toAddress || '');
+        setSubject(invoice.subject || '');
+        setCurrency(invoice.currency || nextBank?.currency || 'USD');
+        setVatable(Boolean(invoice.vatable));
+        setVatPercentage(Number(invoice.vatPercentage ?? 0));
+        setItems(
+          (invoice.items || []).map((item, index) => ({
+            ...item,
+            id: item.id || `${invoice.id}-item-${index}`,
+          }))
+        );
+        setPendingApplicationIds(invoice.applicationIds || []);
+      } catch (error) {
+        showErrorToast(error instanceof Error ? error.message : 'Failed to load invoice.');
+      }
+    }
+
+    loadInvoice();
+    return () => {
+      mounted = false;
+    };
+  }, [banks, clients, countries, invoiceId, loading, procedures, services]);
 
   useEffect(() => {
-    setSubject(procedure?.name || '');
-  }, [procedure]);
+    if (invoiceId) return;
+    setToAddress(client?.address || '');
+  }, [client, invoiceId]);
+
+  useEffect(() => {
+    if (invoiceId) return;
+    setSubject(buildInvoiceSubject(service, procedure, selectedApplications, country));
+  }, [country, invoiceId, procedure, selectedApplications, service]);
 
   useEffect(() => {
     if (bank?.currency) setCurrency(bank.currency);
@@ -480,7 +758,7 @@ export default function ClientInvoiceCreatePage() {
   useEffect(() => {
     let mounted = true;
     async function loadApplications() {
-      setSelectedApplications([]);
+      if (!invoiceId) setSelectedApplications([]);
       if (!client || !country) {
         setApplications([]);
         return;
@@ -490,7 +768,17 @@ export default function ClientInvoiceCreatePage() {
         const serviceType = (service?.category || service?.name || '').trim();
         const params = new URLSearchParams({ clientId: client._id, countryId: country._id, serviceType });
         const data = await getJson<{ applications: ApplicationOption[] }>(`/api/applications?${params.toString()}`);
-        if (mounted) setApplications(data.applications || []);
+        let nextApplications = data.applications || [];
+        if (invoiceId && pendingApplicationIds.length > 0) {
+          const savedParams = new URLSearchParams({ ids: pendingApplicationIds.join(',') });
+          const savedData = await getJson<{ applications: ApplicationOption[] }>(`/api/applications?${savedParams.toString()}`);
+          const byId = new Map<string, ApplicationOption>();
+          [...nextApplications, ...(savedData.applications || [])].forEach((application) => {
+            byId.set(application._id, application);
+          });
+          nextApplications = Array.from(byId.values());
+        }
+        if (mounted) setApplications(nextApplications);
       } catch (error) {
         showErrorToast(error instanceof Error ? error.message : 'Failed to load applications.');
       } finally {
@@ -501,13 +789,24 @@ export default function ClientInvoiceCreatePage() {
     return () => {
       mounted = false;
     };
-  }, [client, country]);
+  }, [client, country, invoiceId, pendingApplicationIds, service]);
+
+  useEffect(() => {
+    if (pendingApplicationIds.length === 0 || applications.length === 0) return;
+    const selected = applications.filter(
+      (application) =>
+        pendingApplicationIds.includes(application._id) ||
+        (application.applicationId ? pendingApplicationIds.includes(application.applicationId) : false)
+    );
+    setSelectedApplications(selected);
+  }, [applications, pendingApplicationIds]);
 
   // removed application text updater
 
   useEffect(() => {
     let mounted = true;
     async function generateNumber() {
+      if (invoiceId) return;
       if (!client || !service || !country || !invoiceDate) {
         setInvoiceNumber('');
         return;
@@ -529,7 +828,7 @@ export default function ClientInvoiceCreatePage() {
     return () => {
       mounted = false;
     };
-  }, [client, country, invoiceDate, service]);
+  }, [client, country, invoiceDate, invoiceId, service]);
 
   useEffect(() => {
     setItems((current) => current.map((item) => calculateRow(item, vatable, vatPercentage)));
@@ -830,6 +1129,28 @@ export default function ClientInvoiceCreatePage() {
     );
   };
 
+  const resetInvoiceForm = () => {
+    setClient(null);
+    setService(null);
+    setCountry(null);
+    setProcedure(null);
+    setSelectedApplications([]);
+    setPendingApplicationIds([]);
+    setBank(null);
+    setInvoiceDate(new Date().toISOString().slice(0, 10));
+    setInvoiceNumber('');
+    setClientReference('');
+    setToAddress('');
+    setSubject('');
+    setCurrency('USD');
+    setVatable(false);
+    setVatPercentage(5);
+    setItems([]);
+    setItemSearch('');
+    setPage(0);
+    setValidationErrors({});
+  };
+
   const getValidationErrors = (confirming: boolean) => {
     const errors: Record<string, string> = {};
     if (!client) errors.client = 'Client is required.';
@@ -838,10 +1159,13 @@ export default function ClientInvoiceCreatePage() {
     if (!procedure) errors.procedure = 'Method is required.';
     if (!invoiceDate) errors.invoiceDate = 'Date of invoice is required.';
     if (!invoiceNumber) errors.invoiceNumber = 'Invoice number is required.';
+    if (!subject.trim()) errors.subject = 'Subject is required.';
     if (items.length === 0) errors.items = 'At least one invoice item is required.';
     if (!bank) errors.bank = 'Bank is required.';
     if (!Number.isFinite(Number(vatPercentage)) || vatPercentage < 0 || vatPercentage > 100) {
       errors.vatPercentage = 'VAT percentage must be between 0 and 100.';
+    } else if (vatable && Number(vatPercentage) <= 0) {
+      errors.vatPercentage = 'VAT percentage is required when invoice is vatable.';
     }
     return errors;
   };
@@ -857,8 +1181,8 @@ export default function ClientInvoiceCreatePage() {
 
     try {
       setSaving(true);
-      const response = await fetch('/api/invoices', {
-        method: 'POST',
+      const response = await fetch(invoiceId ? `/api/invoices/${invoiceId}` : '/api/invoices', {
+        method: invoiceId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
@@ -872,6 +1196,8 @@ export default function ClientInvoiceCreatePage() {
           toAddress,
           applicationIds: selectedApplications.map((item) => item._id),
           subject,
+          method: procedure?.name,
+          clientName: client ? clientLabel(client) : '',
           items,
           bankId: bank?._id,
           bankName: bank?.bankName,
@@ -884,7 +1210,9 @@ export default function ClientInvoiceCreatePage() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to save invoice.');
-      showSuccessToast(status === 'Confirmed' ? 'Invoice created successfully.' : 'Invoice save draft successfully.');
+      showSuccessToast(invoiceId ? 'Invoice updated successfully.' : status === 'Confirmed' ? 'Invoice created successfully.' : 'Invoice save draft successfully.');
+      resetInvoiceForm();
+      if (invoiceId) router.replace('/admin/invoice/create-new');
     } catch (error) {
       showErrorToast(error instanceof Error ? error.message : 'Failed to save invoice.');
     } finally {
@@ -1072,16 +1400,255 @@ export default function ClientInvoiceCreatePage() {
     }
   };
 
+  const downloadFormattedInvoicePdf = async () => {
+    if (!client) {
+      showWarningToast('Client details are required to generate the invoice PDF.');
+      return;
+    }
+
+    try {
+      setDownloadingPdf(true);
+      const [jsPDF, autoTable] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+      const doc = new jsPDF.jsPDF({ unit: 'pt', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 22;
+      const navy = '#071A5F';
+      const accent = '#2A59FF';
+      const border = '#C9D4F4';
+      const soft = '#EEF3FF';
+      const invoiceNo = invoiceNumber || 'DRAFT';
+      const applicationNo = selectedApplications.map((app) => app.referenceNo || app.filingNumber).filter(Boolean).join(', ') || '-';
+      const applicationRef = selectedApplications
+        .map((app) => app.applicationName || app.filingNumber || app.referenceNo)
+        .filter(Boolean)
+        .join(', ');
+
+      let bankLogoLayout: { dataUrl: string; width: number; height: number } | null = null;
+      try {
+        bankLogoLayout = await getReportImageLayout(bank?.logoUrl || '', 108, 52);
+      } catch {
+        bankLogoLayout = null;
+      }
+
+      doc.setTextColor(navy);
+      doc.setDrawColor(border);
+      doc.setLineWidth(0.8);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(28);
+      doc.text('INVOICE', margin, 54);
+      doc.setDrawColor(accent);
+      doc.setLineWidth(2.2);
+      doc.line(margin, 68, margin + 50, 68);
+
+      if (bankLogoLayout) {
+        try {
+          doc.addImage(
+            bankLogoLayout.dataUrl,
+            getReportPdfImageFormat(bankLogoLayout.dataUrl),
+            (pageWidth - bankLogoLayout.width) / 2,
+            26,
+            bankLogoLayout.width,
+            bankLogoLayout.height
+          );
+        } catch {
+          // Ignore image rendering issues.
+        }
+      } else {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text('BANK LOGO', pageWidth / 2, 48, { align: 'center' });
+      }
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(25);
+      doc.text(bank?.bankHeader || 'HEADER', pageWidth / 2, 94, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(13);
+      doc.setTextColor(accent);
+      doc.text(bank?.bankDescription || 'ADDRESS', pageWidth / 2, 116, {
+        align: 'center',
+        maxWidth: 260,
+      });
+      doc.setTextColor(navy);
+      doc.setDrawColor(accent);
+      doc.setLineWidth(1);
+      doc.line(pageWidth / 2 - 28, 129, pageWidth / 2 + 28, 129);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('ADDRESS', pageWidth / 2, 149, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(bank?.bankDescription || '-', pageWidth / 2, 164, { align: 'center', maxWidth: 220 });
+
+      const qrX = pageWidth - margin - 120;
+      doc.setFillColor(navy);
+      doc.roundedRect(qrX, 24, 120, 18, 4, 4, 'F');
+      doc.setTextColor('#FFFFFF');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.text('SCAN TO VIEW INVOICE', qrX + 60, 36, { align: 'center' });
+      doc.setTextColor(navy);
+      doc.setDrawColor(navy);
+      doc.roundedRect(qrX, 24, 120, 142, 4, 4);
+      doc.setDrawColor('#111111');
+      doc.setLineWidth(0.6);
+      const qrSize = 88;
+      const qrCell = 5.5;
+      const qrTop = 56;
+      const qrLeft = qrX + 16;
+      for (let row = 0; row < 16; row += 1) {
+        for (let col = 0; col < 16; col += 1) {
+          if ((row * 3 + col * 5 + row * col) % 4 < 2) {
+            doc.setFillColor('#111111');
+            doc.rect(qrLeft + col * qrCell, qrTop + row * qrCell, qrCell, qrCell, 'F');
+          }
+        }
+      }
+
+      const pill = (label: string, x: number, y: number, width: number) => {
+        doc.setFillColor(navy);
+        doc.roundedRect(x, y, width, 20, 3, 3, 'F');
+        doc.setTextColor('#FFFFFF');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(label, x + 8, y + 13);
+        doc.setTextColor(navy);
+      };
+
+      const card = (x: number, y: number, width: number, height: number) => {
+        doc.setDrawColor(border);
+        doc.setFillColor('#FFFFFF');
+        doc.roundedRect(x, y, width, height, 5, 5, 'FD');
+      };
+
+      const metaRow = (label: string, value: string, x: number, y: number) => {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(label, x, y);
+        doc.text(':', x + 92, y);
+        doc.setFont('helvetica', 'normal');
+        doc.text(value || '-', x + 116, y, { maxWidth: 130 });
+      };
+
+      const cardTop = 190;
+      const colGap = 12;
+      const cardWidth = (pageWidth - margin * 2 - colGap) / 2;
+      card(margin, cardTop, cardWidth, 112);
+      pill('BILLED TO', margin + 14, cardTop + 16, 66);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text(doc.splitTextToSize(clientLabel(client), cardWidth - 36), margin + 16, cardTop + 62);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text(doc.splitTextToSize(toAddress || '-', cardWidth - 36), margin + 16, cardTop + 88);
+
+      const metaX = margin + cardWidth + colGap;
+      card(metaX, cardTop, cardWidth, 112);
+      metaRow('Invoice Date', invoiceDate || new Date().toISOString().slice(0, 10), metaX + 22, cardTop + 36);
+      metaRow('Invoice No', invoiceNo, metaX + 22, cardTop + 60);
+      metaRow('Application No', applicationNo || applicationRef || '-', metaX + 22, cardTop + 84);
+      metaRow('Client Reference', clientReference || '-', metaX + 22, cardTop + 108);
+
+      const subjectTop = 318;
+      card(margin, subjectTop, pageWidth - margin * 2, 76);
+      pill('SUBJECT', margin + 14, subjectTop + 14, 58);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text(doc.splitTextToSize(subject || '-', pageWidth - margin * 2 - 40), margin + 16, subjectTop + 54);
+
+      autoTable.default(doc, {
+        head: [['Procedure', 'Official Fee', 'Attorney Fee', 'Qty', `VAT (${vatPercentage || 0}%)`, 'Total']],
+        body: items.map((item) => [
+          item.procedure,
+          item.officialFee.toFixed(2),
+          item.attorneyFee.toFixed(2),
+          String(item.quantity),
+          item.vatAmount.toFixed(2),
+          item.total.toFixed(2),
+        ]),
+        startY: 414,
+        margin: { left: margin, right: margin },
+        styles: { fontSize: 8, cellPadding: 9, textColor: navy, lineColor: border, lineWidth: 0.5 },
+        headStyles: { fillColor: navy, textColor: '#FFFFFF', fontStyle: 'bold', halign: 'center' },
+        columnStyles: {
+          0: { cellWidth: 190, halign: 'left' },
+          1: { halign: 'center' },
+          2: { halign: 'center' },
+          3: { halign: 'center' },
+          4: { halign: 'center' },
+          5: { halign: 'center', fontStyle: 'bold' },
+        },
+        foot: [['', '', '', 'Totals', totals.totalVat.toFixed(2), totals.grandTotal.toFixed(2)]],
+        footStyles: { fillColor: soft, textColor: navy, fontStyle: 'bold', halign: 'center' },
+        theme: 'grid',
+      });
+
+      const finalY = (doc as any).lastAutoTable?.finalY || 488;
+      const bankY = Math.min(Math.max(finalY + 18, 608), 656);
+      card(margin, bankY, 230, 96);
+      doc.setFillColor(navy);
+      doc.rect(margin, bankY, 230, 18, 'F');
+      doc.setTextColor('#FFFFFF');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('BANK DETAILS', margin + 10, bankY + 12);
+      doc.setTextColor(navy);
+      [
+        ['Bank Name', bank?.bankName || '-'],
+        ['Account Name', bank?.accountName || '-'],
+        ['Account Number', bank?.accountNumber || '-'],
+        ['IBAN', bank?.iban || '-'],
+        ['SWIFT', bank?.swift || '-'],
+      ].forEach(([label, value], index) => {
+        const y = bankY + 35 + index * 12;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.text(label, margin + 10, y);
+        doc.text(':', margin + 96, y);
+        doc.text(value, margin + 116, y, { maxWidth: 100 });
+      });
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text('Signature', pageWidth - 170, bankY + 48, { align: 'center' });
+      doc.setDrawColor(navy);
+      doc.line(pageWidth - 240, bankY + 70, pageWidth - 100, bankY + 70);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Mohammad Saleh Alotaishan', pageWidth - 170, bankY + 86, { align: 'center' });
+
+      doc.setFillColor(soft);
+      doc.setDrawColor(border);
+      doc.roundedRect(margin, pageHeight - 72, pageWidth - margin * 2, 44, 5, 5, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('Thank you for your business!', margin + 14, pageHeight - 47);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text('We appreciate your trust and look forward to working with you again.', margin + 14, pageHeight - 31);
+      doc.setFillColor(navy);
+      doc.rect(0, pageHeight - 14, pageWidth, 14, 'F');
+
+      doc.save(`${toInvoicePdfFileName(invoiceNo, clientLabel(client))}.pdf`);
+      showSuccessToast('Invoice PDF downloaded.');
+    } catch (error) {
+      showErrorToast(error instanceof Error ? error.message : 'Failed to generate PDF.');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   const confirmDisabled = Boolean(Object.keys(getValidationErrors(true)).length) || saving;
 
   return (
     <Box sx={{ minHeight: '100vh', backgroundColor: '#fff' }}>
       <Topbar
-        title="Client Invoice"
+        title={pageMode === 'view' ? 'View Invoice' : pageMode === 'edit' ? 'Edit Invoice' : 'Client Invoice'}
         breadcrumbs={[
           { label: 'Dashboard', href: '/dashboard' },
-          { label: 'Invoice' },
-          { label: 'Create New' },
+          { label: 'Invoice', href: '/admin/invoice' },
+          { label: pageMode === 'view' ? 'View' : pageMode === 'edit' ? 'Edit' : 'Create New' },
         ]}
       />
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: { xs: 2, md: 3 }, mt: 2 }}>
@@ -1089,7 +1656,30 @@ export default function ClientInvoiceCreatePage() {
           Created Invoices
         </Button>
       </Box>
-      <Box sx={shellSx}>
+      {readOnly && (
+        <Box sx={shellSx}>
+          <InvoiceDocumentPreview
+            client={client}
+            bank={bank}
+            invoiceDate={invoiceDate}
+            invoiceNumber={invoiceNumber}
+            clientReference={clientReference}
+            applications={selectedApplications}
+            toAddress={toAddress}
+            subject={subject}
+            items={items}
+            totals={totals}
+            currency={currency}
+          />
+          <Box sx={{ maxWidth: 980, mx: 'auto', mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+            <Button variant="outlined" onClick={() => router.back()}>Back</Button>
+            <Button variant="contained" color="success" disabled={items.length === 0 || downloadingPdf} onClick={downloadFormattedInvoicePdf}>
+              {downloadingPdf ? 'Generating PDF...' : 'Download PDF'}
+            </Button>
+          </Box>
+        </Box>
+      )}
+      <Box sx={{ ...shellSx, display: readOnly ? 'none' : 'block' }}>
 	      <Box sx={{ display: 'none' }}>
         <Typography variant="h5" sx={{ fontSize: 18, fontWeight: 500 }}>
           ▦ Client <Box component="span" sx={{ fontSize: 13 }}>Invoice</Box>
@@ -1348,12 +1938,14 @@ export default function ClientInvoiceCreatePage() {
         value={subject}
         onChange={(event) => setSubject(event.target.value)}
         sx={{ ...fieldSx, mt: 1.5, width: '100%' }}
+        error={Boolean(validationErrors.subject)}
+        helperText={validationErrors.subject}
         slotProps={{ inputLabel: { shrink: true } }}
       />
 
       <Box sx={{ display: 'flex', gap: 0.75, mt: 1.5 }}>
-        <Button size="small" variant="contained" onClick={handleNewItem}>New Item</Button>
-        <Button size="small" variant="contained" onClick={generateFees}>Generate Fees</Button>
+        {!readOnly && <Button size="small" variant="contained" onClick={handleNewItem}>New Item</Button>}
+        {!readOnly && <Button size="small" variant="contained" onClick={generateFees}>Generate Fees</Button>}
       </Box>
       {validationErrors.items && (
         <Typography sx={{ mt: 0.75, color: '#B91C1C', fontSize: 12 }}>
@@ -1482,20 +2074,22 @@ export default function ClientInvoiceCreatePage() {
       )}
 
         <Box sx={{ display: 'flex', gap: 0.75, mt: 1.5, flexWrap: 'wrap' }}>
-        <Button size="small" variant="contained" onClick={() => saveInvoice('Draft')} disabled={saving}>Save Draft</Button>
-        <Button size="small" variant="contained" onClick={() => setConfirmDialogOpen(true)} disabled={confirmDisabled} startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}>
-          Confirm
-        </Button>
+        {!readOnly && <Button size="small" variant="contained" onClick={() => saveInvoice('Draft')} disabled={saving}>Save Draft</Button>}
+        {!readOnly && (
+          <Button size="small" variant="contained" onClick={() => setConfirmDialogOpen(true)} disabled={confirmDisabled} startIcon={saving ? <CircularProgress size={14} color="inherit" /> : undefined}>
+            Confirm
+          </Button>
+        )}
         <Button
           size="small"
           variant="contained"
           color="success"
           disabled={items.length === 0 || downloadingPdf}
-          onClick={downloadInvoicePdf}
+          onClick={downloadFormattedInvoicePdf}
         >
           {downloadingPdf ? 'Generating PDF...' : 'Download PDF'}
         </Button>
-        <Button size="small" variant="outlined" color="inherit" onClick={() => router.back()}>Cancel</Button>
+        <Button size="small" variant="outlined" color="inherit" onClick={() => router.back()}>{readOnly ? 'Back' : 'Cancel'}</Button>
         <Typography sx={{ ml: 'auto', alignSelf: 'center', fontWeight: 700 }}>
           Grand Total: {currency} {totals.grandTotal.toFixed(2)}
         </Typography>
@@ -1519,10 +2113,16 @@ export default function ClientInvoiceCreatePage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={createdInvoicesOpen} onClose={() => setCreatedInvoicesOpen(false)} fullWidth maxWidth="xl">
+      <Dialog
+        open={createdInvoicesOpen}
+        onClose={() => setCreatedInvoicesOpen(false)}
+        fullWidth
+        maxWidth="xl"
+        slotProps={{ paper: { sx: { borderRadius: 2, overflow: 'hidden' } } }}
+      >
         <DialogTitle sx={dialogTitleSx}>Created Invoices</DialogTitle>
-        <DialogContent sx={{ bgcolor: '#FFFFFF', pt: 2.5, minHeight: 500 }}>
-          <InvoiceTable invoiceType="Trademark" showActions={true} showToolbar={false} />
+        <DialogContent sx={{ bgcolor: '#FFFFFF', p: 2.5, minHeight: 560 }}>
+          <InvoiceTable showActions={true} showToolbar={true} />
         </DialogContent>
         <DialogActions sx={{ bgcolor: '#FFFFFF', px: 3, pb: 2 }}>
           <Button size="small" variant="outlined" onClick={() => setCreatedInvoicesOpen(false)}>

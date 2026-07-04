@@ -18,6 +18,7 @@ const optionalObjectIdSchema = z
 export const bankFormSchema = z.object({
   moduleType: z.literal('Bank'),
   bankName: z.string().trim().min(1, 'Bank name is required.'),
+  logoUrl: optionalText,
   bankHeader: z.string().trim().min(1, 'Bank header is required.'),
   bankDescription: z.string().trim().min(1, 'Bank description is required.'),
   accountName: z.string().trim().min(1, 'Account name is required.'),

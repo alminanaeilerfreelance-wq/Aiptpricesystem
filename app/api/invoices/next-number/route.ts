@@ -57,8 +57,7 @@ export async function GET(req: NextRequest) {
       invoiceNumber: { $regex: `^${prefix} ${year}-`, $options: 'i' },
     });
     const sequence = String(existingCount + 1).padStart(3, '0');
-    // const invoiceNumber = `${prefix} ${year}-${sequence}${assignedId ? ` ${assignedId}` : ''} ${countryCode}`.trim();
-    const invoiceNumber = `${prefix} ${year}-${sequence} ${countryCode}`.trim();
+    const invoiceNumber = `${prefix} ${year}-${sequence}${assignedId ? ` ${assignedId}` : ''} ${countryCode}`.trim();
     return NextResponse.json({ invoiceNumber });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to generate invoice number';

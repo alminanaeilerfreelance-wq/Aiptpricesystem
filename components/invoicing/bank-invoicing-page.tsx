@@ -48,6 +48,7 @@ type SortDirection = 'asc' | 'desc';
 const defaultForm: BankFormInput = {
   moduleType: 'Bank',
   bankName: '',
+  logoUrl: '',
   bankHeader: '',
   bankDescription: '',
   accountName: '',
@@ -64,6 +65,7 @@ const recordToForm = (record?: BankRecord | null): BankFormInput => {
   return {
     moduleType: 'Bank',
     bankName: record.bankName || '',
+    logoUrl: record.logoUrl || '',
     bankHeader: record.bankHeader || '',
     bankDescription: record.bankDescription || '',
     accountName: record.accountName || '',
@@ -151,6 +153,20 @@ export default function BankInvoicingPage() {
   const updateForm = <K extends keyof BankFormInput>(key: K, value: BankFormInput[K]) => {
     setFormData((current) => ({ ...current, [key]: value }));
     setFormError('');
+  };
+
+  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setFormError('Please upload an image file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateForm('logoUrl', String(reader.result || ''));
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSort = (key: string) => {
@@ -369,6 +385,55 @@ export default function BankInvoicingPage() {
         <DialogContent sx={{ bgcolor: '#fff', p: 0 }}>
           <Box sx={{ p: 3, display: 'grid', gap: 2 }}>
             {formError && <Alert severity="error">{formError}</Alert>}
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                borderRadius: 2,
+                display: 'grid',
+                gridTemplateColumns: { xs: '1fr', sm: '160px 1fr' },
+                gap: 2,
+                alignItems: 'center',
+                bgcolor: '#F8FAFC',
+              }}
+            >
+              <Box
+                sx={{
+                  width: 150,
+                  height: 88,
+                  border: '1px dashed #CBD5E1',
+                  borderRadius: 1.5,
+                  display: 'grid',
+                  placeItems: 'center',
+                  bgcolor: '#FFFFFF',
+                  overflow: 'hidden',
+                }}
+              >
+                {formData.logoUrl ? (
+                  <Box
+                    component="img"
+                    src={formData.logoUrl}
+                    alt="Bank logo"
+                    sx={{ width: '100%', height: '100%', objectFit: 'contain', p: 1 }}
+                  />
+                ) : (
+                  <Typography sx={{ color: '#94A3B8', fontSize: 12, fontWeight: 700 }}>
+                    Bank Logo
+                  </Typography>
+                )}
+              </Box>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
+                <Button variant="outlined" component="label" disabled={readOnly}>
+                  Upload Image
+                  <input type="file" hidden accept="image/*" onChange={handleLogoUpload} />
+                </Button>
+                {!readOnly && formData.logoUrl && (
+                  <Button variant="text" color="error" onClick={() => updateForm('logoUrl', '')}>
+                    Remove
+                  </Button>
+                )}
+              </Stack>
+            </Paper>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
               <TextField
                 size="small"

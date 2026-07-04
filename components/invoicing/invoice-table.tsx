@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Box,
   Button,
@@ -31,12 +32,13 @@ import InvoiceToolbar from './invoice-toolbar';
 import { showErrorToast, showSuccessToast } from '@/components/feedback/heroToast';
 
 export interface InvoiceTableProps {
-  invoiceType: InvoiceType;
+  invoiceType?: InvoiceType;
   showActions?: boolean;
   showToolbar?: boolean;
 }
 
 export default function InvoiceTable({ invoiceType, showActions = true, showToolbar = true }: InvoiceTableProps) {
+  const router = useRouter();
   const [rows, setRows] = useState<InvoiceRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState('');
@@ -76,14 +78,10 @@ export default function InvoiceTable({ invoiceType, showActions = true, showTool
       getInvoiceColumns({
         showActions,
         onView: (invoice) => {
-          setSelectedInvoice(invoice);
-          setDialogMode('view');
-          setDialogOpen(true);
+          router.push(`/admin/invoice/create-new?id=${invoice.id}&mode=view`);
         },
         onEdit: (invoice) => {
-          setSelectedInvoice(invoice);
-          setDialogMode('edit');
-          setDialogOpen(true);
+          router.push(`/admin/invoice/create-new?id=${invoice.id}&mode=edit`);
         },
         onCancel: async (invoice) => {
           try {
@@ -120,7 +118,7 @@ export default function InvoiceTable({ invoiceType, showActions = true, showTool
           }
         },
       }),
-    []
+    [router, showActions]
   );
 
   const table = useReactTable({
@@ -136,9 +134,7 @@ export default function InvoiceTable({ invoiceType, showActions = true, showTool
   });
 
   const handleNewInvoice = () => {
-    setSelectedInvoice(null);
-    setDialogMode('create');
-    setDialogOpen(true);
+    router.push('/admin/invoice/create-new');
   };
 
   const handleSearchChange = (value: string) => {
@@ -167,10 +163,10 @@ export default function InvoiceTable({ invoiceType, showActions = true, showTool
           >
             <Box>
               <Typography variant="body2" sx={{ color: 'text.secondary', mb: 0.75 }}>
-                Dashboard / Invoicing / {invoiceType}
+        Dashboard / Invoicing / {invoiceType || 'All'}
               </Typography>
               <Typography variant="h4" sx={{ fontWeight: 800, letterSpacing: 0 }}>
-                {invoiceType} Invoices
+                {invoiceType || 'Created'} Invoices
               </Typography>
             </Box>
             <Button variant="contained" onClick={handleNewInvoice} sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}>
@@ -273,7 +269,7 @@ export default function InvoiceTable({ invoiceType, showActions = true, showTool
       <InvoiceDialog
         open={dialogOpen}
         mode={dialogMode}
-        invoiceType={invoiceType}
+        invoiceType={invoiceType || 'Trademark'}
         invoice={selectedInvoice}
         onClose={() => setDialogOpen(false)}
         onSaved={loadInvoices}

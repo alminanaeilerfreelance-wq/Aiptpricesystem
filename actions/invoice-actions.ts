@@ -69,8 +69,37 @@ function serializeInvoice(
     bankName: invoice.bankName,
     clientId,
     clientName: clientNames.get(clientId) || 'Unknown Client',
+    serviceId: invoice.serviceId ? String(invoice.serviceId) : null,
     countryId,
     countryName: countryNames.get(countryId) || 'Unknown Country',
+    procedureId: invoice.procedureId ? String(invoice.procedureId) : null,
+    bankId: invoice.bankId ? String(invoice.bankId) : null,
+    clientReference: invoice.clientReference,
+    toAddress: invoice.toAddress,
+    applicationIds: Array.isArray(invoice.applicationIds) ? invoice.applicationIds.map((id) => String(id)) : [],
+    items: Array.isArray(invoice.items)
+      ? invoice.items.map((item, index) => ({
+          id: `${id}-item-${index}`,
+          pricingRuleId: item.pricingRuleId ? String(item.pricingRuleId) : undefined,
+          countryId: item.countryId ? String(item.countryId) : undefined,
+          procedureId: item.procedureId ? String(item.procedureId) : undefined,
+          item: item.item || '',
+          country: item.country || '',
+          procedure: item.procedure || '',
+          officialFee: item.officialFee,
+          attorneyFee: item.attorneyFee,
+          quantity: item.quantity,
+          vatPercentage: item.vatPercentage,
+          vatAmount: item.vatAmount,
+          total: item.total,
+        }))
+      : [],
+    vatable: invoice.vatable,
+    vatPercentage: invoice.vatPercentage,
+    subtotalOfficialFee: invoice.subtotalOfficialFee,
+    subtotalAttorneyFee: invoice.subtotalAttorneyFee,
+    totalVat: invoice.totalVat,
+    grandTotal: invoice.grandTotal,
     invoiceDate: invoice.invoiceDate.toISOString(),
     dueDate: invoice.dueDate?.toISOString() ?? null,
     currency: invoice.currency,
@@ -149,7 +178,7 @@ function ensureObjectId(id: string) {
 }
 
 export async function listInvoices(params: InvoiceListParams): Promise<InvoiceListResult> {
-  ensureKnownInvoiceType(params.invoiceType);
+  if (params.invoiceType) ensureKnownInvoiceType(params.invoiceType);
   ensureKnownStatus(params.status);
   await connectDB();
 
@@ -160,11 +189,11 @@ export async function listInvoices(params: InvoiceListParams): Promise<InvoiceLi
   const sortDirection = params.sortDirection === 'asc' ? 'asc' : 'desc';
 
   const filter: FilterQuery<IInvoice> = {
-    invoiceType: params.invoiceType,
+    ...(params.invoiceType ? { invoiceType: params.invoiceType } : {}),
     ...(params.status && params.status !== 'All' ? { status: params.status } : {}),
     ...(search
       ? {
-          OR: [
+          $or: [
             { invoiceNumber: { $regex: escapeRegex(search), $options: 'i' } },
             { referenceNumber: { $regex: escapeRegex(search), $options: 'i' } },
             { applicationNumber: { $regex: escapeRegex(search), $options: 'i' } },

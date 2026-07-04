@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectDB } from '@/lib/mongodb';
 import Requirement, { ensureRequirementDuplicatesAllowed } from '@/models/Requirement';
 import Country from '@/models/Country';
+import Procedure from '@/models/Procedure';
+import Service from '@/models/Service';
 import mongoose from 'mongoose';
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -23,6 +25,10 @@ export async function GET(req: NextRequest) {
     const rawLimit = parseInt(searchParams.get('limit') || '10', 10);
     const rawSearch = (searchParams.get('search') || '').trim();
     const countryId = searchParams.get('countryId') || '';
+    const serviceId = searchParams.get('serviceId') || '';
+    const procedureId = searchParams.get('procedureId') || '';
+    const procedureName = (searchParams.get('procedureName') || '').trim();
+    const status = (searchParams.get('status') || 'active').trim().toLowerCase();
     const serviceCategory = (searchParams.get('serviceCategory') || '').trim();
     const sortByParam = searchParams.get('sortBy') || 'createdAt';
     const sortBy = sortByParam === 'country' ? 'country' : 'createdAt';
@@ -44,6 +50,35 @@ export async function GET(req: NextRequest) {
 
     if (serviceCategory) {
       filter.serviceCategory = serviceCategory;
+    }
+
+    if (serviceId) {
+      if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+        return NextResponse.json({ error: 'Invalid serviceId' }, { status: 400 });
+      }
+      filter.serviceId = new mongoose.Types.ObjectId(serviceId);
+    }
+
+    if (status !== 'all') {
+      filter.isActive = status === 'inactive' ? false : { $ne: false };
+    }
+
+    if (procedureId) {
+      if (!mongoose.Types.ObjectId.isValid(procedureId)) {
+        return NextResponse.json({ error: 'Invalid procedureId' }, { status: 400 });
+      }
+      filter.procedureId = new mongoose.Types.ObjectId(procedureId);
+    } else if (procedureName) {
+      const procedureRegex = new RegExp(`^${escapeRegex(procedureName)}$`, 'i');
+      filter.$and = [
+        ...(Array.isArray(filter.$and) ? filter.$and : []),
+        {
+          $or: [
+            { procedureName: procedureRegex },
+            { title: procedureRegex },
+          ],
+        },
+      ];
     }
 
     if (search) {
@@ -86,9 +121,14 @@ export async function GET(req: NextRequest) {
             {
               $project: {
                 _id: 1,
+                serviceId: 1,
+                serviceName: 1,
+                procedureId: 1,
+                procedureName: 1,
                 serviceCategory: 1,
                 title: 1,
                 requirements: 1,
+                isActive: 1,
                 createdAt: 1,
                 updatedAt: 1,
                 country: {
@@ -101,6 +141,8 @@ export async function GET(req: NextRequest) {
           ])
         : Requirement.find(filter)
             .populate('country', 'name abbreviation')
+            .populate('serviceId', 'name category')
+            .populate('procedureId', 'name serviceCategory')
             .sort({ createdAt: sortOrder })
             .skip(skip)
             .limit(limit)
@@ -132,12 +174,37 @@ export async function POST(req: NextRequest) {
     await ensureRequirementDuplicatesAllowed();
 
     const body = await req.json();
-    const { country, serviceCategory, title, requirements } = body;
+    const { country, serviceId, serviceCategory, title, requirements, procedureId, procedureName, isActive } = body;
     const safeTitle = normalizeTitle(title);
     const safeRequirements = typeof requirements === 'string' ? sanitizeRichText(requirements) : '';
+    const rawProcedureId = typeof procedureId === 'string' ? procedureId.trim() : '';
+    let safeProcedureName = typeof procedureName === 'string' ? procedureName.trim() : '';
 
-    const normalizedServiceCategory =
+    let normalizedServiceCategory =
       typeof serviceCategory === 'string' ? serviceCategory.trim() : '';
+
+    const countryExists = await Country.findById(country);
+    if (!countryExists) {
+      return NextResponse.json({ error: 'Country not found' }, { status: 404 });
+    }
+
+    let serviceObjectId: mongoose.Types.ObjectId | undefined;
+    let safeServiceName = '';
+    let finalServiceCategory = normalizedServiceCategory;
+    const rawServiceId = typeof serviceId === 'string' ? serviceId.trim() : '';
+    if (rawServiceId) {
+      if (!mongoose.Types.ObjectId.isValid(rawServiceId)) {
+        return NextResponse.json({ error: 'Invalid serviceId' }, { status: 400 });
+      }
+      const service = await Service.findById(rawServiceId).lean();
+      if (!service) {
+        return NextResponse.json({ error: 'Service not found' }, { status: 404 });
+      }
+      serviceObjectId = new mongoose.Types.ObjectId(rawServiceId);
+      safeServiceName = String(service.name || '').trim();
+      finalServiceCategory = String(service.category || finalServiceCategory).trim();
+      normalizedServiceCategory = finalServiceCategory;
+    }
 
     if (
       !country ||
@@ -152,16 +219,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const countryExists = await Country.findById(country);
-    if (!countryExists) {
-      return NextResponse.json({ error: 'Country not found' }, { status: 404 });
+    let procedureObjectId: mongoose.Types.ObjectId | undefined;
+    if (rawProcedureId) {
+      if (!mongoose.Types.ObjectId.isValid(rawProcedureId)) {
+        return NextResponse.json({ error: 'Invalid procedureId' }, { status: 400 });
+      }
+      const procedure = await Procedure.findById(rawProcedureId).lean();
+      if (!procedure) {
+        return NextResponse.json({ error: 'Procedure not found' }, { status: 404 });
+      }
+      procedureObjectId = new mongoose.Types.ObjectId(rawProcedureId);
+      safeProcedureName = String(procedure.name || safeProcedureName).trim();
+    }
+
+    const duplicate = await Requirement.findOne({
+      country,
+      ...(serviceObjectId ? { serviceId: serviceObjectId } : {}),
+      serviceCategory: finalServiceCategory,
+      title: safeTitle,
+      ...(procedureObjectId ? { procedureId: procedureObjectId } : safeProcedureName ? { procedureName: safeProcedureName } : {}),
+    }).lean();
+    if (duplicate) {
+      return NextResponse.json({ error: 'Requirement already exists for this procedure and country' }, { status: 409 });
     }
 
     const newRequirement = new Requirement({
       country,
-      serviceCategory: normalizedServiceCategory,
+      ...(serviceObjectId ? { serviceId: serviceObjectId, serviceName: safeServiceName } : {}),
+      ...(procedureObjectId ? { procedureId: procedureObjectId } : {}),
+      ...(safeProcedureName ? { procedureName: safeProcedureName } : {}),
+      serviceCategory: finalServiceCategory,
       title: safeTitle,
       requirements: safeRequirements,
+      isActive: isActive !== false,
     });
     await newRequirement.save();
     await newRequirement.populate('country', 'name abbreviation');

@@ -35,18 +35,19 @@ export const dynamic = 'force-dynamic';
 interface Service {
   _id: string;
   name: string;
-  category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation' | 'Others';
   createdAt: string;
   updatedAt: string;
 }
 
-const CATEGORY_OPTIONS = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
+const CATEGORY_OPTIONS = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation','Others'];
 const categoryColors: Record<string, { bg: string; text: string }> = {
   Trademark: { bg: '#2563EB1A', text: '#2563EB' },
   Patent: { bg: '#16A34A1A', text: '#16A34A' },
   Design: { bg: '#9333EA1A', text: '#9333EA' },
   Copyright: { bg: '#F59E0B1A', text: '#F59E0B' },
   Litigation: { bg: '#DC26261A', text: '#DC2626' },
+  Others: { bg: '#DC23661A', text: '#DC6246' },
 };
 
 const EyeIcon = () => (

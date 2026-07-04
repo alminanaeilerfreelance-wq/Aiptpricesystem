@@ -3,9 +3,14 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 export interface IRequirement extends Document {
   _id: mongoose.Types.ObjectId;
   country: mongoose.Types.ObjectId;
+  serviceId?: mongoose.Types.ObjectId;
+  serviceName?: string;
+  procedureId?: mongoose.Types.ObjectId;
+  procedureName?: string;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   title?: string;
   requirements: string;
+  isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -16,6 +21,22 @@ const RequirementSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: 'Country',
       required: true,
+    },
+    serviceId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Service',
+    },
+    serviceName: {
+      type: String,
+      trim: true,
+    },
+    procedureId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Procedure',
+    },
+    procedureName: {
+      type: String,
+      trim: true,
     },
     serviceCategory: {
       type: String,
@@ -29,6 +50,10 @@ const RequirementSchema = new Schema(
       type: String,
       required: true,
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
   },
   { timestamps: true }
 );
@@ -37,10 +62,19 @@ const RequirementSchema = new Schema(
 RequirementSchema.index({ requirements: 'text' });
 RequirementSchema.index({ title: 1 });
 RequirementSchema.index({ country: 1 });
+RequirementSchema.index({ serviceId: 1 });
 RequirementSchema.index({ serviceCategory: 1 });
+RequirementSchema.index({ procedureId: 1 });
+RequirementSchema.index({ procedureName: 1 });
 
 const existingRequirement = mongoose.models.Requirement as Model<IRequirement> | undefined;
-if (existingRequirement && !existingRequirement.schema.path('title')) {
+if (
+  existingRequirement &&
+  (!existingRequirement.schema.path('title') ||
+    !existingRequirement.schema.path('serviceId') ||
+    !existingRequirement.schema.path('procedureName') ||
+    !existingRequirement.schema.path('isActive'))
+) {
   delete mongoose.models.Requirement;
 }
 

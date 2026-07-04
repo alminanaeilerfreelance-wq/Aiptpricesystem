@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import PricingRule from '@/models/PricingRule';
 import Country from '@/models/Country';
@@ -19,6 +20,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get('category');
     const country = searchParams.get('country');
+    const serviceId = (searchParams.get('serviceId') || '').trim();
+    const countryId = (searchParams.get('countryId') || '').trim();
+    const procedureId = (searchParams.get('procedureId') || '').trim();
+    const clientId = searchParams.get('clientId');
+    const exactClient = searchParams.get('exactClient') === 'true' || searchParams.get('exactClient') === '1';
+    const procedureName = (searchParams.get('procedureName') || '').trim();
     const search = searchParams.get('search');
     const status = searchParams.get('status');
     const pageParam = Number(searchParams.get('page') ?? '1');
@@ -29,8 +36,16 @@ export async function GET(req: NextRequest) {
       Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 100) : 10;
     const skip = (page - 1) * limit;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const andFilters: Record<string, any>[] = [];
+
+    if (serviceId) {
+      if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+        return NextResponse.json({ error: 'Invalid serviceId' }, { status: 400 });
+      }
+      const service = await Service.findById(serviceId).lean();
+      if (!service) return NextResponse.json({ error: 'Service not found' }, { status: 404 });
+      andFilters.push({ serviceCategory: service.category });
+    }
 
     if (category) {
       const normalizedCategory = String(category).trim();
@@ -49,11 +64,60 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    if (countryId) {
+      if (!mongoose.Types.ObjectId.isValid(countryId)) {
+        return NextResponse.json({ error: 'Invalid countryId' }, { status: 400 });
+      }
+      const countryDoc = await Country.findById(countryId).lean();
+      if (!countryDoc) return NextResponse.json({ error: 'Country not found' }, { status: 404 });
+      andFilters.push({
+        $or: [
+          { countryName: String(countryDoc.name || '') },
+          { countryAbbreviation: String(countryDoc.abbreviation || '').toUpperCase() },
+        ],
+      });
+    }
+
+    if (clientId) {
+      const normalizedClientId = String(clientId).trim();
+      if (!mongoose.Types.ObjectId.isValid(normalizedClientId)) {
+        return NextResponse.json({ error: 'Invalid clientId' }, { status: 400 });
+      }
+
+      andFilters.push({
+        ...(exactClient
+          ? { clientId: new mongoose.Types.ObjectId(normalizedClientId) }
+          : {
+              $or: [
+                { clientId: new mongoose.Types.ObjectId(normalizedClientId) },
+                { clientId: { $exists: false } },
+                { clientId: null },
+              ],
+            }),
+      });
+    }
+
+    if (procedureName) {
+      const safeProcedureName = procedureName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      andFilters.push({ procedureName: { $regex: `^${safeProcedureName}$`, $options: 'i' } });
+    }
+
+    if (procedureId) {
+      if (!mongoose.Types.ObjectId.isValid(procedureId)) {
+        return NextResponse.json({ error: 'Invalid procedureId' }, { status: 400 });
+      }
+      const procedure = await Procedure.findById(procedureId).lean();
+      if (!procedure) return NextResponse.json({ error: 'Procedure not found' }, { status: 404 });
+      const safeProcedureName = String(procedure.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      andFilters.push({ procedureName: { $regex: `^${safeProcedureName}$`, $options: 'i' } });
+    }
+
     if (search) {
       const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       andFilters.push({
         $or: [
           { serviceCategory: { $regex: safeSearch, $options: 'i' } },
+          { clientName: { $regex: safeSearch, $options: 'i' } },
           { procedureName: { $regex: safeSearch, $options: 'i' } },
           { countryName: { $regex: safeSearch, $options: 'i' } },
           { countryAbbreviation: { $regex: safeSearch, $options: 'i' } },
@@ -69,7 +133,6 @@ export async function GET(req: NextRequest) {
       else if (normalizedStatus === 'all') isActiveFilter = undefined;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = {
       ...(isActiveFilter !== undefined ? { isActive: isActiveFilter } : {}),
       ...(andFilters.length > 0 ? { $and: andFilters } : {}),
@@ -186,6 +249,16 @@ export async function POST(req: NextRequest) {
     const payload = await buildPricingRulePayload(body);
     if ('error' in payload) {
       return NextResponse.json({ error: payload.error }, { status: 400 });
+    }
+
+    const duplicate = await PricingRule.findOne({
+      ...(payload.data.clientId ? { clientId: payload.data.clientId } : { clientId: { $exists: false } }),
+      serviceCategory: payload.data.serviceCategory,
+      countryAbbreviation: payload.data.countryAbbreviation,
+      procedureName: payload.data.procedureName,
+    }).lean();
+    if (duplicate) {
+      return NextResponse.json({ error: 'Price rule already exists for this client, procedure, country, and service' }, { status: 409 });
     }
 
     const pricingRule = await PricingRule.create(payload.data);

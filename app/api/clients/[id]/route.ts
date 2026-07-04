@@ -18,7 +18,41 @@ const toOptionalString = (value: unknown) => {
   return text || undefined;
 };
 
-const textFields = ['email', 'phone', 'address', 'country', 'companyName', 'notes'] as const;
+const CLIENT_STATUS_VALUES = new Set(['Big', 'Small', 'New', 'Banned']);
+const CLIENT_SERVICE_TYPE_VALUES = new Set(['Trademark', 'Patent', 'Design', 'Copyright', 'Litigation']);
+
+const toOptionalStatus = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  return CLIENT_STATUS_VALUES.has(text) ? text : undefined;
+};
+
+const toBoolean = (value: unknown, fallback = true) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', 'yes', 'active', '1'].includes(normalized)) return true;
+    if (['false', 'no', 'inactive', '0'].includes(normalized)) return false;
+  }
+  return fallback;
+};
+
+const toOptionalServiceType = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  return CLIENT_SERVICE_TYPE_VALUES.has(text) ? text : undefined;
+};
+
+const toOptionalNumber = (value: unknown) => {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return undefined;
+    const parsed = Number(text);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+  }
+  return undefined;
+};
+
+const textFields = ['assignedId', 'email', 'phone', 'country', 'address', 'companyName', 'notes'] as const;
 
 const hasOwn = (body: Record<string, unknown>, field: string) =>
   Object.prototype.hasOwnProperty.call(body, field);
@@ -36,8 +70,24 @@ const toClientUpdatePayload = (body: Record<string, unknown>) => {
     }
   }
 
+  if (hasOwn(body, 'assignedServiceType')) {
+    payload.assignedServiceType = toOptionalServiceType(body.assignedServiceType);
+  }
+
+  if (hasOwn(body, 'assignedIdCount')) {
+    payload.assignedIdCount = toOptionalNumber(body.assignedIdCount);
+  }
+
   if (hasOwn(body, 'type')) {
     payload.type = normalizeClientType(body.type);
+  }
+
+  if (hasOwn(body, 'status')) {
+    payload.status = toOptionalStatus(body.status);
+  }
+
+  if (hasOwn(body, 'isActive')) {
+    payload.isActive = toBoolean(body.isActive);
   }
 
   return payload;
@@ -118,12 +168,7 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
 
     await connectDB();
 
-    // Soft delete: mark as inactive rather than removing from DB
-    const client = await Client.findByIdAndUpdate(
-      id,
-      { $set: { isActive: false } },
-      { new: true }
-    );
+    const client = await Client.findByIdAndDelete(id);
 
     if (!client) {
       return NextResponse.json({ error: 'Client not found' }, { status: 404 });

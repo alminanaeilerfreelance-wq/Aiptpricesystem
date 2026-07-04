@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "seed": "node scripts/seed.mjs",
     "seed:online": "node scripts/seed-online.mjs",
     "seed:inquires": "node scripts/seed-inquires.mjs",
@@ -18,7 +18,9 @@
     "@heroui/system": "^2.4.10",
     "@heroui/theme": "^2.4.12",
     "@heroui/toast": "^2.0.10",
+    "@hookform/resolvers": "^5.4.0",
     "@mui/material": "^9.0.1",
+    "@tanstack/react-table": "^8.21.3",
     "axios": "^1.5.0",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.0.0",
@@ -37,7 +39,8 @@
     "react-quill-new": "^3.8.3",
     "recharts": "^2.10.0",
     "uuid": "^14.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

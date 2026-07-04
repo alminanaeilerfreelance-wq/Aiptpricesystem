@@ -153,6 +153,18 @@ const masterDataItems: NavItem[] = [
   { label: 'Client Type', href: '/client-types', icon: <UsersIcon />, module: 'client-types' },
 ];
 
+const invoicingItems: NavItem[] = [
+  { label: 'Create New', href: '/admin/invoice/create-new', icon: <ClipboardIcon /> },
+  { label: 'Created Invoices', href: '/admin/invoice', icon: <ListIcon /> },
+  { label: 'Bank', href: '/dashboard/invoicing/bank', icon: <CurrencyIcon /> },
+  { label: 'Trademark', href: '/dashboard/invoicing/trademark', icon: <TagIcon /> },
+  { label: 'Patent', href: '/dashboard/invoicing/patent', icon: <ClipboardIcon /> },
+  { label: 'Design', href: '/dashboard/invoicing/design', icon: <BriefcaseIcon /> },
+  { label: 'Litigation', href: '/dashboard/invoicing/litigation', icon: <ListIcon /> },
+  { label: 'Copyright', href: '/dashboard/invoicing/copyright', icon: <ListIcon /> },
+  { label: 'Others', href: '/dashboard/invoicing/others', icon: <DatabaseIcon /> },
+];
+
 const secondaryNavItems: NavItem[] = [
   {
     label: 'IP Services Fee Builder',
@@ -232,15 +244,28 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
   };
 
   const visibleMainNavItems = useMemo(() => mainNavItems.filter(canAccess), [user]);
+  const visibleInvoicingItems = useMemo(() => invoicingItems.filter(canAccess), [user]);
   const visibleMasterDataItems = useMemo(() => masterDataItems.filter(canAccess), [user]);
   const visibleSecondaryNavItems = useMemo(() => secondaryNavItems.filter(canAccess), [user]);
+
+  const invoicingHasActive = useMemo(
+    () => visibleInvoicingItems.some((item) => pathname.startsWith(item.href)),
+    [pathname, visibleInvoicingItems]
+  );
 
   const masterHasActive = useMemo(
     () => visibleMasterDataItems.some((item) => pathname.startsWith(item.href)),
     [pathname, visibleMasterDataItems]
   );
 
+  const [invoicingOpen, setInvoicingOpen] = useState(invoicingHasActive);
   const [masterDataOpen, setMasterDataOpen] = useState(masterHasActive);
+
+  useEffect(() => {
+    if (invoicingHasActive) {
+      setInvoicingOpen(true);
+    }
+  }, [invoicingHasActive]);
 
   useEffect(() => {
     if (masterHasActive) {
@@ -334,6 +359,45 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
               <ListItemText primary={item.label} />
             </ListItemButton>
           ))}
+        </List>
+
+        <SidebarSectionTitle title="Invoicing" />
+        <List dense disablePadding>
+          <ListItemButton
+            onClick={() => setInvoicingOpen((prev) => !prev)}
+            sx={{
+              ...itemButtonSx,
+              ...(invoicingHasActive ? activeItemSx : {}),
+            }}
+          >
+            <ListItemIcon>
+              <CurrencyIcon />
+            </ListItemIcon>
+            <ListItemText primary="Invoicing" />
+            <ChevronIcon open={invoicingOpen} />
+          </ListItemButton>
+
+          <Collapse in={invoicingOpen} timeout="auto" unmountOnExit>
+            <List disablePadding dense sx={{ pt: 0.5 }}>
+              {visibleInvoicingItems.map((item) => (
+                <ListItemButton
+                  key={item.href}
+                  component={Link}
+                  href={item.href}
+                  onClick={onNavigate}
+                  sx={{
+                    ...itemButtonSx,
+                    ml: 1,
+                    pl: 2,
+                    ...(isActive(item) ? activeItemSx : {}),
+                  }}
+                >
+                  <ListItemIcon>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.label} />
+                </ListItemButton>
+              ))}
+            </List>
+          </Collapse>
         </List>
 
         <SidebarSectionTitle title="Master Data" />

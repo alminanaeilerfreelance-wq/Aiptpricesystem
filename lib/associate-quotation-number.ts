@@ -100,7 +100,6 @@ export const generateAssociateQuotationNo = async ({
   const regex = `^${escapeRegex(
     `${serviceCode} ${year}-`
   )}\\d{4} ${escapeRegex(normalizedCountry)}$`;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: Record<string, any> = { quotationNo: { $regex: regex } };
   if (excludeId && mongoose.Types.ObjectId.isValid(excludeId)) {
     filter._id = { $ne: new mongoose.Types.ObjectId(excludeId) };

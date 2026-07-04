@@ -144,8 +144,36 @@ const clientQuotationSchema = new mongoose.Schema<IClientQuotation>(
 clientQuotationSchema.pre('save', async function (next) {
   if (!this.quotationNo) {
     const year = new Date().getFullYear();
-    const count = await mongoose.model('ClientQuotation').countDocuments();
-    this.quotationNo = `CQ-${year}-${String(count + 1).padStart(4, '0')}`;
+    const counterName = `clientQuotation-${year}`;
+    const counters = mongoose.connection.db.collection<{ _id: string; seq: number }>('counters');
+
+    const existingCounter = await counters.findOne({ _id: counterName });
+    const counter = existingCounter
+      ? await counters.findOneAndUpdate(
+          { _id: counterName },
+          { $inc: { seq: 1 } },
+          { returnDocument: 'after' }
+        )
+      : await (async () => {
+          const latestQuotation = await (this.constructor as Model<IClientQuotation>)
+            .findOne({ quotationNo: { $regex: `^CQ-${year}-\\d{4}$` } })
+            .sort({ quotationNo: -1 })
+            .select('quotationNo')
+            .lean();
+
+          const latestSequence = latestQuotation?.quotationNo
+            ? Number(latestQuotation.quotationNo.slice(-4))
+            : 0;
+
+          return await counters.findOneAndUpdate(
+            { _id: counterName },
+            { $setOnInsert: { seq: latestSequence }, $inc: { seq: 1 } },
+            { upsert: true, returnDocument: 'after' }
+          );
+        })();
+
+    const sequence = Number(counter.value?.seq || 1);
+    this.quotationNo = `CQ-${year}-${String(sequence).padStart(4, '0')}`;
   }
   next();
 });

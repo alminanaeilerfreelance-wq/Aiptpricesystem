@@ -46,6 +46,10 @@ export interface Inquire {
 
 export interface InquireListParams {
   search?: string;
+  clientId?: string;
+  serviceId?: string;
+  countryId?: string;
+  procedureId?: string;
   page?: number;
   limit?: number;
 }

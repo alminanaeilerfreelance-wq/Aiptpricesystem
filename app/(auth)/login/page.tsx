@@ -10,6 +10,12 @@ const DEMO_ACCOUNTS = [
   { label: 'Demo User', email: 'user@demo.com', password: 'demo1234', role: 'user', color: 'bg-gray-600 hover:bg-gray-700' },
 ];
 
+const TOKEN_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+
+function setTokenCookie(token: string) {
+  document.cookie = `token=${encodeURIComponent(token)}; path=/; max-age=${TOKEN_COOKIE_MAX_AGE}; samesite=lax`;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -25,6 +31,7 @@ export default function LoginPage() {
       const { data } = await axios.post('/api/auth/login', { email: loginEmail, password: loginPassword });
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
+      setTokenCookie(data.token);
       router.push('/dashboard');
     } catch (err: unknown) {
       const message =

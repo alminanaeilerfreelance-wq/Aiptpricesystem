@@ -46,6 +46,12 @@ interface Requirement {
     code?: string;
     abbreviation?: string;
   };
+  serviceId?: string | {
+    _id: string;
+    name?: string;
+    category?: string;
+  };
+  serviceName?: string;
   serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   title?: string;
   requirements: string;
@@ -66,6 +72,15 @@ interface Country {
 const stripHtml = (value: string) => value.replace(/<[^>]*>/g, '').trim();
 const getRequirementTitle = (requirement: Requirement) =>
   requirement.title?.trim() || stripHtml(requirement.requirements).slice(0, 80) || '-';
+const getRequirementServiceLabel = (requirement: Requirement) =>
+  requirement.serviceName ||
+  (typeof requirement.serviceId === 'object' ? requirement.serviceId?.name : '') ||
+  requirement.serviceCategory ||
+  '';
+const getRequirementServiceCategory = (requirement: Requirement) =>
+  (typeof requirement.serviceId === 'object' ? requirement.serviceId?.category : '') ||
+  requirement.serviceCategory ||
+  '';
 const normalize = (value: string) => value.trim().toLowerCase();
 const sanitizeHtml = (value: string) => value
   .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
@@ -74,6 +89,14 @@ const sanitizeHtml = (value: string) => value
   .replace(/\son\w+='[^']*'/gi, '')
   .replace(/javascript:/gi, '');
 const CATEGORY_OPTIONS = ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'];
+const modalTitleSx = {
+  bgcolor: '#0B1739',
+  color: '#FFFFFF',
+  fontWeight: 900,
+  py: 1.5,
+};
+const modalBodySx = { bgcolor: '#FFFFFF' };
+const modalActionsSx = { bgcolor: '#FFFFFF', px: 3, pb: 2 };
 
 const SERVICE_COLOR_MAP: Record<string, string> = {
   Trademark: '#2563EB',
@@ -366,7 +389,7 @@ export default function RequirementsPage() {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(records.map((req) => ({
       Country: req.country.name,
-      Service: req.serviceCategory || '',
+      Service: getRequirementServiceLabel(req),
       Title: getRequirementTitle(req),
       Requirements: stripHtml(req.requirements),
     })));
@@ -385,7 +408,7 @@ export default function RequirementsPage() {
     const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(records.map((req) => ({
       Country: req.country.name,
-      Service: req.serviceCategory || '',
+      Service: getRequirementServiceLabel(req),
       Title: getRequirementTitle(req),
       Requirements: stripHtml(req.requirements),
     })));
@@ -409,7 +432,7 @@ export default function RequirementsPage() {
       head: [['Country', 'Service', 'Title', 'Requirements']],
       body: records.map((req) => [
         req.country.name,
-        req.serviceCategory || '',
+        getRequirementServiceLabel(req),
         getRequirementTitle(req),
         stripHtml(req.requirements).slice(0, 100),
       ]),
@@ -461,8 +484,8 @@ export default function RequirementsPage() {
       sortable: true,
       minWidth: 160,
       render: (row) => {
-        const service = row.serviceCategory || '';
-        const color = SERVICE_COLOR_MAP[service];
+        const service = getRequirementServiceLabel(row);
+        const color = SERVICE_COLOR_MAP[getRequirementServiceCategory(row)];
         if (!service || !color) return '-';
         return (
           <Box
@@ -473,8 +496,8 @@ export default function RequirementsPage() {
           </Box>
         );
       },
-      sortValue: (row) => row.serviceCategory || '',
-      searchValue: (row) => row.serviceCategory || '',
+      sortValue: (row) => getRequirementServiceLabel(row),
+      searchValue: (row) => getRequirementServiceLabel(row),
     },
     {
       id: 'title',
@@ -683,15 +706,15 @@ export default function RequirementsPage() {
         editingId={editingId}
       />
 
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>View Requirement</DialogTitle>
-        <DialogContent>
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="lg" fullWidth slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
+        <DialogTitle sx={modalTitleSx}>View Requirement</DialogTitle>
+        <DialogContent sx={modalBodySx}>
           {viewingRequirement && (
             <Box sx={{ pt: 2 }}>
               <Typography variant="subtitle2" gutterBottom>Country</Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>{viewingRequirement.country.name}</Typography>
               <Typography variant="subtitle2" gutterBottom>Service</Typography>
-              <Typography variant="body2" sx={{ mb: 2 }}>{viewingRequirement.serviceCategory || '-'}</Typography>
+              <Typography variant="body2" sx={{ mb: 2 }}>{getRequirementServiceLabel(viewingRequirement) || '-'}</Typography>
               <Typography variant="subtitle2" gutterBottom>Title</Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>{getRequirementTitle(viewingRequirement)}</Typography>
               <Typography variant="subtitle2" gutterBottom>Requirements</Typography>
@@ -702,7 +725,7 @@ export default function RequirementsPage() {
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={modalActionsSx}>
           <Button
             onClick={() => {
               if (!viewingRequirement) return;
@@ -717,12 +740,12 @@ export default function RequirementsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Requirement</DialogTitle>
-        <DialogContent>
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
+        <DialogTitle sx={modalTitleSx}>Delete Requirement</DialogTitle>
+        <DialogContent sx={modalBodySx}>
           <Typography>Are you sure you want to delete this requirement? This action cannot be undone.</Typography>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={modalActionsSx}>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={loading}>Delete</Button>
         </DialogActions>

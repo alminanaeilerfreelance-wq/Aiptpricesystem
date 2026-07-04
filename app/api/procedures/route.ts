@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import connectDB from '@/lib/mongodb';
 import Procedure from '@/models/Procedure';
 import Service from '@/models/Service';
+import Country from '@/models/Country';
 import { getUserFromRequest } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -19,13 +20,13 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search');
     const pageParam = Number(searchParams.get('page') ?? '1');
     const limitParam = Number(searchParams.get('limit') ?? '10');
+    const allParam = String(searchParams.get('all') || '').trim().toLowerCase() === 'true';
 
     const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1;
     const limit =
       Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 100) : 10;
     const skip = (page - 1) * limit;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = { isActive: true };
 
     if (category) {
@@ -42,10 +43,9 @@ export async function GET(req: NextRequest) {
     }
 
     const [procedures, total] = await Promise.all([
-      Procedure.find(filter)
-        .sort({ createdAt: -1, name: 1 })
-        .skip(skip)
-        .limit(limit),
+      allParam
+        ? Procedure.find(filter).sort({ createdAt: -1, name: 1 })
+        : Procedure.find(filter).sort({ createdAt: -1, name: 1 }).skip(skip).limit(limit),
       Procedure.countDocuments(filter),
     ]);
 
@@ -69,7 +69,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const name = typeof body?.name === 'string' ? body.name.trim() : '';
+    const description = typeof body?.description === 'string' ? body.description.trim() : '';
     const serviceId = typeof body?.serviceId === 'string' ? body.serviceId.trim() : '';
+    const countryId = typeof body?.countryId === 'string' ? body.countryId.trim() : '';
 
     if (!name) {
       return NextResponse.json({ error: 'Procedure name is required' }, { status: 400 });
@@ -84,8 +86,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Service not found' }, { status: 404 });
     }
 
+    let countryName = '';
+    if (countryId) {
+      if (!mongoose.Types.ObjectId.isValid(countryId)) {
+        return NextResponse.json({ error: 'Valid country is required' }, { status: 400 });
+      }
+      const country = await Country.findOne({ _id: countryId, isActive: true }).lean();
+      if (!country) {
+        return NextResponse.json({ error: 'Country not found' }, { status: 404 });
+      }
+      countryName = String(country.name || '').trim();
+    }
+
+    const duplicateFilter: Record<string, unknown> = {
+      name,
+      serviceId: service._id,
+      ...(countryId ? { countryId: new mongoose.Types.ObjectId(countryId) } : {}),
+    };
+    const duplicate = await Procedure.findOne(duplicateFilter).lean();
+    if (duplicate) {
+      return NextResponse.json({ error: 'Procedure already exists for this service and country' }, { status: 409 });
+    }
+
     const procedure = await Procedure.create({
       name,
+      description,
+      ...(countryId ? { countryId, countryName } : {}),
       serviceId,
       serviceName: service.name,
       serviceCategory: service.category,

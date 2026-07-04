@@ -32,6 +32,16 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+const TOKEN_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+
+function setTokenCookie(nextToken: string) {
+  document.cookie = `token=${encodeURIComponent(nextToken)}; path=/; max-age=${TOKEN_COOKIE_MAX_AGE}; samesite=lax`;
+}
+
+function clearTokenCookie() {
+  document.cookie = 'token=; path=/; max-age=0; samesite=lax';
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -46,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (storedToken && storedUser) {
       try {
         const parsedUser: AuthUser = JSON.parse(storedUser);
+        setTokenCookie(storedToken);
         setToken(storedToken);
         setUser(parsedUser);
 
@@ -69,6 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (cancelled) return;
             localStorage.removeItem('token');
             localStorage.removeItem('user');
+            clearTokenCookie();
             setToken(null);
             setUser(null);
           })
@@ -82,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Corrupted storage — clear it
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        clearTokenCookie();
       }
     }
 
@@ -106,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(authUser));
+      setTokenCookie(data.token);
       setToken(data.token);
       setUser(authUser);
     } finally {
@@ -121,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      clearTokenCookie();
       setToken(null);
       setUser(null);
     }

@@ -132,6 +132,10 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const search = (searchParams.get('search') || '').trim();
+    const clientId = (searchParams.get('clientId') || '').trim();
+    const serviceId = (searchParams.get('serviceId') || '').trim();
+    const countryId = (searchParams.get('countryId') || '').trim();
+    const procedureId = (searchParams.get('procedureId') || '').trim();
     const pageParam = Number(searchParams.get('page') ?? '1');
     const limitParam = Number(searchParams.get('limit') ?? '10');
 
@@ -139,12 +143,46 @@ export async function GET(req: NextRequest) {
     const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(Math.floor(limitParam), 100) : 10;
     const skip = (page - 1) * limit;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filter: Record<string, any> = { isActive: { $ne: false } };
+
+    if (clientId) {
+      if (!mongoose.Types.ObjectId.isValid(clientId)) {
+        return NextResponse.json({ error: 'Invalid clientId' }, { status: 400 });
+      }
+      filter.clientId = new mongoose.Types.ObjectId(clientId);
+    }
+
+    if (serviceId) {
+      if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+        return NextResponse.json({ error: 'Invalid serviceId' }, { status: 400 });
+      }
+      filter.serviceId = new mongoose.Types.ObjectId(serviceId);
+    }
+
+    if (countryId) {
+      if (!mongoose.Types.ObjectId.isValid(countryId)) {
+        return NextResponse.json({ error: 'Invalid countryId' }, { status: 400 });
+      }
+      filter.countryIds = new mongoose.Types.ObjectId(countryId);
+    }
+
+    if (procedureId) {
+      if (!mongoose.Types.ObjectId.isValid(procedureId)) {
+        return NextResponse.json({ error: 'Invalid procedureId' }, { status: 400 });
+      }
+      filter.$and = [
+        ...(Array.isArray(filter.$and) ? filter.$and : []),
+        {
+          $or: [
+            { procedureId: new mongoose.Types.ObjectId(procedureId) },
+            { procedureIds: new mongoose.Types.ObjectId(procedureId) },
+          ],
+        },
+      ];
+    }
 
     if (search) {
       const safeSearch = escapeRegex(search);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const orFilters: Record<string, any>[] = [
         { referenceNo: { $regex: safeSearch, $options: 'i' } },
         { remarks: { $regex: safeSearch, $options: 'i' } },

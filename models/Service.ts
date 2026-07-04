@@ -3,7 +3,7 @@ import mongoose, { Document, Model } from 'mongoose';
 export interface IService extends Document {
   name: string;
   description?: string;
-  category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
+  category: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation' | 'Others';
   basePrice: number;
   isActive: boolean;
   createdAt: Date;
@@ -16,7 +16,7 @@ const serviceSchema = new mongoose.Schema<IService>(
     description: { type: String },
     category: {
       type: String,
-      enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'],
+      enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation', 'Others'],
       required: true,
     },
     basePrice: { type: Number, default: 0 },

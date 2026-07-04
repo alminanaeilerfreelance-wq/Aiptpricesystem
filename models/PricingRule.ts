@@ -1,6 +1,8 @@
 import mongoose, { Document, Model } from 'mongoose';
 
 export interface IPricingRule extends Document {
+  clientId?: mongoose.Types.ObjectId;
+  clientName?: string;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   procedureName: string;
   countryName: string;
@@ -15,6 +17,8 @@ export interface IPricingRule extends Document {
 
 const pricingRuleSchema = new mongoose.Schema<IPricingRule>(
   {
+    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', index: true },
+    clientName: { type: String, trim: true },
     serviceCategory: {
       type: String,
       enum: ['Trademark', 'Patent', 'Copyright', 'Design', 'Litigation'],
@@ -32,6 +36,7 @@ const pricingRuleSchema = new mongoose.Schema<IPricingRule>(
 );
 
 pricingRuleSchema.index({ serviceCategory: 1, countryName: 1, procedureName: 1 });
+pricingRuleSchema.index({ clientId: 1, serviceCategory: 1, countryAbbreviation: 1, procedureName: 1 });
 
 const PricingRule: Model<IPricingRule> =
   (mongoose.models.PricingRule as Model<IPricingRule>) ||

@@ -272,6 +272,18 @@ const makeCountryValue = (name: string, abbreviation: string): Country | null =>
   };
 };
 
+const getCountryOptionLabel = (country: Country) =>
+  `${country.name}${country.abbreviation ? ` (${country.abbreviation})` : ''}`;
+
+const renderCountryOption = (props: React.HTMLAttributes<HTMLLIElement> & { key: React.Key }, country: Country) => {
+  const { key: _key, ...optionProps } = props;
+  return (
+    <li key={country._id} {...optionProps}>
+      {getCountryOptionLabel(country)}
+    </li>
+  );
+};
+
 const makeProcedureValue = (name: string, serviceCategory: ServiceKey): Procedure | null => {
   const procedureName = name.trim();
   if (!procedureName) return null;
@@ -1335,7 +1347,8 @@ export default function PricingRulesPage() {
           loading={countryOptionsLoading}
           filterOptions={(options) => options}
           isOptionEqualToValue={(option, value) => option._id === value._id}
-          getOptionLabel={(option) => `${option.name}${option.abbreviation ? ` (${option.abbreviation})` : ''}`}
+          getOptionLabel={getCountryOptionLabel}
+          renderOption={renderCountryOption}
           onInputChange={(_event, value) => {
             setCellCountryInput(value);
           }}
@@ -1979,9 +1992,8 @@ export default function PricingRulesPage() {
               loading={countryOptionsLoading}
               filterOptions={(options) => options}
               isOptionEqualToValue={(option, value) => option._id === value._id}
-              getOptionLabel={(option) =>
-                `${option.name}${option.abbreviation ? ` (${option.abbreviation})` : ''}`
-              }
+              getOptionLabel={getCountryOptionLabel}
+              renderOption={renderCountryOption}
               onInputChange={(_event, value, reason) => {
                 setCreateCountryInput(value);
                 if (reason === 'input') {
@@ -2211,9 +2223,8 @@ export default function PricingRulesPage() {
               loading={countryOptionsLoading}
               filterOptions={(options) => options}
               isOptionEqualToValue={(option, value) => option._id === value._id}
-              getOptionLabel={(option) =>
-                `${option.name}${option.abbreviation ? ` (${option.abbreviation})` : ''}`
-              }
+              getOptionLabel={getCountryOptionLabel}
+              renderOption={renderCountryOption}
               onInputChange={(_event, value, reason) => {
                 setEditCountryInput(value);
                 if (reason === 'input') {

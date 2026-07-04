@@ -19,12 +19,13 @@ import {
 } from '@mui/material';
 import { EmptyState, MuiDataTable } from '@/components/ui';
 import type { MuiDataTableColumn } from '@/components/ui';
-import { clientsService, Client, ClientType } from '@/services/clients.service';
+import { clientsService, Client, ClientServiceType, ClientType } from '@/services/clients.service';
 import { useDebounce } from '@/hooks/useDebounce';
 import { usePermission } from '@/hooks/usePermission';
 import { useAuth } from '@/hooks/useAuth';
 import Topbar from '@/components/layout/Topbar';
 import { showSuccessToast } from '@/components/feedback/heroToast';
+import ReferenceNumberManager from '@/components/reference-numbers/ReferenceNumberManager';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,9 @@ interface ClientForm {
   email: string;
   phone: string;
   type: ClientType;
+  assignedId: string;
+  assignedServiceType: ClientServiceType | '';
+  assignedIdCount: string;
   address: string;
   country: string;
   companyName: string;
@@ -44,6 +48,9 @@ const defaultForm: ClientForm = {
   email: '',
   phone: '',
   type: 'Direct',
+  assignedId: '',
+  assignedServiceType: '',
+  assignedIdCount: '',
   address: '',
   country: '',
   companyName: '',
@@ -51,6 +58,7 @@ const defaultForm: ClientForm = {
 };
 
 const CLIENT_TYPE_OPTIONS: ClientType[] = ['Direct', 'Agent'];
+const SERVICE_TYPE_OPTIONS: ClientServiceType[] = ['Trademark', 'Patent', 'Design', 'Copyright', 'Litigation'];
 
 const normalizeClientType = (value: unknown): ClientType => {
   const normalized = String(value ?? '').trim().toLowerCase();
@@ -133,6 +141,9 @@ export default function ClientsPage() {
       email: item.email || '',
       phone: item.phone || '',
       type: normalizeClientType(item.type),
+      assignedId: item.assignedId || '',
+      assignedServiceType: (item.assignedServiceType as ClientServiceType) || '',
+      assignedIdCount: item.assignedIdCount === undefined || item.assignedIdCount === null ? '' : String(item.assignedIdCount),
       address: item.address || '',
       country: item.country || '',
       companyName: item.companyName || '',
@@ -172,6 +183,9 @@ export default function ClientsPage() {
         email: formData.email.trim() || undefined,
         phone: formData.phone.trim() || undefined,
         type: formData.type,
+        assignedId: formData.assignedId.trim() || undefined,
+        assignedServiceType: formData.assignedServiceType || undefined,
+        assignedIdCount: formData.assignedIdCount.trim() ? Number(formData.assignedIdCount) : undefined,
         address: formData.address.trim() || undefined,
         country: formData.country.trim() || undefined,
         companyName: formData.companyName.trim() || undefined,
@@ -256,6 +270,11 @@ export default function ClientsPage() {
             email: email || undefined,
             phone: phone || undefined,
             type,
+            assignedId: String(row[8] ?? '').trim() || undefined,
+            assignedServiceType: SERVICE_TYPE_OPTIONS.includes(String(row[9] ?? '').trim() as ClientServiceType)
+              ? (String(row[9] ?? '').trim() as ClientServiceType)
+              : undefined,
+            assignedIdCount: String(row[10] ?? '').trim() ? Number(row[10]) : undefined,
             address: address || undefined,
             country: country || undefined,
             companyName: companyName || undefined,
@@ -326,6 +345,9 @@ export default function ClientsPage() {
       Email: item.email || '',
       Phone: item.phone || '',
       Type: normalizeClientType(item.type),
+      'Assigned ID': item.assignedId || '',
+      'Service Type': item.assignedServiceType || '',
+      'Counting Assigned ID': item.assignedIdCount ?? '',
       Address: item.address || '',
       Country: item.country || '',
       'Company Name': item.companyName || '',
@@ -350,6 +372,9 @@ export default function ClientsPage() {
       Email: item.email || '',
       Phone: item.phone || '',
       Type: normalizeClientType(item.type),
+      'Assigned ID': item.assignedId || '',
+      'Service Type': item.assignedServiceType || '',
+      'Counting Assigned ID': item.assignedIdCount ?? '',
       Address: item.address || '',
       Country: item.country || '',
       'Company Name': item.companyName || '',
@@ -373,12 +398,27 @@ export default function ClientsPage() {
     const doc = new jsPDF.jsPDF({ orientation: 'landscape' });
 
     autoTable.default(doc, {
-      head: [['Client Name', 'Email', 'Phone', 'Type', 'Address', 'Country', 'Company Name', 'Notes']],
+      head: [[
+        'Client Name',
+        'Email',
+        'Phone',
+        'Type',
+        'Assigned ID',
+        'Service Type',
+        'Counting Assigned ID',
+        'Address',
+        'Country',
+        'Company Name',
+        'Notes',
+      ]],
       body: records.map((item) => [
         item.name,
         item.email || '-',
         item.phone || '-',
         normalizeClientType(item.type),
+        item.assignedId || '-',
+        item.assignedServiceType || '-',
+        item.assignedIdCount ?? '-',
         item.address || '-',
         item.country || '-',
         item.companyName || '-',
@@ -422,6 +462,31 @@ export default function ClientsPage() {
       sortable: true,
       searchValue: (row) => normalizeClientType(row.type),
       render: (row) => normalizeClientType(row.type),
+    },
+    {
+      id: 'assignedId',
+      label: 'Assigned ID',
+      sortable: true,
+      minWidth: 140,
+      searchValue: (row) => row.assignedId || '',
+      render: (row) => row.assignedId || '-',
+    },
+    {
+      id: 'assignedServiceType',
+      label: 'Service Type',
+      sortable: true,
+      minWidth: 140,
+      searchValue: (row) => String(row.assignedServiceType || ''),
+      render: (row) => row.assignedServiceType || '-',
+    },
+    {
+      id: 'assignedIdCount',
+      label: 'Counting Assigned ID',
+      sortable: true,
+      minWidth: 160,
+      searchValue: (row) => String(row.assignedIdCount ?? ''),
+      sortValue: (row) => row.assignedIdCount ?? 0,
+      render: (row) => row.assignedIdCount ?? '-',
     },
     {
       id: 'address',
@@ -582,6 +647,11 @@ export default function ClientsPage() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
+              label="Assigned ID"
+              value={formData.assignedId}
+              onChange={(e) => setFormData((prev) => ({ ...prev, assignedId: e.target.value }))}
+            />
+            <TextField
               label="Client Name"
               value={formData.name}
               onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
@@ -613,6 +683,29 @@ export default function ClientsPage() {
                 </MenuItem>
               ))}
             </TextField>
+       
+            <TextField
+              label="Service Type"
+              value={formData.assignedServiceType}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, assignedServiceType: e.target.value as ClientServiceType }))
+              }
+              select
+            >
+              <MenuItem value="">None</MenuItem>
+              {SERVICE_TYPE_OPTIONS.map((service) => (
+                <MenuItem key={service} value={service}>
+                  {service}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Counting Assigned ID"
+              type="number"
+              value={formData.assignedIdCount}
+              onChange={(e) => setFormData((prev) => ({ ...prev, assignedIdCount: e.target.value }))}
+              slotProps={{ htmlInput: { min: 0, step: 1 } }}
+            />
             <TextField
               label="Address"
               value={formData.address}
@@ -647,25 +740,68 @@ export default function ClientsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>View Client</DialogTitle>
-        <DialogContent>
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="xl" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography sx={{ fontWeight: 900, fontSize: 20 }}>Client Profile</Typography>
+              <Typography sx={{ color: '#64748B', fontSize: 13 }}>
+                View client details and manage generated reference numbers.
+              </Typography>
+            </Box>
+            <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ bgcolor: '#F8FAFC', p: 2 }}>
           {viewingItem && (
-            <Stack spacing={1.5} sx={{ pt: 1 }}>
-              <Typography><strong>Client Name:</strong> {viewingItem.name}</Typography>
-              <Typography><strong>Email:</strong> {viewingItem.email || '-'}</Typography>
-              <Typography><strong>Phone:</strong> {viewingItem.phone || '-'}</Typography>
-              <Typography><strong>Type:</strong> {normalizeClientType(viewingItem.type)}</Typography>
-              <Typography><strong>Address:</strong> {viewingItem.address || '-'}</Typography>
-              <Typography><strong>Country:</strong> {viewingItem.country || '-'}</Typography>
-              <Typography><strong>Company Name:</strong> {viewingItem.companyName || '-'}</Typography>
-              <Typography><strong>Notes:</strong> {viewingItem.notes || '-'}</Typography>
-            </Stack>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '320px minmax(0, 1fr)' }, gap: 2 }}>
+              <Card variant="outlined" sx={{ borderRadius: 1.5, alignSelf: 'start' }}>
+                <CardContent>
+                  <Box
+                    sx={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 1,
+                      bgcolor: '#DBEAFE',
+                      color: '#1D4ED8',
+                      display: 'grid',
+                      placeItems: 'center',
+                      fontWeight: 900,
+                      fontSize: 20,
+                      mb: 1.5,
+                    }}
+                  >
+                    {viewingItem.name?.slice(0, 2).toUpperCase() || 'CL'}
+                  </Box>
+                  <Typography sx={{ fontWeight: 900, fontSize: 18, color: '#0F172A' }}>{viewingItem.name}</Typography>
+                  <Typography sx={{ color: '#64748B', fontSize: 13, mb: 2 }}>{normalizeClientType(viewingItem.type)} Client</Typography>
+                  <Stack spacing={1.25}>
+                    {[
+                      ['Assigned ID', viewingItem.assignedId || '-'],
+                      ['Email', viewingItem.email || '-'],
+                      ['Phone', viewingItem.phone || '-'],
+                      ['Country', viewingItem.country || '-'],
+                      ['Service Type', viewingItem.assignedServiceType || '-'],
+                      ['Counting Assigned ID', viewingItem.assignedIdCount ?? '-'],
+                      ['Company', viewingItem.companyName || '-'],
+                      ['Address', viewingItem.address || '-'],
+                      ['Notes', viewingItem.notes || '-'],
+                    ].map(([label, value]) => (
+                      <Box key={label}>
+                        <Typography sx={{ color: '#64748B', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>
+                          {label}
+                        </Typography>
+                        <Typography sx={{ color: '#0F172A', fontSize: 14, wordBreak: 'break-word' }}>{value}</Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </CardContent>
+              </Card>
+
+              <ReferenceNumberManager clientId={viewingItem._id} clientName={viewingItem.name} />
+            </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
-        </DialogActions>
       </Dialog>
 
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>

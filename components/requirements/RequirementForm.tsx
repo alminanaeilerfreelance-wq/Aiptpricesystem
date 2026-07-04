@@ -13,10 +13,6 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   CircularProgress,
   Box,
   Alert,
@@ -25,6 +21,7 @@ import {
 import { countriesService } from '@/services/countries.service';
 import requirementsService from '@/services/requirements.service';
 import { proceduresService, Procedure } from '@/services/procedures.service';
+import { servicesService, Service } from '@/services/services.service';
 import { useDebounce } from '@/hooks/useDebounce';
 
 interface RequirementFormProps {
@@ -46,21 +43,22 @@ interface Country {
 
 type ServiceCategory = 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
 
-const SERVICE_CATEGORY_OPTIONS: ServiceCategory[] = [
-  'Trademark',
-  'Patent',
-  'Copyright',
-  'Design',
-  'Litigation',
-];
+const sidebarDialogTitleSx = {
+  bgcolor: '#0B1739',
+  color: '#FFFFFF',
+  fontWeight: 900,
+  py: 1.5,
+};
 
 const INITIAL_FORM_DATA: {
   country: string;
+  serviceId: string;
   serviceCategory: ServiceCategory | '';
   title: string;
   requirements: string;
 } = {
   country: '',
+  serviceId: '',
   serviceCategory: '',
   title: '',
   requirements: '',
@@ -145,12 +143,14 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
 
   const [countries, setCountries] = useState<Country[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [selectedProcedure, setSelectedProcedure] = useState<Procedure | null>(null);
   const [procedureTitleInput, setProcedureTitleInput] = useState('');
   const debouncedProcedureTitleInput = useDebounce(procedureTitleInput, 350);
   const [loading, setLoading] = useState(false);
   const [countriesLoading, setCountriesLoading] = useState(false);
+  const [servicesLoading, setServicesLoading] = useState(false);
   const [proceduresLoading, setProceduresLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -185,6 +185,33 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   useEffect(() => {
     let active = true;
 
+    const fetchServices = async () => {
+      try {
+        setServicesLoading(true);
+        const response = await servicesService.list({ page: 1, limit: 1000 });
+        if (!active) return;
+        setServices((response.services || []).filter((service) => service.isActive !== false));
+      } catch (err) {
+        if (!active) return;
+        console.error('Failed to fetch services:', err);
+        setError('Failed to fetch services');
+      } finally {
+        if (active) setServicesLoading(false);
+      }
+    };
+
+    if (open) {
+      fetchServices();
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    let active = true;
+
     const fetchProcedures = async () => {
       if (!open || !formData.serviceCategory) {
         setProcedures([]);
@@ -194,11 +221,17 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
 
       try {
         setProceduresLoading(true);
+
+        // If user hasn't typed a search query, load a larger result set
+        // so the select's dropdown can show all procedures for the category.
+        const searchQuery = debouncedProcedureTitleInput.trim() || undefined;
+        const limit = searchQuery && searchQuery.length > 0 ? 25 : 1000;
+
         const response = await proceduresService.list({
           category: formData.serviceCategory,
-          search: debouncedProcedureTitleInput.trim() || undefined,
+          search: searchQuery,
           page: 1,
-          limit: 25,
+          limit,
         });
         if (!active) return;
         setProcedures(uniqueProceduresById(response.procedures || []));
@@ -232,8 +265,12 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
         setLoading(true);
         const response = await requirementsService.getById(editingId);
         if (!active) return;
+        const responseService = response.data.serviceId;
+        const responseServiceId =
+          typeof responseService === 'string' ? responseService : responseService?._id || '';
         setFormData({
           country: response.data.country._id,
+          serviceId: responseServiceId,
           serviceCategory: response.data.serviceCategory || '',
           title: response.data.title || '',
           requirements: response.data.requirements,
@@ -283,6 +320,7 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
       setError('');
       const payload = {
         country: formData.country,
+        serviceId: formData.serviceId || undefined,
         serviceCategory: formData.serviceCategory,
         title: formData.title.trim(),
         requirements: formData.requirements,
@@ -313,56 +351,48 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth>
-      <DialogTitle sx={{ fontWeight: 900 }}>
+    <Dialog open={open} onClose={handleClose} maxWidth="lg" fullWidth slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
+      <DialogTitle sx={sidebarDialogTitleSx}>
         {isEditMode ? 'Edit / Update Requirement' : 'Add Requirement'}
       </DialogTitle>
       <form onSubmit={handleSubmit}>
-        <DialogContent sx={{ bgcolor: '#F8FAFC' }}>
+        <DialogContent sx={{ bgcolor: '#FFFFFF' }}>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
-            {/* Country Select */}
-            <FormControl fullWidth disabled={loading || countriesLoading}>
-              <InputLabel>Country *</InputLabel>
-              <Select
-                value={formData.country}
-                onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                label="Country *"
-              >
-                <MenuItem value="">Select a country</MenuItem>
-                {countries.map((country) => (
-                  <MenuItem key={country._id} value={country._id}>
-                    {country.abbreviation ? `${country.abbreviation} - ${country.name}` : country.name}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Autocomplete
+              options={countries}
+              value={countries.find((country) => country._id === formData.country) || null}
+              loading={countriesLoading}
+              disabled={loading || countriesLoading}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionLabel={(country) =>
+                country.abbreviation ? `${country.abbreviation} - ${country.name}` : country.name
+              }
+              onChange={(_event, value) => setFormData({ ...formData, country: value?._id || '' })}
+              renderInput={(params) => <TextField {...params} label="Country *" required />}
+            />
 
-            <FormControl fullWidth disabled={loading}>
-              <InputLabel>Service *</InputLabel>
-              <Select
-                value={formData.serviceCategory}
-                onChange={(e) => {
+            <Autocomplete
+              options={services}
+              value={services.find((service) => service._id === formData.serviceId) || null}
+              loading={servicesLoading}
+              disabled={loading || servicesLoading}
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              getOptionLabel={(service) => `${service.name} (${service.category})`}
+              onChange={(_event, value) => {
                   setSelectedProcedure(null);
                   setProcedureTitleInput('');
                   setProcedures([]);
                   setFormData({
                     ...formData,
-                    serviceCategory: e.target.value as ServiceCategory | '',
+                    serviceId: value?._id || '',
+                    serviceCategory: value?.category || '',
                     title: '',
                   });
                 }}
-                label="Service *"
-              >
-                <MenuItem value="">Select a service</MenuItem>
-                {SERVICE_CATEGORY_OPTIONS.map((serviceCategory) => (
-                  <MenuItem key={serviceCategory} value={serviceCategory}>
-                    {serviceCategory}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+              renderInput={(params) => <TextField {...params} label="Service *" required />}
+            />
 
             <Autocomplete
               options={procedures}
@@ -431,14 +461,14 @@ const RequirementForm: React.FC<RequirementFormProps> = ({ open, onClose, onSucc
           </Box>
         </DialogContent>
 
-        <DialogActions>
+        <DialogActions sx={{ bgcolor: '#FFFFFF', px: 3, pb: 2 }}>
           <Button onClick={handleClose} disabled={loading}>
             Cancel
           </Button>
           <Button
             type="submit"
             variant="contained"
-            disabled={loading || countriesLoading}
+            disabled={loading || countriesLoading || servicesLoading}
             startIcon={loading && <CircularProgress size={20} />}
           >
             {loading ? (isEditMode ? 'Updating...' : 'Adding...') : isEditMode ? 'Update Requirement' : 'Add Requirement'}

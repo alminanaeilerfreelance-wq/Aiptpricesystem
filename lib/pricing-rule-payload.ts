@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import Client from '@/models/Client';
 import Country from '@/models/Country';
 import Procedure from '@/models/Procedure';
 import Service from '@/models/Service';
@@ -8,6 +9,8 @@ const SERVICE_CATEGORIES = ['Trademark', 'Patent', 'Design', 'Copyright', 'Litig
 type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
 
 type ExistingPricingRule = {
+  clientId?: mongoose.Types.ObjectId | string;
+  clientName?: string;
   serviceCategory?: string;
   procedureName?: string;
   countryName?: string;
@@ -21,6 +24,8 @@ type ExistingPricingRule = {
 type PayloadResult =
   | {
       data: {
+        clientId?: mongoose.Types.ObjectId;
+        clientName?: string;
         serviceCategory: ServiceCategory;
         procedureName: string;
         countryName: string;
@@ -143,6 +148,24 @@ export async function buildPricingRulePayload(
     return { error: 'Procedure is required' };
   }
 
+  let clientId: mongoose.Types.ObjectId | undefined;
+  let clientName = getText(body, 'clientName', current?.clientName);
+  const rawClientId = getText(body, 'clientId', current?.clientId);
+
+  if (rawClientId) {
+    if (!mongoose.Types.ObjectId.isValid(rawClientId)) {
+      return { error: 'Valid client is required' };
+    }
+
+    const client = await Client.findOne({ _id: rawClientId, isActive: true }).lean();
+    if (!client) {
+      return { error: 'Client not found' };
+    }
+
+    clientId = new mongoose.Types.ObjectId(rawClientId);
+    clientName = String(client.companyName || client.name || '').trim();
+  }
+
   const officialFee = getFee(body, 'officialFee', 'Office Fee', current?.officialFee);
   const attorneyFee = getFee(body, 'attorneyFee', 'Attorney Fee', current?.attorneyFee);
   const classFee = getFee(body, 'classFee', 'Class Fee', current?.classFee);
@@ -152,6 +175,7 @@ export async function buildPricingRulePayload(
 
   return {
     data: {
+      ...(clientId ? { clientId, clientName } : {}),
       serviceCategory: serviceCategory as ServiceCategory,
       countryName,
       countryAbbreviation,

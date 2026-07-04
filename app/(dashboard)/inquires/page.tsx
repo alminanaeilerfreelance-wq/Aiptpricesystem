@@ -56,6 +56,14 @@ const defaultFormData: InquireFormData = {
 };
 
 const FETCH_BATCH_SIZE = 500;
+const modalTitleSx = {
+  bgcolor: '#0B1739',
+  color: '#FFFFFF',
+  fontWeight: 900,
+  py: 1.5,
+};
+const modalBodySx = { bgcolor: '#FFFFFF' };
+const modalActionsSx = { bgcolor: '#FFFFFF', px: 3, pb: 2 };
 
 const loadAllPages = async <T,>(
   fetchPage: (page: number, limit: number) => Promise<{ total?: number; totalPages?: number; [key: string]: unknown }>,
@@ -212,9 +220,9 @@ const getProcedureLabel = (item: Inquire, procedureById?: Map<string, Procedure>
 const getClientLabel = (item: Inquire) =>
   typeof item.clientId === 'string'
     ? item.clientId
-    : item.clientId.companyName
-      ? `${item.clientId.name} (${item.clientId.companyName})`
-      : item.clientId.name;
+    : item.clientId?.companyName
+      ? `${item.clientId.name || 'Missing Client'} (${item.clientId.companyName})`
+      : item.clientId?.name || 'Missing Client';
 
 const getCountryLabel = (item: Inquire) =>
   Array.isArray(item.countryIds)
@@ -752,9 +760,9 @@ export default function InquiresPage() {
         )
       )}
 
-      <Dialog open={openForm} onClose={handleCloseForm} maxWidth="md" fullWidth>
-        <DialogTitle>{editingId ? 'Edit Inquire' : 'Add Inquire'}</DialogTitle>
-        <DialogContent>
+      <Dialog open={openForm} onClose={handleCloseForm} maxWidth="md" fullWidth slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
+        <DialogTitle sx={modalTitleSx}>{editingId ? 'Edit Inquire' : 'Add Inquire'}</DialogTitle>
+        <DialogContent sx={modalBodySx}>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 6 }}>
@@ -967,7 +975,7 @@ export default function InquiresPage() {
             />
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={modalActionsSx}>
           <Button onClick={handleCloseForm}>Cancel</Button>
           <Button
             onClick={() => handleSubmitForm().catch(() => setError('Failed to save inquire'))}
@@ -978,9 +986,9 @@ export default function InquiresPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>View Inquire</DialogTitle>
-        <DialogContent>
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
+        <DialogTitle sx={modalTitleSx}>View Inquire</DialogTitle>
+        <DialogContent sx={modalBodySx}>
           {viewingItem && (
             <Stack spacing={1.5} sx={{ pt: 1 }}>
               <Typography><strong>Date:</strong> {new Date(viewingItem.inquiryDate).toLocaleDateString()}</Typography>
@@ -995,19 +1003,19 @@ export default function InquiresPage() {
             </Stack>
           )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={modalActionsSx}>
           <Button onClick={() => setViewDialogOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Inquire</DialogTitle>
-        <DialogContent>
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} slotProps={{ paper: { sx: { borderRadius: 2 } } }}>
+        <DialogTitle sx={modalTitleSx}>Delete Inquire</DialogTitle>
+        <DialogContent sx={modalBodySx}>
           <Typography>
             Are you sure you want to delete this inquire? This action cannot be undone.
           </Typography>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={modalActionsSx}>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button onClick={handleDeleteConfirm} color="error" variant="contained" disabled={loading}>
             Delete

@@ -8,6 +8,8 @@ export interface PricingRule {
   fixedAmount?: number;
   minServiceValue?: number;
   maxServiceValue?: number;
+  clientId?: string;
+  clientName?: string;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   procedureName: string;
   countryName: string;
@@ -41,6 +43,8 @@ export interface CreatePricingRuleDto {
   fixedAmount?: number;
   minServiceValue?: number;
   maxServiceValue?: number;
+  clientId?: string;
+  clientName?: string;
   serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   countryId?: string;
   procedureId?: string;
@@ -56,6 +60,12 @@ export interface CreatePricingRuleDto {
 export interface PricingRuleListParams {
   category?: string;
   country?: string;
+  serviceId?: string;
+  countryId?: string;
+  procedureId?: string;
+  clientId?: string;
+  exactClient?: boolean;
+  procedureName?: string;
   search?: string;
   status?: 'all' | 'active' | 'inactive';
   page?: number;

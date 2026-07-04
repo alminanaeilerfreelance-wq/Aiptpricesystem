@@ -3,6 +3,7 @@ import apiClient from './apiClient';
 export interface Procedure {
   _id: string;
   name: string;
+  description?: string;
   countryId?: string;
   countryName?: string;
   serviceId: string;
@@ -15,6 +16,8 @@ export interface Procedure {
 
 export interface CreateProcedureDto {
   name: string;
+  description?: string;
+  countryId?: string;
   serviceId: string;
   serviceCategory?: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation' | string;
   isActive?: boolean;
@@ -25,6 +28,7 @@ export interface ProcedureListParams {
   search?: string;
   page?: number;
   limit?: number;
+  all?: boolean;
 }
 
 export interface ProcedureListResponse {

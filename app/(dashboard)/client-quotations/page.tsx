@@ -42,6 +42,7 @@ import clientQuotationsService, { ClientQuotation, ClientQuotationServiceItem } 
 import { clientsService, Client } from '@/services/clients.service';
 import inquiresService, { Inquire } from '@/services/inquires.service';
 import requirementsService from '@/services/requirements.service';
+import { proceduresService, Procedure } from '@/services/procedures.service';
 import { pricingRulesService, PricingRule } from '@/services/pricing-rules.service';
 import companyDetailsService, { CompanyDetail } from '@/services/company-details.service';
 import { usePermission } from '@/hooks/usePermission';
@@ -100,6 +101,25 @@ interface RequirementEditorData {
   requirements: string;
 }
 
+interface ProcedureDraft {
+  name: string;
+  description: string;
+  countryId: string;
+  isActive: boolean;
+}
+
+interface RequirementDraft {
+  requirements: string;
+  procedureId: string;
+  countryId: string;
+}
+
+interface PriceRuleDraft {
+  officialFee: string;
+  attorneyFee: string;
+  classFee: string;
+}
+
 type RequirementAutosaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface RequirementAutosaveEntry {
@@ -155,6 +175,35 @@ const defaultRequirementEditorData: RequirementEditorData = {
   title: '',
   requirements: '',
 };
+
+const defaultProcedureDraft: ProcedureDraft = {
+  name: '',
+  description: '',
+  countryId: '',
+  isActive: true,
+};
+
+const defaultRequirementDraft: RequirementDraft = {
+  requirements: '',
+  procedureId: '',
+  countryId: '',
+};
+
+const defaultPriceRuleDraft: PriceRuleDraft = {
+  officialFee: '0',
+  attorneyFee: '0',
+  classFee: '0',
+};
+
+const sidebarDialogTitleSx = {
+  bgcolor: '#0B1739',
+  color: '#FFFFFF',
+  fontWeight: 800,
+  py: 1.5,
+};
+const dialogPaperSx = { borderRadius: 2 };
+const whiteDialogBodySx = { bgcolor: '#FFFFFF' };
+const whiteDialogActionsSx = { bgcolor: '#FFFFFF', px: 3, pb: 2 };
 
 const REQUIREMENT_AUTOSAVE_DELAY_MS = 1200;
 
@@ -410,6 +459,57 @@ const getQuotationInquiryId = (quotation: ClientQuotation): string => {
   if (typeof quotation.inquiryId === 'object') return quotation.inquiryId?._id || '';
   return quotation.inquiryId || '';
 };
+
+const getInquiryClientId = (inquiry: Inquire | null | undefined): string => {
+  if (!inquiry) return '';
+  return typeof inquiry.clientId === 'object' ? inquiry.clientId?._id || '' : String(inquiry.clientId || '');
+};
+
+const getInquiryServiceId = (inquiry: Inquire | null | undefined): string => {
+  if (!inquiry) return '';
+  return typeof inquiry.serviceId === 'object' ? inquiry.serviceId?._id || '' : String(inquiry.serviceId || '');
+};
+
+const getPricingRuleClientId = (rule: PricingRule | null | undefined): string => {
+  const clientId = rule?.clientId as unknown;
+  if (!clientId) return '';
+  if (typeof clientId === 'object' && '_id' in clientId) {
+    return String((clientId as { _id?: unknown })._id || '');
+  }
+  return String(clientId || '');
+};
+
+const getPricingRuleCountryTokens = (rule: PricingRule | null | undefined): string[] =>
+  [
+    rule?.countryName,
+    rule?.countryAbbreviation,
+    rule?.country?.name,
+    rule?.country?.abbreviation,
+  ]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .filter(Boolean);
+
+const getClientDisplayLines = (client: Client | null | undefined): string[] => {
+  if (!client) return [];
+  return [
+    client.companyName || client.name,
+    client.companyName ? client.name : '',
+    client.email || '',
+    client.phone || '',
+    client.country || '',
+    client.assignedId || '',
+  ].map((line) => String(line || '').trim()).filter(Boolean);
+};
+
+const getClientSearchText = (client: Client): string =>
+  [
+    client.companyName,
+    client.name,
+    client.email,
+    client.phone,
+    client.country,
+    client.assignedId,
+  ].join(' ').toLowerCase();
 
 const SERVICE_COLOR_MAP: Record<ServiceCategory, string> = {
   Trademark: '#2563EB',
@@ -1118,6 +1218,7 @@ export default function ClientQuotationsPage() {
 
   const [clients, setClients] = useState<Client[]>([]);
   const [inquiries, setInquiries] = useState<Inquire[]>([]);
+  const [procedureOptions, setProcedureOptions] = useState<Procedure[]>([]);
 
   const [selectedClientId, setSelectedClientId] = useState('');
   const [selectedInquiryId, setSelectedInquiryId] = useState('');
@@ -1156,6 +1257,15 @@ export default function ClientQuotationsPage() {
   const [priceRules, setPriceRules] = useState<PricingRule[]>([]);
   const [priceRuleCountryFilter, setPriceRuleCountryFilter] = useState('');
   const [selectedPriceRuleId, setSelectedPriceRuleId] = useState('');
+  const [procedureDialogOpen, setProcedureDialogOpen] = useState(false);
+  const [procedureSaving, setProcedureSaving] = useState(false);
+  const [procedureDraft, setProcedureDraft] = useState<ProcedureDraft>(defaultProcedureDraft);
+  const [requirementDialogOpen, setRequirementDialogOpen] = useState(false);
+  const [requirementSaving, setRequirementSaving] = useState(false);
+  const [requirementDraft, setRequirementDraft] = useState<RequirementDraft>(defaultRequirementDraft);
+  const [priceRuleCreateOpen, setPriceRuleCreateOpen] = useState(false);
+  const [priceRuleSaving, setPriceRuleSaving] = useState(false);
+  const [priceRuleDraft, setPriceRuleDraft] = useState<PriceRuleDraft>(defaultPriceRuleDraft);
   const [invoiceServiceTableColors, setInvoiceServiceTableColors] = useState<InvoiceServiceTableColors>(
     defaultInvoiceServiceTableColors
   );
@@ -1453,14 +1563,16 @@ export default function ClientQuotationsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [quotationRes, clientRes, inquireRes] = await Promise.all([
+      const [quotationRes, clientRes, inquireRes, procedureRes] = await Promise.all([
         clientQuotationsService.list({ page: 1, limit: 500 }),
-        clientsService.list({ page: 1, limit: 1000 }),
+        clientsService.list({ page: 1, limit: 1000, all: true }),
         inquiresService.list({ page: 1, limit: 1000 }),
+        proceduresService.list({ all: true, limit: 1000 }),
       ]);
       setItems(quotationRes.clientQuotations || []);
-      setClients(clientRes.clients || []);
+      setClients((clientRes.clients || []).filter((client) => client.isActive !== false));
       setInquiries(inquireRes.inquires || []);
+      setProcedureOptions(procedureRes.procedures || []);
     } catch (err: any) {
       notifyApiError(getApiErrorMessage(err, 'Failed to load data.'));
     } finally {
@@ -1488,10 +1600,21 @@ export default function ClientQuotationsPage() {
   }, [ensureInvoiceCompanyDetails, invoiceCompanyDetails.length, viewDialogOpen]);
 
   const selectedClient = useMemo(() => clients.find((c) => c._id === selectedClientId), [clients, selectedClientId]);
+  const clientOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return clients
+      .filter((client) => {
+        if (!client._id || seen.has(client._id)) return false;
+        seen.add(client._id);
+        return client.isActive !== false;
+      })
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  }, [clients]);
   const selectedInquiry = useMemo(
     () => inquiries.find((i) => i._id === selectedInquiryId),
     [inquiries, selectedInquiryId]
   );
+  const serviceCategory = ((selectedInquiry?.serviceId as any)?.category || 'Trademark') as ServiceCategory;
   const usedInquiryIds = useMemo(
     () =>
       new Set(
@@ -1504,10 +1627,11 @@ export default function ClientQuotationsPage() {
   );
   const availableInquiries = useMemo(
     () =>
-      inquiries.filter(
-        (inquiry) => !usedInquiryIds.has(inquiry._id) || inquiry._id === selectedInquiryId
-      ),
-    [inquiries, selectedInquiryId, usedInquiryIds]
+      inquiries.filter((inquiry) => {
+        if (selectedClientId && getInquiryClientId(inquiry) !== selectedClientId) return false;
+        return !usedInquiryIds.has(inquiry._id) || inquiry._id === selectedInquiryId;
+      }),
+    [inquiries, selectedClientId, selectedInquiryId, usedInquiryIds]
   );
   const selectedRequirements = useMemo(() => {
     const requirementById = new Map(requirementsState.items.map((item) => [item._id, item]));
@@ -1527,7 +1651,15 @@ export default function ClientQuotationsPage() {
   );
   const serviceDetailProcedureOptions = useMemo(
     () => {
-      if (inquiryProcedureOptions.length > 0) return inquiryProcedureOptions;
+      const serviceId = getInquiryServiceId(selectedInquiry);
+      const procedureNames = procedureOptions
+        .filter((procedure) => {
+          if (serviceId && String(procedure.serviceId || '') !== serviceId) return false;
+          if (procedure.serviceCategory !== serviceCategory) return false;
+          return procedure.isActive !== false;
+        })
+        .map((procedure) => String(procedure.name || '').trim())
+        .filter(Boolean);
 
       const fromPricingRules = Array.from(
         new Set(
@@ -1536,9 +1668,10 @@ export default function ClientQuotationsPage() {
             .filter(Boolean)
         )
       );
-      return fromPricingRules;
+
+      return Array.from(new Set([...inquiryProcedureOptions, ...procedureNames, ...fromPricingRules]));
     },
-    [priceRules, inquiryProcedureOptions]
+    [inquiryProcedureOptions, priceRules, procedureOptions, selectedInquiry, serviceCategory]
   );
   const inquiryCountryOptions = useMemo(
     () => getInquiryCountryOptions(selectedInquiry),
@@ -1577,11 +1710,17 @@ export default function ClientQuotationsPage() {
     const selectedCountry = priceRuleCountryFilter.trim().toLowerCase();
     return (priceRules || []).filter((rule) => {
       const normalizedRuleProcedure = normalizeProcedureName(rule.procedureName || '');
-      const normalizedRuleCountry = String(rule.countryName || '').trim().toLowerCase();
-      if (allowedCountries.size > 0 && !allowedCountries.has(normalizedRuleCountry)) {
+      const ruleCountryTokens = getPricingRuleCountryTokens(rule);
+      if (getPricingRuleClientId(rule) !== selectedClientId) {
         return false;
       }
-      if (selectedCountry && normalizedRuleCountry !== selectedCountry) {
+      if (String(rule.serviceCategory || '') !== serviceCategory) {
+        return false;
+      }
+      if (allowedCountries.size > 0 && !ruleCountryTokens.some((country) => allowedCountries.has(country))) {
+        return false;
+      }
+      if (selectedCountry && !ruleCountryTokens.includes(selectedCountry)) {
         return false;
       }
       if (procedureFilter) {
@@ -1589,11 +1728,38 @@ export default function ClientQuotationsPage() {
       }
       return true;
     });
-  }, [inquiryCountries, priceRuleCountryFilter, priceRules, serviceDraft.procedureName]);
+  }, [inquiryCountries, priceRuleCountryFilter, priceRules, selectedClientId, serviceCategory, serviceDraft.procedureName]);
   const selectedPriceRule = useMemo(
     () => filteredPriceRules.find((rule) => rule._id === selectedPriceRuleId) || null,
     [filteredPriceRules, selectedPriceRuleId]
   );
+  const selectedProcedureOption = useMemo(() => {
+    const procedureName = normalizeProcedureName(serviceDraft.procedureName || '');
+    if (!procedureName) return null;
+    const serviceId = getInquiryServiceId(selectedInquiry);
+    const countryName = (priceRuleCountryFilter || serviceCountrySelections[0] || inquiryCountries[0] || '').trim().toLowerCase();
+    return (
+      procedureOptions.find((procedure) => {
+        if (normalizeProcedureName(procedure.name || '') !== procedureName) return false;
+        if (serviceId && String(procedure.serviceId || '') !== serviceId) return false;
+        if (countryName && procedure.countryName && procedure.countryName.trim().toLowerCase() !== countryName) return false;
+        return true;
+      }) || null
+    );
+  }, [inquiryCountries, priceRuleCountryFilter, procedureOptions, selectedInquiry, serviceCountrySelections, serviceDraft.procedureName]);
+
+  useEffect(() => {
+    if (!selectedClientId || !selectedInquiryId) return;
+    const inquiry = inquiries.find((item) => item._id === selectedInquiryId);
+    if (!inquiry || getInquiryClientId(inquiry) === selectedClientId) return;
+    setSelectedInquiryId('');
+    setSelectedRequirementIds([]);
+    setSelectedRequirementCountryId('');
+    setRequirementDraftIds([]);
+    setServices([]);
+    setPriceRules([]);
+    setSelectedPriceRuleId('');
+  }, [inquiries, selectedClientId, selectedInquiryId]);
 
   useEffect(() => {
     if (serviceDetailProcedureOptions.length === 0) return;
@@ -1620,7 +1786,6 @@ export default function ClientQuotationsPage() {
     }
   }, [filteredPriceRules, priceRuleDialogOpen, selectedPriceRuleId]);
 
-  const serviceCategory = ((selectedInquiry?.serviceId as any)?.category || 'Trademark') as ServiceCategory;
   const inquiryProjectRef = (selectedInquiry?.referenceNo || '') as string;
   const inquiryProcedure = getInquireProcedureLabel(selectedInquiry);
   const inquiryCountry = inquiryCountries.join(', ');
@@ -2428,6 +2593,15 @@ export default function ClientQuotationsPage() {
     setPriceRules([]);
     setPriceRuleCountryFilter('');
     setSelectedPriceRuleId('');
+    setProcedureDialogOpen(false);
+    setProcedureSaving(false);
+    setProcedureDraft(defaultProcedureDraft);
+    setRequirementDialogOpen(false);
+    setRequirementSaving(false);
+    setRequirementDraft(defaultRequirementDraft);
+    setPriceRuleCreateOpen(false);
+    setPriceRuleSaving(false);
+    setPriceRuleDraft(defaultPriceRuleDraft);
   };
 
   const handleOpenCreate = () => {
@@ -2577,6 +2751,200 @@ export default function ClientQuotationsPage() {
     setRequirementDraftIds((prev) => prev.filter((id) => id !== requirementId));
   };
 
+  const openProcedureDialog = () => {
+    if (!selectedInquiry) {
+      notifyValidationError('Select inquiry project first.');
+      return;
+    }
+    setProcedureDraft({
+      name: serviceDraft.procedureName || '',
+      description: '',
+      countryId: inquiryCountryOptions[0]?._id || '',
+      isActive: true,
+    });
+    setProcedureDialogOpen(true);
+  };
+
+  const handleCreateProcedure = async () => {
+    const serviceId = getInquiryServiceId(selectedInquiry);
+    if (!procedureDraft.name.trim()) {
+      notifyValidationError('Procedure Name is required.');
+      return;
+    }
+    if (!serviceId) {
+      notifyValidationError('Service is required.');
+      return;
+    }
+
+    try {
+      setProcedureSaving(true);
+      const created = await proceduresService.create({
+        name: procedureDraft.name.trim(),
+        description: procedureDraft.description.trim(),
+        countryId: procedureDraft.countryId || undefined,
+        serviceId,
+        isActive: procedureDraft.isActive,
+      });
+      setProcedureOptions((prev) => {
+        if (prev.some((procedure) => procedure._id === created._id)) return prev;
+        return [created, ...prev];
+      });
+      setServiceDraft((prev) => ({ ...prev, procedureName: created.name }));
+      if (created.countryName) {
+        setServiceCountrySelections([created.countryName]);
+        setPriceRuleCountryFilter(created.countryName);
+      }
+      setProcedureDialogOpen(false);
+      notifySuccess('Procedure saved successfully.');
+    } catch (err: any) {
+      notifyApiError(getApiErrorMessage(err, 'Failed to save procedure.'));
+    } finally {
+      setProcedureSaving(false);
+    }
+  };
+
+  const openRequirementDialog = () => {
+    if (!selectedInquiry) {
+      notifyValidationError('Select inquiry project first.');
+      return;
+    }
+    setRequirementDraft({
+      requirements: '',
+      procedureId: selectedProcedureOption?._id || '',
+      countryId: selectedRequirementCountryId || inquiryCountryOptions[0]?._id || '',
+    });
+    setRequirementDialogOpen(true);
+  };
+
+  const handleCreateRequirement = async () => {
+    if (!requirementDraft.countryId) {
+      notifyValidationError('Country is required.');
+      return;
+    }
+    if (!requirementDraft.procedureId) {
+      notifyValidationError('Procedure is required.');
+      return;
+    }
+    if (!stripHtml(requirementDraft.requirements)) {
+      notifyValidationError('Requirements is required.');
+      return;
+    }
+
+    try {
+      setRequirementSaving(true);
+      const selectedDraftProcedure = procedureOptions.find((procedure) => procedure._id === requirementDraft.procedureId);
+      const response = await requirementsService.create({
+        country: requirementDraft.countryId,
+        serviceId: getInquiryServiceId(selectedInquiry) || undefined,
+        procedureId: requirementDraft.procedureId,
+        procedureName: selectedDraftProcedure?.name || serviceDraft.procedureName || undefined,
+        serviceCategory,
+        title: selectedDraftProcedure?.name || serviceDraft.procedureName || 'Requirement',
+        requirements: requirementDraft.requirements,
+        isActive: true,
+      });
+      const created = response.data;
+      const createdOption: RequirementOption = {
+        _id: created._id,
+        countryId: created.country?._id || requirementDraft.countryId,
+        countryName: created.country?.name || inquiryCountryOptions.find((country) => country._id === requirementDraft.countryId)?.name || '',
+        serviceCategory: created.serviceCategory,
+        title: created.title || '',
+        requirements: created.requirements || '',
+      };
+      setRequirementsState((prev) => ({
+        ...prev,
+        items: prev.items.some((item) => item._id === createdOption._id)
+          ? prev.items
+          : [createdOption, ...prev.items],
+      }));
+      setSelectedRequirementCountryId(createdOption.countryId || '');
+      setSelectedRequirementIds((prev) => Array.from(new Set([...prev, createdOption._id])));
+      setRequirementDialogOpen(false);
+      notifySuccess('Requirement saved successfully.');
+    } catch (err: any) {
+      notifyApiError(getApiErrorMessage(err, 'Failed to save requirement.'));
+    } finally {
+      setRequirementSaving(false);
+    }
+  };
+
+  const openPriceRuleCreateDialog = () => {
+    if (!selectedClientId || !selectedInquiry) {
+      notifyValidationError('Select client and inquiry project first.');
+      return;
+    }
+    if (!serviceDraft.procedureName.trim()) {
+      notifyValidationError('Procedure is required.');
+      return;
+    }
+    if (!priceRuleCountryFilter && !serviceCountrySelections[0] && !inquiryCountries[0]) {
+      notifyValidationError('Country is required.');
+      return;
+    }
+    setPriceRuleDraft(defaultPriceRuleDraft);
+    setPriceRuleCreateOpen(true);
+  };
+
+  const handleCreatePriceRule = async () => {
+    const countryName = priceRuleCountryFilter || serviceCountrySelections[0] || inquiryCountries[0] || '';
+    const countryOption = inquiryCountryOptions.find((country) => country.name === countryName);
+    const officialFee = Number(priceRuleDraft.officialFee);
+    const attorneyFee = Number(priceRuleDraft.attorneyFee);
+    const classFee = Number(priceRuleDraft.classFee);
+
+    if (!countryOption?._id) {
+      notifyValidationError('Country is required.');
+      return;
+    }
+    if (![officialFee, attorneyFee, classFee].every((value) => Number.isFinite(value) && value >= 0)) {
+      notifyValidationError('Fees must be non-negative numbers.');
+      return;
+    }
+
+    try {
+      setPriceRuleSaving(true);
+      const created = await pricingRulesService.create({
+        clientId: selectedClientId,
+        serviceCategory,
+        countryId: countryOption._id,
+        procedureId: selectedProcedureOption?._id,
+        procedureName: serviceDraft.procedureName,
+        officialFee,
+        attorneyFee,
+        classFee,
+        isActive: true,
+      });
+      const createdRule: PricingRule = {
+        ...created,
+        clientId: selectedClientId,
+        clientName: selectedClient ? getClientDisplayLines(selectedClient)[0] || created.clientName : created.clientName,
+        serviceCategory,
+        countryName: created.countryName || countryOption.name,
+        countryAbbreviation: created.countryAbbreviation || countryOption.abbreviation || '',
+        procedureName: created.procedureName || serviceDraft.procedureName,
+        isActive: created.isActive !== false,
+      };
+      setPriceRules((prev) => {
+        const withoutCreated = prev.filter((rule) => rule._id !== createdRule._id);
+        return [createdRule, ...withoutCreated];
+      });
+      setServiceDraft((prev) => ({
+        ...prev,
+        procedureName: createdRule.procedureName || prev.procedureName,
+      }));
+      setPriceRuleCountryFilter(createdRule.countryName || countryName);
+      setSelectedPriceRuleId(createdRule._id);
+      setPriceRulesError('');
+      setPriceRuleCreateOpen(false);
+      notifySuccess('Price rule saved successfully.');
+    } catch (err: any) {
+      notifyApiError(getApiErrorMessage(err, 'Failed to save price rule.'));
+    } finally {
+      setPriceRuleSaving(false);
+    }
+  };
+
   const handleAddService = () => {
     if (!serviceDraft.procedureName.trim()) {
       notifyValidationError('Procedure is required.');
@@ -2591,10 +2959,6 @@ export default function ClientQuotationsPage() {
     const invalidCountry = countryTargets.find(
       (country) => allowedCountryNames.size > 0 && !allowedCountryNames.has(country.trim().toLowerCase())
     );
-    if (invalidCountry) {
-      notifyValidationError(`Service country must match the selected inquiry countries: ${invalidCountry}`);
-      return;
-    }
     const feeErrors = validateServiceFees(serviceDraft);
     if (feeErrors.length > 0) {
       notifyValidationError(feeErrors[0]);
@@ -2806,6 +3170,7 @@ export default function ClientQuotationsPage() {
       const selectedCountryOptions = getInquiryCountryOptions(selectedInquiry);
       const countryNames = selectedCountryOptions.map((country) => country.name).filter(Boolean).join(', ');
       const selectedServiceCategory = ((selectedInquiry.serviceId as any)?.category || '') as string;
+      const selectedServiceId = getInquiryServiceId(selectedInquiry);
       const selectedProcedureNames = getInquireProcedureNames(selectedInquiry);
       const selectedProcedureNameSet = new Set(
         selectedProcedureNames.map((procedure) => normalizeProcedureName(procedure)).filter(Boolean)
@@ -2828,7 +3193,10 @@ export default function ClientQuotationsPage() {
             page: 1,
             limit: 1000,
             countryId,
+            serviceId: selectedServiceId || undefined,
             serviceCategory: (selectedServiceCategory || undefined) as ServiceCategory | undefined,
+            procedureName: selectedProcedureNames[0] || undefined,
+            status: 'active',
           });
           const rows = Array.isArray(response.data?.data) ? response.data.data : [];
           rows.forEach((row: any) => {
@@ -2837,10 +3205,10 @@ export default function ClientQuotationsPage() {
               countryId: typeof row.country === 'string' ? row.country : row.country?._id || '',
               countryName: row.country?.name || '',
               serviceCategory: row.serviceCategory,
-              title: row.title || '',
+              title: row.title || row.procedureName || '',
               requirements: row.requirements || '',
             };
-            const requirementProcedure = normalizeProcedureName(requirementOption.title || '');
+            const requirementProcedure = normalizeProcedureName(row.procedureName || requirementOption.title || '');
             if (selectedProcedureNameSet.size > 0 && !selectedProcedureNameSet.has(requirementProcedure)) {
               return;
             }
@@ -2898,7 +3266,7 @@ export default function ClientQuotationsPage() {
     let cancelled = false;
 
     const fetchPriceRules = async () => {
-      if (!selectedInquiry) {
+      if (!selectedInquiry || !selectedClientId) {
         setPriceRules([]);
         setSelectedPriceRuleId('');
         setPriceRulesError('');
@@ -2914,11 +3282,20 @@ export default function ClientQuotationsPage() {
           setSelectedPriceRuleId('');
           return;
         }
+        const countryOption = inquiryCountryOptions.find(
+          (country) => country.name === countryFilter || country.abbreviation === countryFilter
+        );
         const response = await pricingRulesService.list({
           page: 1,
           limit: 1000,
           category: serviceCategory,
           country: countryFilter,
+          serviceId: getInquiryServiceId(selectedInquiry) || undefined,
+          countryId: countryOption?._id || undefined,
+          procedureId: selectedProcedureOption?._id || undefined,
+          clientId: selectedClientId,
+          exactClient: true,
+          procedureName: serviceDraft.procedureName || undefined,
           status: 'active',
         });
         if (cancelled) return;
@@ -2938,7 +3315,7 @@ export default function ClientQuotationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [inquiryCountries, isInternationalInquiry, priceRuleCountryFilter, selectedInquiry, serviceCategory]);
+  }, [inquiryCountries, inquiryCountryOptions, isInternationalInquiry, priceRuleCountryFilter, selectedClientId, selectedInquiry, selectedProcedureOption?._id, serviceCategory, serviceDraft.procedureName]);
 
   const handleOpenPriceRules = () => {
     if (!selectedInquiry) {
@@ -3334,25 +3711,56 @@ export default function ClientQuotationsPage() {
         )}
       </Box>
 
-      <Dialog open={openForm} onClose={() => { setOpenForm(false); resetForm(); }} maxWidth="lg" fullWidth>
-        <DialogTitle>{editingId ? 'Edit Client Quotation' : 'Create Client Quotation'}</DialogTitle>
-        <DialogContent>
+      <Dialog open={openForm} onClose={() => { setOpenForm(false); resetForm(); }} maxWidth="lg" fullWidth slotProps={{ paper: { sx: dialogPaperSx } }}>
+        <DialogTitle sx={sidebarDialogTitleSx}>{editingId ? 'Edit Client Quotation' : 'Create Client Quotation'}</DialogTitle>
+        <DialogContent sx={whiteDialogBodySx}>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Card variant="outlined"><CardContent>
               <Typography variant="h6" sx={{ mb: 1 }}>Client Quotations</Typography>
               <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 6 }}>
+                <Grid size={{ xs: 12, md: 4 }}>
                   <Autocomplete
-                    options={clients}
+                    options={clientOptions}
                     getOptionKey={(option) => option._id}
-                    getOptionLabel={(option) => option.name || ''}
+                    getOptionLabel={(option) => getClientDisplayLines(option)[0] || ''}
                     isOptionEqualToValue={(option, value) => option._id === value._id}
                     value={selectedClient || null}
-                    onChange={(_, value) => setSelectedClientId(value?._id || '')}
+                    filterOptions={(options, state) => {
+                      const query = state.inputValue.trim().toLowerCase();
+                      if (!query) return options;
+                      return options.filter((option) => getClientSearchText(option).includes(query));
+                    }}
+                    onChange={(_, value) => {
+                      setSelectedClientId(value?._id || '');
+                      setSelectedInquiryId('');
+                      setSelectedRequirementIds([]);
+                      setSelectedRequirementCountryId('');
+                      setRequirementDraftIds([]);
+                      setServices([]);
+                      setPriceRules([]);
+                      setSelectedPriceRuleId('');
+                    }}
+                    renderOption={(props, option) => {
+                      const optionProps = { ...props } as React.HTMLAttributes<HTMLLIElement> & { key?: React.Key };
+                      delete optionProps.key;
+                      const lines = getClientDisplayLines(option);
+                      return (
+                        <li {...optionProps} key={option._id}>
+                          <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                              {lines[0] || '-'}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {lines.slice(1).join(' | ') || '-'}
+                            </Typography>
+                          </Box>
+                        </li>
+                      );
+                    }}
                     renderInput={(params) => <TextField {...params} label="Client *" />}
                   />
                 </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
+                <Grid size={{ xs: 12, md: 4 }}>
                   <Autocomplete
                     options={availableInquiries}
                     getOptionLabel={(o) => o.referenceNo || ''}
@@ -3387,11 +3795,20 @@ export default function ClientQuotationsPage() {
                         countryName: nextIsInternational ? '' : nextInquiryCountries[0] || '',
                       }));
                     }}
-                    noOptionsText="No unused inquiry projects"
+                    noOptionsText={selectedClientId ? 'No inquiry project found.' : 'Select client first'}
                     renderInput={(p) => <TextField {...p} label="Inquiry Project *" />}
                   />
+                  {selectedClientId && availableInquiries.length === 0 && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      sx={{ mt: 1 }}
+                      onClick={() => { window.location.href = '/inquires'; }}
+                    >
+                      Add Inquiry
+                    </Button>
+                  )}
                 </Grid>
-                <Grid size={{ xs: 12, md: 4 }}><TextField label="Inquiry Project" value={inquiryProjectRef} fullWidth slotProps={{ input: { readOnly: true } }} /></Grid>
                 <Grid size={{ xs: 12, md: 4 }}><TextField label="Country" value={inquiryCountry} fullWidth slotProps={{ input: { readOnly: true } }} /></Grid>
                 <Grid size={{ xs: 12, md: 4 }}><TextField label="Service" value={serviceCategory} fullWidth slotProps={{ input: { readOnly: true } }} /></Grid>
                 <Grid size={{ xs: 12, md: 12 }}>
@@ -3451,24 +3868,30 @@ export default function ClientQuotationsPage() {
                             />
                           </Grid>
                           <Grid size={{ xs: 12, md: 7 }}>
-                            <Autocomplete
-                              multiple
-                              disableCloseOnSelect
-                              options={visibleRequirementOptions}
-                              value={selectedRequirementDrafts.filter(
-                                (requirement) => requirement.countryId === selectedRequirementCountryId
-                              )}
-                              onChange={(_, value) => setRequirementDraftIds(value.map((item) => item._id))}
-                              isOptionEqualToValue={(option, value) => option._id === value._id}
-                              getOptionKey={(option) => option._id}
-                              getOptionLabel={getRequirementOptionLabel}
-                              noOptionsText={
-                                selectedRequirementCountryId
-                                  ? 'No requirements for this selected country'
-                                  : 'Select a country first'
-                              }
-                              renderInput={(params) => <TextField {...params} label="Available Requirement Titles" />}
-                            />
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                              <Autocomplete
+                                multiple
+                                disableCloseOnSelect
+                                options={visibleRequirementOptions}
+                                value={selectedRequirementDrafts.filter(
+                                  (requirement) => requirement.countryId === selectedRequirementCountryId
+                                )}
+                                onChange={(_, value) => setRequirementDraftIds(value.map((item) => item._id))}
+                                isOptionEqualToValue={(option, value) => option._id === value._id}
+                                getOptionKey={(option) => option._id}
+                                getOptionLabel={getRequirementOptionLabel}
+                                noOptionsText={
+                                  selectedRequirementCountryId
+                                    ? 'No Requirement Found'
+                                    : 'Select a country first'
+                                }
+                                renderInput={(params) => <TextField {...params} label="Available Requirement Titles" />}
+                                sx={{ flex: 1 }}
+                              />
+                              <Button variant="outlined" onClick={openRequirementDialog}>
+                                Add Requirement
+                              </Button>
+                            </Stack>
                           </Grid>
                           <Grid size={{ xs: 12 }}>
                             <Button
@@ -3574,54 +3997,30 @@ export default function ClientQuotationsPage() {
               <Typography variant="h6" sx={{ mb: 1 }}>Service Details</Typography>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
-                  <Autocomplete
-                    options={serviceDetailProcedureOptions}
-                    value={serviceDraft.procedureName}
-                    onChange={(_, value) => handleSelectServiceProcedure(value || '')}
-                    isOptionEqualToValue={(option, value) => option === value}
-                    noOptionsText="No procedure available"
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        label="Procedure"
-                        helperText="Loaded from the inquiry and pricing rules; use Add Service to add the fee row."
-                      />
-                    )}
-                  />
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <Autocomplete
+                      options={serviceDetailProcedureOptions}
+                      value={serviceDraft.procedureName}
+                      onChange={(_, value) => handleSelectServiceProcedure(value || '')}
+                      isOptionEqualToValue={(option, value) => option === value}
+                      noOptionsText="No Procedure Found"
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label="Procedure"
+                          helperText="Loaded from the inquiry and pricing rules; use Add Service to add the fee row."
+                        />
+                      )}
+                      sx={{ flex: 1 }}
+                    />
+                  </Stack>
                 </Grid>
                 <Grid size={{ xs: 12, md: 6 }}>
                   <Button variant="outlined" fullWidth onClick={handleOpenPriceRules}>
                     Select Price Rule
                   </Button>
                 </Grid>
-                <Grid size={{ xs: 12 }}>
-                  <Autocomplete
-                    multiple
-                    disableCloseOnSelect
-                    options={inquiryCountries}
-                    value={serviceCountrySelections.filter((country) => inquiryCountries.includes(country))}
-                    onChange={(_, value) => {
-                      setServiceCountrySelections(value);
-                      setServiceDraft((prev) => ({
-                        ...prev,
-                        countryName: value.length === 1 ? value[0] : prev.countryName,
-                      }));
-                    }}
-                    isOptionEqualToValue={(option, value) => option === value}
-                    noOptionsText="Select an inquiry project first"
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        label={isInternationalInquiry ? 'Service Countries *' : 'Service Country *'}
-                        helperText={
-                          isInternationalInquiry
-                            ? 'INT inquiry: choose one or more inquiry countries for this fee row.'
-                            : 'Loaded from the selected inquiry.'
-                        }
-                      />
-                    )}
-                  />
-                </Grid>
+             
                 <Grid size={{ xs: 12, md: 3 }}>
                   <FormControl fullWidth>
                     <InputLabel>Class Type</InputLabel>
@@ -3741,23 +4140,20 @@ export default function ClientQuotationsPage() {
                             <TableRow key={`${service.procedureName}-${index}`}>
                               <TableCell sx={{ minWidth: 220 }}>
                                 {isEditingRow ? (
-                                  <TextField
-                                    select
-                                    size="small"
+                                  <Autocomplete
+                                    options={rowProcedureOptions}
                                     value={rowDraft.procedureName}
-                                    onChange={(event) =>
+                                    onChange={(_event, value) =>
                                       setEditingServiceDraft((prev) =>
-                                        prev ? { ...prev, procedureName: event.target.value } : prev
+                                        prev ? { ...prev, procedureName: String(value || '') } : prev
                                       )
                                     }
-                                    fullWidth
-                                  >
-                                    {rowProcedureOptions.map((procedureName) => (
-                                      <MenuItem key={`${procedureName}-${index}`} value={procedureName}>
-                                        {procedureName}
-                                      </MenuItem>
-                                    ))}
-                                  </TextField>
+                                    freeSolo
+                                    isOptionEqualToValue={(option, value) => option === value}
+                                    renderInput={(params) => (
+                                      <TextField {...params} size="small" fullWidth />
+                                    )}
+                                  />
                                 ) : (
                                   service.procedureName
                                 )}
@@ -4017,9 +4413,156 @@ export default function ClientQuotationsPage() {
             </CardContent></Card>
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={whiteDialogActionsSx}>
           <Button onClick={() => { setOpenForm(false); resetForm(); }}>Cancel</Button>
           <Button variant="contained" onClick={handleSave}>{editingId ? 'Update' : 'Create'}</Button>
+        </DialogActions>
+      </Dialog>
+
+   
+
+      <Dialog open={requirementDialogOpen} onClose={() => setRequirementDialogOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { sx: dialogPaperSx } }}>
+        <DialogTitle sx={sidebarDialogTitleSx}>Add Requirement</DialogTitle>
+        <DialogContent sx={{ bgcolor: '#FFFFFF', pt: 2.5 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              select
+              label="Country *"
+              value={requirementDraft.countryId}
+              onChange={(event) => setRequirementDraft((prev) => ({ ...prev, countryId: event.target.value }))}
+              fullWidth
+            >
+              {inquiryCountryOptions.map((country) => (
+                <MenuItem key={country._id} value={country._id}>
+                  {country.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Service"
+              value={
+                typeof selectedInquiry?.serviceId === 'object'
+                  ? selectedInquiry.serviceId.name || serviceCategory
+                  : serviceCategory
+              }
+              fullWidth
+              slotProps={{ input: { readOnly: true } }}
+            />
+            <Autocomplete
+              options={procedureOptions.filter((procedure) => {
+                const inquiryServiceId = getInquiryServiceId(selectedInquiry);
+                if (inquiryServiceId && String(procedure.serviceId || '') !== inquiryServiceId) return false;
+                return procedure.serviceCategory === serviceCategory;
+              })}
+              getOptionLabel={(procedure) => procedure.name || ''}
+              filterOptions={(options, state) => {
+                const query = state.inputValue.trim().toLowerCase();
+                if (!query) return options;
+                return options.filter((procedure) => {
+                  const values = [
+                    procedure.name,
+                    procedure.description,
+                    procedure.countryName,
+                    procedure.serviceName,
+                    procedure.serviceCategory,
+                  ]
+                    .filter(Boolean)
+                    .map((value) => String(value).toLowerCase());
+                  return values.some((value) => value.includes(query));
+                });
+              }}
+              value={procedureOptions.find((procedure) => procedure._id === requirementDraft.procedureId)}
+              onChange={(_event, value) =>
+                setRequirementDraft((prev) => ({
+                  ...prev,
+                  procedureId: value?._id || '',
+                }))
+              }
+              isOptionEqualToValue={(option, value) => option._id === value._id}
+              renderOption={(props, procedure) => (
+                <li {...props} key={procedure._id}>
+                  <Box>
+                    <Typography variant="body2">{procedure.name}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {procedure.serviceName || procedure.serviceCategory}
+                      {procedure.countryName ? ` • ${procedure.countryName}` : ''}
+                    </Typography>
+                  </Box>
+                </li>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Procedure *"
+                  required
+                  fullWidth
+                />
+              )}
+              noOptionsText="No procedures found"
+              disableClearable
+            />
+            <TextField
+              label="Requirements *"
+              value={requirementDraft.requirements}
+              onChange={(event) => setRequirementDraft((prev) => ({ ...prev, requirements: event.target.value }))}
+              multiline
+              minRows={4}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ bgcolor: '#FFFFFF' }}>
+          <Button onClick={() => setRequirementDialogOpen(false)} disabled={requirementSaving}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreateRequirement} disabled={requirementSaving}>
+            {requirementSaving ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={priceRuleCreateOpen} onClose={() => setPriceRuleCreateOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { sx: dialogPaperSx } }}>
+        <DialogTitle sx={sidebarDialogTitleSx}>Add Price Rule</DialogTitle>
+        <DialogContent sx={{ bgcolor: '#FFFFFF', pt: 2.5 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField label="Client" value={selectedClient ? getClientDisplayLines(selectedClient)[0] || '' : ''} fullWidth slotProps={{ input: { readOnly: true } }} />
+            <TextField label="Procedure" value={serviceDraft.procedureName} fullWidth slotProps={{ input: { readOnly: true } }} />
+            <TextField label="Country" value={priceRuleCountryFilter || serviceCountrySelections[0] || inquiryCountries[0] || ''} fullWidth slotProps={{ input: { readOnly: true } }} />
+            <TextField label="Service" value={serviceCategory} fullWidth slotProps={{ input: { readOnly: true } }} />
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField
+                  type="number"
+                  label="Official Fee"
+                  value={priceRuleDraft.officialFee}
+                  onChange={(event) => setPriceRuleDraft((prev) => ({ ...prev, officialFee: event.target.value }))}
+                  fullWidth
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField
+                  type="number"
+                  label="Attorney Fee"
+                  value={priceRuleDraft.attorneyFee}
+                  onChange={(event) => setPriceRuleDraft((prev) => ({ ...prev, attorneyFee: event.target.value }))}
+                  fullWidth
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField
+                  type="number"
+                  label="Class Fee"
+                  value={priceRuleDraft.classFee}
+                  onChange={(event) => setPriceRuleDraft((prev) => ({ ...prev, classFee: event.target.value }))}
+                  fullWidth
+                />
+              </Grid>
+            </Grid>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ bgcolor: '#FFFFFF' }}>
+          <Button onClick={() => setPriceRuleCreateOpen(false)} disabled={priceRuleSaving}>Cancel</Button>
+          <Button variant="contained" onClick={handleCreatePriceRule} disabled={priceRuleSaving}>
+            {priceRuleSaving ? 'Saving...' : 'Save'}
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -4028,9 +4571,10 @@ export default function ClientQuotationsPage() {
         onClose={handleCloseRequirementEditor}
         maxWidth="md"
         fullWidth
+        slotProps={{ paper: { sx: dialogPaperSx } }}
       >
-        <DialogTitle>Edit Requirement Details</DialogTitle>
-        <DialogContent>
+        <DialogTitle sx={sidebarDialogTitleSx}>Edit Requirement Details</DialogTitle>
+        <DialogContent sx={whiteDialogBodySx}>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {requirementEditorError && (
               <Alert severity="error">{requirementEditorError}</Alert>
@@ -4084,7 +4628,7 @@ export default function ClientQuotationsPage() {
             )}
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={whiteDialogActionsSx}>
           <Button onClick={handleCloseRequirementEditor} disabled={requirementEditorSaving}>
             Cancel
           </Button>
@@ -4098,9 +4642,9 @@ export default function ClientQuotationsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={priceRuleDialogOpen} onClose={() => setPriceRuleDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Select Price Rule</DialogTitle>
-        <DialogContent>
+      <Dialog open={priceRuleDialogOpen} onClose={() => setPriceRuleDialogOpen(false)} maxWidth="md" fullWidth slotProps={{ paper: { sx: dialogPaperSx } }}>
+        <DialogTitle sx={sidebarDialogTitleSx}>Select Price Rule</DialogTitle>
+        <DialogContent sx={whiteDialogBodySx}>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 6 }}>
@@ -4159,7 +4703,12 @@ export default function ClientQuotationsPage() {
             ) : priceRulesError ? (
               <Typography color="error">{priceRulesError}</Typography>
             ) : !filteredPriceRules.length ? (
-              <Typography color="text.secondary">No price rules found for the selected filters.</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { sm: 'center' } }}>
+                <Typography color="text.secondary">No price rule available.</Typography>
+                <Button size="small" variant="outlined" onClick={openPriceRuleCreateDialog}>
+                  Add Price Rule
+                </Button>
+              </Stack>
             ) : null}
 
             {selectedPriceRule && (
@@ -4192,7 +4741,7 @@ export default function ClientQuotationsPage() {
             )}
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={whiteDialogActionsSx}>
           <Button onClick={() => setPriceRuleDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={handleApplyPriceRule}>
             Apply Rule
@@ -4200,9 +4749,9 @@ export default function ClientQuotationsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="lg" fullWidth>
-        <DialogTitle sx={{ fontWeight: 800, fontSize: 17 }}>Client Quotation Report</DialogTitle>
-        <DialogContent>
+      <Dialog open={viewDialogOpen} onClose={() => setViewDialogOpen(false)} maxWidth="lg" fullWidth slotProps={{ paper: { sx: dialogPaperSx } }}>
+        <DialogTitle sx={sidebarDialogTitleSx}>Client Quotation Report</DialogTitle>
+        <DialogContent sx={whiteDialogBodySx}>
           {viewingItem && (
             <Box
               className="client-quotation-invoice-print"
@@ -4665,7 +5214,7 @@ export default function ClientQuotationsPage() {
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={whiteDialogActionsSx}>
           {viewingItem && (
             <>
               <Button variant="outlined" onClick={() => handleDownloadInvoicePdf(viewingItem)}>
@@ -4681,12 +5230,12 @@ export default function ClientQuotationsPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Delete Client Quotation</DialogTitle>
-        <DialogContent>
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)} slotProps={{ paper: { sx: dialogPaperSx } }}>
+        <DialogTitle sx={sidebarDialogTitleSx}>Delete Client Quotation</DialogTitle>
+        <DialogContent sx={whiteDialogBodySx}>
           <Typography>Are you sure you want to delete this quotation?</Typography>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={whiteDialogActionsSx}>
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
           <Button variant="contained" color="error" onClick={handleDelete}>Delete</Button>
         </DialogActions>

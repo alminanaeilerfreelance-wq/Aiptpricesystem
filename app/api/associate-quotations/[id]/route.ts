@@ -274,7 +274,6 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       err &&
       typeof err === 'object' &&
       'code' in err &&
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (err as any).code === 11000
     ) {
       return NextResponse.json(

@@ -7,18 +7,28 @@ interface Requirement {
     name: string;
     code: string;
   };
+  procedureId?: string | { _id: string; name?: string; serviceCategory?: string };
+  procedureName?: string;
+  serviceId?: string | { _id: string; name?: string; category?: string };
+  serviceName?: string;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   title?: string;
   requirements: string;
+  isActive?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 interface RequirementInput {
   country: string;
+  procedureId?: string;
+  procedureName?: string;
+  serviceId?: string;
+  serviceName?: string;
   serviceCategory: 'Trademark' | 'Patent' | 'Copyright' | 'Design' | 'Litigation';
   title: string;
   requirements: string;
+  isActive?: boolean;
 }
 
 interface ListResponse {
@@ -36,6 +46,10 @@ interface RequirementListParams {
   limit?: number;
   search?: string;
   countryId?: string;
+  procedureId?: string;
+  procedureName?: string;
+  serviceId?: string;
+  status?: 'all' | 'active' | 'inactive';
   sortBy?: 'createdAt' | 'country';
   sortOrder?: 'asc' | 'desc';
   serviceCategory?: string;
@@ -51,6 +65,10 @@ const requirementsService = {
       sortBy,
       sortOrder,
       serviceCategory,
+      procedureId,
+      procedureName,
+      serviceId,
+      status,
     } = params;
 
     const searchParams = new URLSearchParams();
@@ -58,6 +76,10 @@ const requirementsService = {
     searchParams.append('limit', limit.toString());
     if (search) searchParams.append('search', search);
     if (countryId) searchParams.append('countryId', countryId);
+    if (procedureId) searchParams.append('procedureId', procedureId);
+    if (procedureName) searchParams.append('procedureName', procedureName);
+    if (serviceId) searchParams.append('serviceId', serviceId);
+    if (status) searchParams.append('status', status);
     if (sortBy) searchParams.append('sortBy', sortBy);
     if (sortOrder) searchParams.append('sortOrder', sortOrder);
     if (serviceCategory) searchParams.append('serviceCategory', serviceCategory);

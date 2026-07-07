@@ -798,7 +798,11 @@ export default function ClientsPage() {
                 </CardContent>
               </Card>
 
-              <ReferenceNumberManager clientId={viewingItem._id} clientName={viewingItem.name} />
+              <ReferenceNumberManager
+                clientId={viewingItem._id}
+                clientName={viewingItem.name}
+                assignedId={viewingItem.assignedId || ''}
+              />
             </Box>
           )}
         </DialogContent>

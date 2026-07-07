@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import QRCode from 'qrcode';
 import {
   Box,
   Button,
@@ -53,6 +54,7 @@ type ProcedureOption = OptionId & {
 };
 type ApplicationOption = OptionId & {
   referenceNo: string;
+  countryId?: string;
   countryName?: string;
   serviceType?: string;
   applicationName?: string;
@@ -104,6 +106,7 @@ type SavedInvoice = {
   vatable?: boolean;
   vatPercentage?: number;
   status?: string;
+  pdfAccessToken?: string;
 };
 
 type CurrencyOption = { value: string; code: string; name: string; symbol: string };
@@ -290,6 +293,15 @@ const toInvoicePdfFileName = (invoiceNumber: string, clientName: string) =>
     .replace(/^-+|-+$/g, '')
     .toLowerCase() || 'invoice';
 
+const buildInvoicePdfUrl = (invoiceId: string | null | undefined, token?: string, inline = true) => {
+  if (!invoiceId || typeof window === 'undefined') return '';
+  const params = new URLSearchParams();
+  if (token) params.set('t', token);
+  if (inline) params.set('download', '0');
+  const query = params.toString();
+  return `${window.location.origin}/api/invoices/${invoiceId}/pdf${query ? `?${query}` : ''}`;
+};
+
 function clientLabel(client: ClientOption) {
   const name = client.companyName?.trim() || client.name?.trim() || 'Unnamed Client';
   return client.assignedId ? `${name} - ${client.assignedId}` : name;
@@ -337,15 +349,28 @@ function buildInvoiceSubject(
   }
 
   if (kind === 'design') {
-    return `${procedure.name} of a design application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
+    return `${procedure.name} of a patent application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
   }
 
   if (kind === 'copyright') {
-    return `${procedure.name} of a copyright application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
+    return `${procedure.name} of a patent application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
   }
 
   return `${procedure.name} of application ${applicationName} with filing no. ${filingNumber} for ----- in ${countryText}.`;
 }
+
+const getPrimaryTrademarkApplication = (applications: ApplicationOption[], service?: ServiceOption | null) =>
+  applications.find(
+    (application) =>
+      /trademark/i.test(application.serviceType || '') ||
+      /trademark/i.test(service?.category || '') ||
+      /trademark/i.test(service?.name || '')
+  ) || null;
+
+const getPrimaryMarkImage = (applications: ApplicationOption[], service?: ServiceOption | null) => {
+  const application = getPrimaryTrademarkApplication(applications, service);
+  return application?.markImage || application?.imageUrl || '';
+};
 
 function calculateRow(item: InvoiceItem, vatable: boolean, vatPercentage: number): InvoiceItem {
   const quantity = Math.max(Number(item.quantity || 1), 1);
@@ -370,6 +395,8 @@ function InvoiceDocumentPreview({
   items,
   totals,
   currency,
+  onlinePdfUrl,
+  service,
 }: {
   client: ClientOption | null;
   bank: BankOption | null;
@@ -382,8 +409,32 @@ function InvoiceDocumentPreview({
   items: InvoiceItem[];
   totals: { totalVat: number; grandTotal: number };
   currency: string;
+  onlinePdfUrl: string;
+  service: ServiceOption | null;
 }) {
   const applicationNo = applications.map((app) => app.referenceNo || app.filingNumber).filter(Boolean).join(', ') || '-';
+  const markImage = getPrimaryMarkImage(applications, service);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    async function buildQr() {
+      if (!onlinePdfUrl) {
+        setQrDataUrl('');
+        return;
+      }
+      try {
+        const nextQr = await QRCode.toDataURL(onlinePdfUrl, { margin: 1, width: 220 });
+        if (mounted) setQrDataUrl(nextQr);
+      } catch {
+        if (mounted) setQrDataUrl('');
+      }
+    }
+    buildQr();
+    return () => {
+      mounted = false;
+    };
+  }, [onlinePdfUrl]);
 
   return (
     <Paper
@@ -417,17 +468,18 @@ function InvoiceDocumentPreview({
         <Box sx={{ border: '2px solid #081A5B', borderRadius: 2, overflow: 'hidden', textAlign: 'center' }}>
           <Typography sx={{ bgcolor: '#081A5B', color: '#fff', py: 1, fontWeight: 900, fontSize: 12 }}>SCAN TO VIEW INVOICE</Typography>
           <Box sx={{ p: 2, display: 'grid', placeItems: 'center' }}>
-            <Box
-              sx={{
-                width: 132,
-                height: 132,
-                background:
-                  'repeating-linear-gradient(90deg,#111 0 7px,#fff 7px 14px), repeating-linear-gradient(0deg,rgba(0,0,0,.65) 0 7px,transparent 7px 14px)',
-                backgroundBlendMode: 'multiply',
-                border: '8px solid #fff',
-                outline: '1px solid #CBD5E1',
-              }}
-            />
+            {qrDataUrl ? (
+              <Box
+                component="img"
+                src={qrDataUrl}
+                alt="Scan to view invoice PDF"
+                sx={{ width: 132, height: 132, objectFit: 'contain', bgcolor: '#FFFFFF', border: '8px solid #fff', outline: '1px solid #CBD5E1' }}
+              />
+            ) : (
+              <Box sx={{ width: 132, height: 132, display: 'grid', placeItems: 'center', bgcolor: '#F8FAFC', border: '1px dashed #CBD5E1' }}>
+                <Typography sx={{ fontSize: 11, color: '#64748B', textAlign: 'center' }}>Save invoice first</Typography>
+              </Box>
+            )}
           </Box>
         </Box>
       </Box>
@@ -460,7 +512,17 @@ function InvoiceDocumentPreview({
         <Typography sx={{ display: 'inline-block', bgcolor: '#081A5B', color: '#fff', px: 2, py: 0.75, borderRadius: 0.75, fontWeight: 900 }}>
           SUBJECT
         </Typography>
-        <Typography sx={{ mt: 2, whiteSpace: 'pre-wrap' }}>{subject || '-'}</Typography>
+        <Box sx={{ mt: 2, display: 'grid', gridTemplateColumns: markImage ? { xs: '1fr', sm: '132px 1fr' } : '1fr', gap: 2, alignItems: 'center' }}>
+          {markImage && (
+            <Box
+              component="img"
+              src={markImage}
+              alt="Trademark mark"
+              sx={{ width: 132, height: 86, objectFit: 'contain', border: '1px solid #D8E0F3', borderRadius: 1, bgcolor: '#FFFFFF' }}
+            />
+          )}
+          <Typography sx={{ whiteSpace: 'pre-wrap' }}>{subject || '-'}</Typography>
+        </Box>
       </Paper>
 
       <TableContainer sx={{ mt: 3, border: '1px solid #D8E0F3', borderRadius: 2 }}>
@@ -528,6 +590,7 @@ export default function ClientInvoiceCreatePage() {
   const invoiceId = searchParams.get('id');
   const pageMode = searchParams.get('mode') === 'view' ? 'view' : searchParams.get('mode') === 'edit' ? 'edit' : 'create';
   const readOnly = pageMode === 'view';
+  const activeInvoiceId = invoiceId;
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
   const [countries, setCountries] = useState<CountryOption[]>([]);
@@ -548,6 +611,7 @@ export default function ClientInvoiceCreatePage() {
   const [bank, setBank] = useState<BankOption | null>(null);
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
   const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [pdfAccessToken, setPdfAccessToken] = useState('');
   const [clientReference, setClientReference] = useState('');
   const [toAddress, setToAddress] = useState('');
   // application text removed per UI update
@@ -716,6 +780,7 @@ export default function ClientInvoiceCreatePage() {
         setProcedure(nextProcedure);
         setBank(nextBank);
         setInvoiceNumber(invoice.invoiceNumber || '');
+        setPdfAccessToken(invoice.pdfAccessToken || '');
         setInvoiceDate(invoice.invoiceDate ? invoice.invoiceDate.slice(0, 10) : new Date().toISOString().slice(0, 10));
         setClientReference(invoice.clientReference || '');
         setToAddress(invoice.toAddress || '');
@@ -1021,6 +1086,7 @@ export default function ClientInvoiceCreatePage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({
+          assignedId: clientDraft.assignedId.trim() || undefined,
           name: clientDraft.name.trim(),
           email: clientDraft.email.trim() || undefined,
           phone: clientDraft.phone.trim() || undefined,
@@ -1139,6 +1205,7 @@ export default function ClientInvoiceCreatePage() {
     setBank(null);
     setInvoiceDate(new Date().toISOString().slice(0, 10));
     setInvoiceNumber('');
+    setPdfAccessToken('');
     setClientReference('');
     setToAddress('');
     setSubject('');
@@ -1154,6 +1221,7 @@ export default function ClientInvoiceCreatePage() {
   const getValidationErrors = (confirming: boolean) => {
     const errors: Record<string, string> = {};
     if (!client) errors.client = 'Client is required.';
+    else if (!String(client.assignedId || '').trim()) errors.client = 'Assigned ID is required on the client profile.';
     if (!service) errors.service = 'Service is required.';
     if (!country) errors.country = 'Country is required.';
     if (!procedure) errors.procedure = 'Method is required.';
@@ -1211,6 +1279,11 @@ export default function ClientInvoiceCreatePage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Failed to save invoice.');
       showSuccessToast(invoiceId ? 'Invoice updated successfully.' : status === 'Confirmed' ? 'Invoice created successfully.' : 'Invoice save draft successfully.');
+      const savedInvoice = data.invoice as SavedInvoice | undefined;
+      if (!invoiceId && status === 'Confirmed' && savedInvoice?.id) {
+        router.replace(`/admin/invoice/create-new?id=${savedInvoice.id}&mode=view`);
+        return;
+      }
       resetInvoiceForm();
       if (invoiceId) router.replace('/admin/invoice/create-new');
     } catch (error) {
@@ -1233,6 +1306,9 @@ export default function ClientInvoiceCreatePage() {
       const pageWidth = doc.internal.pageSize.getWidth();
       const margin = 28;
       const invoiceNo = invoiceNumber || 'DRAFT';
+      const onlinePdfUrl = buildInvoicePdfUrl(activeInvoiceId, pdfAccessToken, true) || (typeof window !== 'undefined' ? window.location.href : '');
+      const qrDataUrl = onlinePdfUrl ? await QRCode.toDataURL(onlinePdfUrl, { margin: 1, width: 180 }) : '';
+      const markImage = getPrimaryMarkImage(selectedApplications, service);
       const recipientText = toAddress || clientLabel(client);
       const aiptRef = selectedApplications.map((app) => app.referenceNo).filter(Boolean).join(', ');
       const applicationRef = selectedApplications
@@ -1254,10 +1330,16 @@ export default function ClientInvoiceCreatePage() {
       const companyLines = getReportCompanyLines(company);
       const footerLines = getReportFooterLines(company);
       let logoLayout: { dataUrl: string; width: number; height: number } | null = null;
+      let markImageLayout: { dataUrl: string; width: number; height: number } | null = null;
       try {
         logoLayout = await getReportImageLayout(getReportCompanyLogoUrl(company), 140, 70);
       } catch {
         logoLayout = null;
+      }
+      try {
+        markImageLayout = markImage ? await getReportImageLayout(markImage, 92, 62) : null;
+      } catch {
+        markImageLayout = null;
       }
 
       const headerY = margin;
@@ -1288,6 +1370,11 @@ export default function ClientInvoiceCreatePage() {
       doc.setFont('helvetica', 'normal');
       doc.text(`Invoice No: ${invoiceNo}`, pageWidth - margin, headerY + 40, { align: 'right' });
       doc.text(`Date: ${invoiceDate || new Date().toISOString().slice(0, 10)}`, pageWidth - margin, headerY + 54, { align: 'right' });
+      if (qrDataUrl) {
+        doc.addImage(qrDataUrl, 'PNG', pageWidth - margin - 68, headerY + 66, 68, 68);
+        doc.setFontSize(7);
+        doc.text('Scan to view online PDF', pageWidth - margin, headerY + 144, { align: 'right' });
+      }
 
       const sectionTop = headerY + Math.max(logoLayout?.height || 0, 70) + 20;
       const recipientLeftX = margin;
@@ -1366,7 +1453,16 @@ export default function ClientInvoiceCreatePage() {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       const notesText = subject ? subject : clientReference ? clientReference : 'No notes provided.';
-      doc.text(notesText, margin, notesY + 14, { maxWidth: pageWidth - margin * 2 });
+      if (markImageLayout) {
+        try {
+          doc.addImage(markImageLayout.dataUrl, getReportPdfImageFormat(markImageLayout.dataUrl), margin, notesY + 16, markImageLayout.width, markImageLayout.height);
+        } catch {
+          // ignore image rendering issues
+        }
+      }
+      doc.text(notesText, margin + (markImageLayout ? 108 : 0), notesY + 18, {
+        maxWidth: pageWidth - margin * 2 - (markImageLayout ? 108 : 0),
+      });
 
       const bankLines = [
         bank?.bankName || '-',
@@ -1375,7 +1471,7 @@ export default function ClientInvoiceCreatePage() {
         bank?.iban ? `IBAN: ${bank.iban}` : '',
         bank?.swift ? `SWIFT: ${bank.swift}` : '',
       ].filter(Boolean);
-      const bankY = notesY + 48;
+      const bankY = notesY + (markImageLayout ? 92 : 48);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.text('Bank Details', margin, bankY);
@@ -1418,6 +1514,9 @@ export default function ClientInvoiceCreatePage() {
       const border = '#C9D4F4';
       const soft = '#EEF3FF';
       const invoiceNo = invoiceNumber || 'DRAFT';
+      const onlinePdfUrl = buildInvoicePdfUrl(activeInvoiceId, pdfAccessToken, true) || (typeof window !== 'undefined' ? window.location.href : '');
+      const qrDataUrl = onlinePdfUrl ? await QRCode.toDataURL(onlinePdfUrl, { margin: 1, width: 180 }) : '';
+      const markImage = getPrimaryMarkImage(selectedApplications, service);
       const applicationNo = selectedApplications.map((app) => app.referenceNo || app.filingNumber).filter(Boolean).join(', ') || '-';
       const applicationRef = selectedApplications
         .map((app) => app.applicationName || app.filingNumber || app.referenceNo)
@@ -1425,10 +1524,16 @@ export default function ClientInvoiceCreatePage() {
         .join(', ');
 
       let bankLogoLayout: { dataUrl: string; width: number; height: number } | null = null;
+      let markImageLayout: { dataUrl: string; width: number; height: number } | null = null;
       try {
         bankLogoLayout = await getReportImageLayout(bank?.logoUrl || '', 108, 52);
       } catch {
         bankLogoLayout = null;
+      }
+      try {
+        markImageLayout = markImage ? await getReportImageLayout(markImage, 94, 64) : null;
+      } catch {
+        markImageLayout = null;
       }
 
       doc.setTextColor(navy);
@@ -1492,19 +1597,11 @@ export default function ClientInvoiceCreatePage() {
       doc.setTextColor(navy);
       doc.setDrawColor(navy);
       doc.roundedRect(qrX, 24, 120, 142, 4, 4);
-      doc.setDrawColor('#111111');
-      doc.setLineWidth(0.6);
-      const qrSize = 88;
-      const qrCell = 5.5;
-      const qrTop = 56;
-      const qrLeft = qrX + 16;
-      for (let row = 0; row < 16; row += 1) {
-        for (let col = 0; col < 16; col += 1) {
-          if ((row * 3 + col * 5 + row * col) % 4 < 2) {
-            doc.setFillColor('#111111');
-            doc.rect(qrLeft + col * qrCell, qrTop + row * qrCell, qrCell, qrCell, 'F');
-          }
-        }
+      if (qrDataUrl) {
+        doc.addImage(qrDataUrl, 'PNG', qrX + 18, 54, 84, 84);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6);
+        doc.text(activeInvoiceId ? 'Online PDF' : 'Save invoice first', qrX + 60, 152, { align: 'center' });
       }
 
       const pill = (label: string, x: number, y: number, width: number) => {
@@ -1552,11 +1649,20 @@ export default function ClientInvoiceCreatePage() {
       metaRow('Client Reference', clientReference || '-', metaX + 22, cardTop + 108);
 
       const subjectTop = 318;
-      card(margin, subjectTop, pageWidth - margin * 2, 76);
+      card(margin, subjectTop, pageWidth - margin * 2, 84);
       pill('SUBJECT', margin + 14, subjectTop + 14, 58);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.text(doc.splitTextToSize(subject || '-', pageWidth - margin * 2 - 40), margin + 16, subjectTop + 54);
+      if (markImageLayout) {
+        try {
+          doc.addImage(markImageLayout.dataUrl, getReportPdfImageFormat(markImageLayout.dataUrl), margin + 16, subjectTop + 42, markImageLayout.width, markImageLayout.height);
+        } catch {
+          // Ignore image rendering issues.
+        }
+      }
+      const subjectTextX = margin + 16 + (markImageLayout ? 108 : 0);
+      const subjectTextWidth = pageWidth - margin * 2 - 40 - (markImageLayout ? 108 : 0);
+      doc.text(doc.splitTextToSize(subject || '-', subjectTextWidth), subjectTextX, subjectTop + 54);
 
       autoTable.default(doc, {
         head: [['Procedure', 'Official Fee', 'Attorney Fee', 'Qty', `VAT (${vatPercentage || 0}%)`, 'Total']],
@@ -1568,7 +1674,7 @@ export default function ClientInvoiceCreatePage() {
           item.vatAmount.toFixed(2),
           item.total.toFixed(2),
         ]),
-        startY: 414,
+        startY: 422,
         margin: { left: margin, right: margin },
         styles: { fontSize: 8, cellPadding: 9, textColor: navy, lineColor: border, lineWidth: 0.5 },
         headStyles: { fillColor: navy, textColor: '#FFFFFF', fontStyle: 'bold', halign: 'center' },
@@ -1640,6 +1746,7 @@ export default function ClientInvoiceCreatePage() {
   };
 
   const confirmDisabled = Boolean(Object.keys(getValidationErrors(true)).length) || saving;
+  const onlineInvoicePdfUrl = buildInvoicePdfUrl(activeInvoiceId, pdfAccessToken, true);
 
   return (
     <Box sx={{ minHeight: '100vh', backgroundColor: '#fff' }}>
@@ -1670,6 +1777,8 @@ export default function ClientInvoiceCreatePage() {
             items={items}
             totals={totals}
             currency={currency}
+            onlinePdfUrl={onlineInvoicePdfUrl}
+            service={service}
           />
           <Box sx={{ maxWidth: 980, mx: 'auto', mt: 2, display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
             <Button variant="outlined" onClick={() => router.back()}>Back</Button>
@@ -2118,10 +2227,17 @@ export default function ClientInvoiceCreatePage() {
         onClose={() => setCreatedInvoicesOpen(false)}
         fullWidth
         maxWidth="xl"
-        slotProps={{ paper: { sx: { borderRadius: 2, overflow: 'hidden' } } }}
+        slotProps={{ paper: { sx: { borderRadius: 1.5, overflow: 'hidden', height: { xs: '92vh', md: '88vh' } } } }}
       >
-        <DialogTitle sx={dialogTitleSx}>Created Invoices</DialogTitle>
-        <DialogContent sx={{ bgcolor: '#FFFFFF', p: 2.5, minHeight: 560 }}>
+        <DialogTitle sx={{ ...dialogTitleSx, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
+          <Box>
+            <Typography sx={{ fontWeight: 900, fontSize: 18 }}>Created Invoices</Typography>
+            <Typography sx={{ color: '#CBD5E1', fontSize: 12 }}>
+              Search, filter, sort, open, and download invoice records.
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ bgcolor: '#F8FAFC', p: 2, minHeight: 560 }}>
           <InvoiceTable showActions={true} showToolbar={true} />
         </DialogContent>
         <DialogActions sx={{ bgcolor: '#FFFFFF', px: 3, pb: 2 }}>

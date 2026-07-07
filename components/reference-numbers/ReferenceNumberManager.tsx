@@ -58,6 +58,10 @@ interface ReferenceNumberManagerProps {
   assignedId?: string;
 }
 
+type ClientAssignedIdResponse = {
+  assignedId?: string;
+};
+
 const formatDate = (value?: string) => (value ? new Date(value).toLocaleString() : '-');
 
 const getCountryLabel = (country: Country) => `${country.name} (${country.abbreviation})`;
@@ -94,6 +98,7 @@ const exportRows = (rows: ReferenceNumber[]) =>
 export default function ReferenceNumberManager({ clientId, clientName, assignedId = '' }: ReferenceNumberManagerProps) {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const [loadedAssignedId, setLoadedAssignedId] = useState('');
   const [countries, setCountries] = useState<Country[]>([]);
   const [countriesLoading, setCountriesLoading] = useState(false);
   const [selectedCountry, setSelectedCountry] = useState<Country | null>(null);
@@ -124,6 +129,7 @@ export default function ReferenceNumberManager({ clientId, clientName, assignedI
   const [bulkStatus, setBulkStatus] = useState<ReferenceNumberStatus>('Available');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [error, setError] = useState('');
+  const effectiveAssignedId = (assignedId || loadedAssignedId).trim();
 
   const loadCountries = useCallback(async () => {
     setCountriesLoading(true);
@@ -173,13 +179,40 @@ export default function ReferenceNumberManager({ clientId, clientName, assignedI
   }, [loadRows]);
 
   useEffect(() => {
+    setLoadedAssignedId('');
+    if (assignedId.trim() || !clientId) return;
+
+    let mounted = true;
+    async function loadClientAssignedId() {
+      try {
+        const response = await fetch(`/api/clients/${clientId}`, { credentials: 'same-origin' });
+        const client = (await response.json().catch(() => ({}))) as ClientAssignedIdResponse;
+        if (mounted && response.ok) setLoadedAssignedId(String(client.assignedId || '').trim());
+      } catch {
+        if (mounted) setLoadedAssignedId('');
+      }
+    }
+
+    loadClientAssignedId();
+    return () => {
+      mounted = false;
+    };
+  }, [assignedId, clientId]);
+
+  useEffect(() => {
     setPage(0);
   }, [countryFilter, search, serviceFilter, statusFilter]);
+
+  useEffect(() => {
+    if (effectiveAssignedId && error === 'Assigned ID is required on the client profile') {
+      setError('');
+    }
+  }, [effectiveAssignedId, error]);
 
   const validateGenerate = () => {
     if (!selectedCountry) return 'Country is required';
     if (!serviceType) return 'Service Type is required';
-    if (!assignedId.trim()) return 'Assigned ID is required on the client profile';
+    if (!effectiveAssignedId) return 'Assigned ID is required on the client profile';
     if (!quantity.trim()) return 'Quantity is required';
     if (!/^\d+$/.test(quantity.trim())) return 'Quantity must be number only';
     const parsed = Number(quantity);
@@ -202,7 +235,7 @@ export default function ReferenceNumberManager({ clientId, clientName, assignedI
         countryId: selectedCountry!._id,
         serviceType: serviceType as ReferenceServiceType,
         quantity: Number(quantity),
-        assignedId: assignedId.trim(),
+        assignedId: effectiveAssignedId,
       });
       setPreviewRows(response.references || []);
     } catch (err) {
@@ -466,12 +499,6 @@ export default function ReferenceNumberManager({ clientId, clientName, assignedI
     return <Chip size="small" color={config.color} label={config.label} sx={{ fontWeight: 800 }} />;
   };
 
-  const serviceInitial = serviceType ? serviceType.charAt(0).toUpperCase() : '';
-  const formulaSequence = previewRows[0]?.sequence ? String(previewRows[0].sequence) : '785';
-  const formulaAssignedId = assignedId.trim() || '102';
-  const formulaCountryCode = selectedCountry?.abbreviation || 'AF';
-  const formulaReference = `${serviceInitial || 'T'}-${formulaSequence}${formulaAssignedId} ${formulaCountryCode}`;
-
   const isBusy = previewLoading || registerLoading || tableLoading || bulkLoading || oldReferenceLoading;
 
   return (
@@ -508,40 +535,6 @@ export default function ReferenceNumberManager({ clientId, clientName, assignedI
             <Typography sx={{ color: '#64748B', fontSize: 13, mb: 2 }}>
               Generate numbers for {clientName || 'this client'} and assign them only to this client after review.
             </Typography>
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 1.5,
-                mb: 1.5,
-                bgcolor: '#F8FAFC',
-                borderColor: '#E2E8F0',
-                borderRadius: 1,
-              }}
-            >
-              <Typography sx={{ color: '#64748B', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', mb: 0.75 }}>
-                Reference Formula
-              </Typography>
-              <Typography sx={{ color: '#0B1739', fontWeight: 950, fontSize: 28, letterSpacing: 0 }}>
-                {formulaReference}
-              </Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 1, mt: 1 }}>
-                {[
-                  ['Service Type', `${serviceType || 'Trademark'} - ${serviceInitial || 'T'}`],
-                  ['Sequence', formulaSequence],
-                  ['Assigned ID', assignedId || 'Missing'],
-                  ['Country ABB', formulaCountryCode],
-                ].map(([label, value]) => (
-                  <Box key={label} sx={{ p: 1, bgcolor: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 1 }}>
-                    <Typography sx={{ color: '#64748B', fontSize: 10, fontWeight: 900, textTransform: 'uppercase' }}>
-                      {label}
-                    </Typography>
-                    <Typography sx={{ color: assignedId || label !== 'Assigned ID' ? '#0F172A' : '#B91C1C', fontWeight: 900 }}>
-                      {value}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
-            </Paper>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1.4fr 1fr' }, gap: 1.5 }}>
               <Autocomplete
                 options={countries}
@@ -596,9 +589,6 @@ export default function ReferenceNumberManager({ clientId, clientName, assignedI
               <Button variant="outlined" onClick={() => setOldReferenceOpen((current) => !current)} disabled={isBusy}>
                 Old Reference
               </Button>
-              <Typography sx={{ alignSelf: 'center', color: '#475569', fontSize: 13 }}>
-                Format: {formulaReference}
-              </Typography>
             </Stack>
             {oldReferenceOpen && (
               <Paper variant="outlined" sx={{ mt: 2, p: 1.5, borderRadius: 1, bgcolor: '#FFFFFF' }}>
@@ -845,7 +835,7 @@ export default function ReferenceNumberManager({ clientId, clientName, assignedI
                   <TableCell>{row.countryName}</TableCell>
                   <TableCell>{row.serviceType}</TableCell>
                   <TableCell sx={{ fontWeight: 800 }}>{row.usedByClientName || clientName || '-'}</TableCell>
-                  <TableCell>{row.usedByAssignedId || assignedId || '-'}</TableCell>
+                  <TableCell>{row.usedByAssignedId || effectiveAssignedId || '-'}</TableCell>
                   <TableCell>{row.sequence}</TableCell>
                   <TableCell>{renderStatus(row.status)}</TableCell>
                   <TableCell>{formatDate(row.createdAt)}</TableCell>

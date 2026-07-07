@@ -12,6 +12,11 @@ function formatAmount(invoice: InvoiceRecord) {
   })}`;
 }
 
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString();
+}
+
 export interface InvoiceColumnsOptions {
   onView: (invoice: InvoiceRecord) => void;
   onEdit: (invoice: InvoiceRecord) => void;
@@ -43,6 +48,16 @@ export function getInvoiceColumns({ onView, onEdit, onCancel, showActions = true
       header: 'Country',
       cell: ({ row }) => row.original.countryName,
       enableSorting: false,
+    },
+    {
+      accessorKey: 'invoiceDate',
+      header: 'Date',
+      cell: ({ row }) => formatDate(row.original.invoiceDate),
+    },
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => row.original.status,
     },
     {
       accessorKey: 'total',

@@ -51,7 +51,10 @@ export async function GET(req: NextRequest) {
     const category = String(service.category || service.name || 'Others');
     const prefix = servicePrefixMap[category] || servicePrefixMap[service.name] || 'O';
     const countryCode = String(country.abbreviation || 'XX').toUpperCase();
-    const assignedId = String(client.assignedId || '').toUpperCase();
+    const assignedId = String(client.assignedId || '').trim().toUpperCase();
+    if (!assignedId) {
+      return NextResponse.json({ error: 'Assigned ID is required on the client profile.' }, { status: 400 });
+    }
 
     const existingCount = await Invoice.countDocuments({
       invoiceNumber: { $regex: `^${prefix} ${year}-`, $options: 'i' },

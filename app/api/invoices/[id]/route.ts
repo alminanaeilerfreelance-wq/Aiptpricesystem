@@ -6,6 +6,7 @@ import Country from '@/models/Country';
 import Invoice from '@/models/Invoice';
 import Service from '@/models/Service';
 import { getUserFromRequest } from '@/lib/auth';
+import { generateInvoicePdfToken } from '@/lib/invoice-pdf-token';
 
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
@@ -89,7 +90,11 @@ async function buildUpdatePayload(body: any, userId: string) {
   const items = Array.isArray(body.items) ? body.items : [];
   if (items.length === 0) throw new Error('At least one invoice item is required.');
 
-  const service = await Service.findById(body.serviceId).lean();
+  const [service, client] = await Promise.all([
+    Service.findById(body.serviceId).lean(),
+    Client.findById(body.clientId).select('assignedId').lean(),
+  ]);
+  if (!String(client?.assignedId || '').trim()) throw new Error('Assigned ID is required on the client profile.');
   const normalizedItems = normalizeItems(items, Boolean(body.vatable), vatPercentage);
   const subtotalOfficialFee = normalizedItems.reduce((sum, item) => sum + item.officialFee * item.quantity, 0);
   const subtotalAttorneyFee = normalizedItems.reduce((sum, item) => sum + item.attorneyFee * item.quantity, 0);
@@ -157,7 +162,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const duplicate = await Invoice.findOne({ invoiceNumber: body.invoiceNumber, _id: { $ne: id } }).lean();
     if (duplicate) return NextResponse.json({ error: 'Invoice number must be unique.' }, { status: 409 });
     const payload = await buildUpdatePayload(body, user.userId);
-    const invoice = await Invoice.findByIdAndUpdate(id, payload, { new: true, runValidators: true }).lean();
+    const existing = await Invoice.findById(id).select('pdfAccessToken').lean();
+    const invoice = await Invoice.findByIdAndUpdate(
+      id,
+      { ...payload, pdfAccessToken: existing?.pdfAccessToken || generateInvoicePdfToken(id) },
+      { new: true, runValidators: true }
+    ).lean();
     if (!invoice) return NextResponse.json({ error: 'Invoice not found.' }, { status: 404 });
     return NextResponse.json({ invoice: await serializeInvoice(invoice) });
   } catch (err: unknown) {

@@ -6,6 +6,7 @@ import Service from '@/models/Service';
 import { getUserFromRequest } from '@/lib/auth';
 import Client from '@/models/Client';
 import Country from '@/models/Country';
+import { generateInvoicePdfToken } from '@/lib/invoice-pdf-token';
 
 const toNumber = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
@@ -159,7 +160,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'VAT percentage is required when invoice is vatable.' }, { status: 400 });
     }
 
-    const service = await Service.findById(body.serviceId).lean();
+    const [service, client] = await Promise.all([
+      Service.findById(body.serviceId).lean(),
+      Client.findById(body.clientId).select('assignedId').lean(),
+    ]);
+    if (!String(client?.assignedId || '').trim()) {
+      return NextResponse.json({ error: 'Assigned ID is required on the client profile.' }, { status: 400 });
+    }
     const normalizedItems: NormalizedInvoiceItem[] = items.map((item: Record<string, unknown>) => {
       const officialFee = toNumber(item.officialFee);
       const attorneyFee = toNumber(item.attorneyFee);
@@ -225,7 +232,10 @@ export async function POST(req: NextRequest) {
       updatedBy: user.userId,
     });
 
-    return NextResponse.json({ invoice }, { status: 201 });
+    invoice.pdfAccessToken = generateInvoicePdfToken(String(invoice._id));
+    await invoice.save();
+
+    return NextResponse.json({ invoice: await serializeInvoice(invoice.toObject()) }, { status: 201 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to save invoice';
     return NextResponse.json({ error: message }, { status: 500 });

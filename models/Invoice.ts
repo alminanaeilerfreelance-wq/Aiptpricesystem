@@ -56,6 +56,7 @@ export interface IInvoice extends Document {
   status: InvoiceStatus;
   remarks?: string;
   attachment?: string;
+  pdfAccessToken?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -115,6 +116,7 @@ const invoiceSchema = new mongoose.Schema<IInvoice>(
     status: { type: String, enum: invoiceStatuses, default: 'Draft', index: true },
     remarks: { type: String, trim: true },
     attachment: { type: String, trim: true },
+    pdfAccessToken: { type: String, trim: true },
   },
   { timestamps: true, collection: 'Invoice' }
 );

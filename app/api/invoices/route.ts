@@ -227,7 +227,7 @@ export async function POST(req: NextRequest) {
       vat: totalVat,
       discount: 0,
       total: grandTotal,
-      status: body.status === 'Confirmed' ? 'Pending' : 'Draft',
+      status: body.status === 'Confirmed' ? 'Unpaid' : 'Draft',
       createdBy: user.userId,
       updatedBy: user.userId,
     });

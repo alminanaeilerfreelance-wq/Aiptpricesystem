@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -165,6 +165,16 @@ const invoicingItems: NavItem[] = [
   { label: 'Others', href: '/dashboard/invoicing/others', icon: <DatabaseIcon /> },
 ];
 
+const accountingItems: NavItem[] = [
+  { label: 'New Invoice', href: '/dashboard/accounting/new-invoice', icon: <ClipboardIcon /> },
+  { label: 'Create Payment', href: '/dashboard/accounting/create-payment', icon: <CurrencyIcon /> },
+  { label: 'Client Invoices', href: '/dashboard/accounting/client-invoices', icon: <UsersIcon /> },
+  { label: 'Unpaid Invoice', href: '/dashboard/accounting/unpaid-invoice', icon: <ListIcon /> },
+  { label: 'Cancelled Invoice', href: '/dashboard/accounting/cancelled-invoice', icon: <ListIcon /> },
+  { label: 'Pending Payment Invoice', href: '/dashboard/accounting/pending-payment-invoice', icon: <CurrencyIcon /> },
+  { label: 'Paid Invoice', href: '/dashboard/accounting/paid-invoice', icon: <CurrencyIcon /> },
+];
+
 const secondaryNavItems: NavItem[] = [
   {
     label: 'IP Services Fee Builder',
@@ -237,16 +247,17 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
   const { settings } = useSettingsContext();
   const { can, canView } = usePermission();
 
-  const canAccess = (item: NavItem) => {
+  const canAccess = useCallback((item: NavItem) => {
     if (item.adminOnly && user?.role !== 'admin') return false;
     if (!item.module) return true;
     return item.action ? can(item.action, item.module) : canView(item.module);
-  };
+  }, [can, canView, user?.role]);
 
-  const visibleMainNavItems = useMemo(() => mainNavItems.filter(canAccess), [user]);
-  const visibleInvoicingItems = useMemo(() => invoicingItems.filter(canAccess), [user]);
-  const visibleMasterDataItems = useMemo(() => masterDataItems.filter(canAccess), [user]);
-  const visibleSecondaryNavItems = useMemo(() => secondaryNavItems.filter(canAccess), [user]);
+  const visibleMainNavItems = useMemo(() => mainNavItems.filter(canAccess), [canAccess]);
+  const visibleInvoicingItems = useMemo(() => invoicingItems.filter(canAccess), [canAccess]);
+  const visibleAccountingItems = useMemo(() => accountingItems.filter(canAccess), [canAccess]);
+  const visibleMasterDataItems = useMemo(() => masterDataItems.filter(canAccess), [canAccess]);
+  const visibleSecondaryNavItems = useMemo(() => secondaryNavItems.filter(canAccess), [canAccess]);
 
   const invoicingHasActive = useMemo(
     () => visibleInvoicingItems.some((item) => pathname.startsWith(item.href)),
@@ -258,7 +269,13 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
     [pathname, visibleMasterDataItems]
   );
 
+  const accountingHasActive = useMemo(
+    () => visibleAccountingItems.some((item) => pathname.startsWith(item.href)),
+    [pathname, visibleAccountingItems]
+  );
+
   const [invoicingOpen, setInvoicingOpen] = useState(invoicingHasActive);
+  const [accountingOpen, setAccountingOpen] = useState(accountingHasActive);
   const [masterDataOpen, setMasterDataOpen] = useState(masterHasActive);
 
   useEffect(() => {
@@ -272,6 +289,12 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
       setMasterDataOpen(true);
     }
   }, [masterHasActive]);
+
+  useEffect(() => {
+    if (accountingHasActive) {
+      setAccountingOpen(true);
+    }
+  }, [accountingHasActive]);
 
   const isActive = (item: NavItem) => {
     if (item.isActive) return item.isActive(pathname);
@@ -380,6 +403,45 @@ function SidebarContent({ onNavigate }: { onNavigate: () => void }) {
           <Collapse in={invoicingOpen} timeout="auto" unmountOnExit>
             <List disablePadding dense sx={{ pt: 0.5 }}>
               {visibleInvoicingItems.map((item) => (
+                <ListItemButton
+                  key={item.href}
+                  component={Link}
+                  href={item.href}
+                  onClick={onNavigate}
+                  sx={{
+                    ...itemButtonSx,
+                    ml: 1,
+                    pl: 2,
+                    ...(isActive(item) ? activeItemSx : {}),
+                  }}
+                >
+                  <ListItemIcon>{item.icon}</ListItemIcon>
+                  <ListItemText primary={item.label} />
+                </ListItemButton>
+              ))}
+            </List>
+          </Collapse>
+        </List>
+
+        <SidebarSectionTitle title="Accounting" />
+        <List dense disablePadding>
+          <ListItemButton
+            onClick={() => setAccountingOpen((prev) => !prev)}
+            sx={{
+              ...itemButtonSx,
+              ...(accountingHasActive ? activeItemSx : {}),
+            }}
+          >
+            <ListItemIcon>
+              <CurrencyIcon />
+            </ListItemIcon>
+            <ListItemText primary="Accounting" />
+            <ChevronIcon open={accountingOpen} />
+          </ListItemButton>
+
+          <Collapse in={accountingOpen} timeout="auto" unmountOnExit>
+            <List disablePadding dense sx={{ pt: 0.5 }}>
+              {visibleAccountingItems.map((item) => (
                 <ListItemButton
                   key={item.href}
                   component={Link}

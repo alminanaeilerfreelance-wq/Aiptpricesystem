@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import clsx from 'clsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -26,6 +26,11 @@ export interface DataTableProps<T = Record<string, unknown>> {
   onSearchTermChange?: (value: string) => void;
   searchPlaceholder?: string;
   exportFileName?: string;
+  reportTitle?: string;
+  reportSubtitle?: string;
+  reportCompany?: string;
+  reportMeta?: Array<{ label: string; value: string }>;
+  reportTotals?: Array<{ label: string; value: string }>;
 }
 
 const alignClass = {
@@ -54,6 +59,11 @@ function DataTable<T = Record<string, unknown>>({
   onSearchTermChange,
   searchPlaceholder = 'Search table...',
   exportFileName = 'table-data',
+  reportTitle,
+  reportSubtitle,
+  reportCompany,
+  reportMeta = [],
+  reportTotals = [],
 }: DataTableProps<T>) {
   const [internalSearch, setInternalSearch] = useState('');
   const [sortKey, setSortKey] = useState(columns.find((column) => column.key !== 'actions')?.key || '');
@@ -64,10 +74,10 @@ function DataTable<T = Record<string, unknown>>({
   const effectiveSearch = searchTerm ?? internalSearch;
   const exportColumns = useMemo(() => columns.filter((column) => column.key !== 'actions'), [columns]);
 
-  const getCellText = (row: T, column: Column<T>) => {
+  const getCellText = useCallback((row: T, column: Column<T>) => {
     const rawValue = (row as Record<string, unknown>)[column.key];
     return rawValue === undefined || rawValue === null ? '' : String(rawValue);
-  };
+  }, []);
 
   const searchedRows = useMemo(() => {
     const query = effectiveSearch.trim().toLowerCase();
@@ -75,7 +85,7 @@ function DataTable<T = Record<string, unknown>>({
     return data.filter((row) =>
       exportColumns.some((column) => getCellText(row, column).toLowerCase().includes(query))
     );
-  }, [data, effectiveSearch, exportColumns]);
+  }, [data, effectiveSearch, exportColumns, getCellText]);
 
   const sortedRows = useMemo(() => {
     if (!sortKey) return searchedRows;
@@ -87,6 +97,19 @@ function DataTable<T = Record<string, unknown>>({
     });
     return sorted;
   }, [searchedRows, sortKey, sortOrder]);
+
+  const exportedAt = useMemo(() => new Date().toLocaleString(), []);
+  const reportHeading = reportTitle || exportFileName.replace(/[-_]+/g, ' ');
+  const reportDetails = useMemo(
+    () => [
+      ...(reportCompany ? [{ label: 'Company', value: reportCompany }] : []),
+      ...(reportSubtitle ? [{ label: 'Report', value: reportSubtitle }] : []),
+      ...reportMeta.filter((item) => item.value),
+      { label: 'Generated', value: exportedAt },
+      { label: 'Rows', value: String(sortedRows.length) },
+    ],
+    [exportedAt, reportCompany, reportMeta, reportSubtitle, sortedRows.length]
+  );
 
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / rowsPerPage));
   const pagedRows = sortedRows.slice((page - 1) * rowsPerPage, page * rowsPerPage);
@@ -110,6 +133,11 @@ function DataTable<T = Record<string, unknown>>({
 
   const handleExportCsv = () => {
     const csv = [
+      escapeCsvCell(reportHeading),
+      ...reportDetails.map((item) => [escapeCsvCell(item.label), escapeCsvCell(item.value)].join(',')),
+      ...(reportTotals.length ? [''] : []),
+      ...reportTotals.map((item) => [escapeCsvCell(item.label), escapeCsvCell(item.value)].join(',')),
+      '',
       exportColumns.map((column) => escapeCsvCell(column.label)).join(','),
       ...sortedRows.map((row) =>
         exportColumns.map((column) => escapeCsvCell(getCellText(row, column))).join(',')
@@ -128,7 +156,15 @@ function DataTable<T = Record<string, unknown>>({
     const records = sortedRows.map((row) =>
       Object.fromEntries(exportColumns.map((column) => [column.label, getCellText(row, column)]))
     );
-    const worksheet = XLSX.utils.json_to_sheet(records);
+    const headerRows = [
+      [reportHeading],
+      ...reportDetails.map((item) => [item.label, item.value]),
+      ...(reportTotals.length ? [[]] : []),
+      ...reportTotals.map((item) => [item.label, item.value]),
+      [],
+    ];
+    const worksheet = XLSX.utils.aoa_to_sheet(headerRows);
+    XLSX.utils.sheet_add_json(worksheet, records, { origin: `A${headerRows.length + 1}`, skipHeader: false });
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Data');
     XLSX.writeFile(workbook, `${exportFileName}.xlsx`);
@@ -136,7 +172,25 @@ function DataTable<T = Record<string, unknown>>({
 
   const handleExportPdf = () => {
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    doc.setFontSize(16);
+    doc.setTextColor(17, 24, 39);
+    doc.text(reportCompany || reportHeading, 24, 30);
+    doc.setFontSize(11);
+    doc.setTextColor(75, 85, 99);
+    if (reportCompany) doc.text(reportHeading, 24, 48);
+    const metaStartY = reportCompany ? 66 : 50;
+    reportDetails.forEach((item, index) => {
+      doc.text(`${item.label}: ${item.value}`, 24, metaStartY + index * 14);
+    });
+    const totalStartY = metaStartY + reportDetails.length * 14 + 10;
+    reportTotals.forEach((item, index) => {
+      doc.setFontSize(10);
+      doc.setTextColor(17, 24, 39);
+      doc.text(`${item.label}: ${item.value}`, 24 + (index % 2) * 250, totalStartY + Math.floor(index / 2) * 16);
+    });
+    const tableStartY = totalStartY + Math.ceil(Math.max(reportTotals.length, 1) / 2) * 16 + 18;
     autoTable(doc, {
+      startY: tableStartY,
       head: [exportColumns.map((column) => column.label)],
       body: sortedRows.map((row) => exportColumns.map((column) => getCellText(row, column))),
       styles: { fontSize: 9, cellPadding: 6, overflow: 'linebreak' },
@@ -155,6 +209,11 @@ function DataTable<T = Record<string, unknown>>({
           <style>
             @page { size: A4 landscape; margin: 14mm; }
             body { font-family: Arial, sans-serif; color: #111827; }
+            .report-header { border-bottom: 2px solid #111827; margin-bottom: 16px; padding-bottom: 10px; }
+            .company { font-size: 20px; font-weight: 800; }
+            .title { font-size: 15px; font-weight: 700; margin-top: 4px; }
+            .meta, .totals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; margin: 10px 0; font-size: 12px; }
+            .totals div { border: 1px solid #d8dee8; padding: 8px; font-weight: 700; }
             table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
             th, td { border: 1px solid #d8dee8; padding: 7px; overflow-wrap: break-word; }
             th { background: #f1f5f9; font-weight: 700; }
@@ -162,6 +221,18 @@ function DataTable<T = Record<string, unknown>>({
           </style>
         </head>
         <body>
+          <div class="report-header">
+            <div class="company">${escapeHtml(reportCompany || reportHeading)}</div>
+            ${reportCompany ? `<div class="title">${escapeHtml(reportHeading)}</div>` : ''}
+            <div class="meta">
+              ${reportDetails.map((item) => `<div><strong>${escapeHtml(item.label)}:</strong> ${escapeHtml(item.value)}</div>`).join('')}
+            </div>
+            ${
+              reportTotals.length
+                ? `<div class="totals">${reportTotals.map((item) => `<div>${escapeHtml(item.label)}<br />${escapeHtml(item.value)}</div>`).join('')}</div>`
+                : ''
+            }
+          </div>
           <table>
             <thead><tr>${exportColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join('')}</tr></thead>
             <tbody>
@@ -228,7 +299,7 @@ function DataTable<T = Record<string, unknown>>({
                   )}
                 >
                   {col.label}
-                  {sortKey === col.key && col.key !== 'actions' ? (sortOrder === 'asc' ? ' ↑' : ' ↓') : ''}
+                  {sortKey === col.key && col.key !== 'actions' ? (sortOrder === 'asc' ? ' ASC' : ' DESC') : ''}
                 </th>
               ))}
             </tr>

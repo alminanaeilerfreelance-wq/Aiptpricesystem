@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const invoiceTypes = ['Bank', 'Trademark', 'Patent', 'Design', 'Copyright', 'Others'] as const;
-export const invoiceStatuses = ['Draft', 'Pending', 'Paid', 'Cancelled'] as const;
+export const invoiceStatuses = ['Draft', 'Unpaid', 'Pending', 'Paid', 'Cancelled'] as const;
 
 const objectIdMessage = 'Please select a valid item.';
 const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, objectIdMessage);

@@ -23,6 +23,7 @@ import {
 } from '@mui/material';
 import DataTable, { type Column } from '@/components/tables/DataTable';
 import { showErrorToast, showSuccessToast, showWarningToast } from '@/components/feedback/heroToast';
+import Topbar from '@/components/layout/Topbar';
 
 const SIDEBAR_COLOR = '#0B1739';
 
@@ -646,7 +647,16 @@ export default function AccountingModulePage({ mode }: { mode: PageMode }) {
   const visibleInvoiceColumns = mode === 'cancelled' ? invoiceColumns : invoiceColumns.filter((column) => column.key !== 'reason');
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, minHeight: '100vh' }}>
+    <Box sx={{ minHeight: '100vh', backgroundColor: '#F5F7FA' }}>
+      <Topbar
+        title={config.title}
+        breadcrumbs={[
+          { label: 'Dashboard', href: '/dashboard' },
+          { label: 'Accounting' },
+          { label: config.title },
+        ]}
+      />
+      <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', gap: 2, flexDirection: { xs: 'column', md: 'row' } }}>
         <Box>
           <Typography variant="body2" sx={{ color: 'text.secondary', mb: 0.75 }}>
@@ -718,6 +728,7 @@ export default function AccountingModulePage({ mode }: { mode: PageMode }) {
           </Button>
         </DialogActions>
       </Dialog>
+      </Box>
     </Box>
   );
 }

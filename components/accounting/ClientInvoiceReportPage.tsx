@@ -15,6 +15,7 @@ import {
 import DataTable, { type Column } from '@/components/tables/DataTable';
 import { showErrorToast } from '@/components/feedback/heroToast';
 import { useSettingsContext } from '@/context/SettingsContext';
+import Topbar from '@/components/layout/Topbar';
 
 const SIDEBAR_COLOR = '#0B1739';
 
@@ -170,7 +171,16 @@ export default function ClientInvoiceReportPage() {
   const exportTotals = summaryCards.map((card) => ({ label: card.label, value: card.value }));
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, minHeight: '100vh' }}>
+    <Box sx={{ minHeight: '100vh', backgroundColor: '#F5F7FA' }}>
+      <Topbar
+        title="Client Invoices"
+        breadcrumbs={[
+          { label: 'Dashboard', href: '/dashboard' },
+          { label: 'Accounting' },
+          { label: 'Client Invoices' },
+        ]}
+      />
+      <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Paper
         sx={{
           mb: 2,
@@ -290,6 +300,7 @@ export default function ClientInvoiceReportPage() {
           <Typography variant="body2">Loading client invoices...</Typography>
         </Stack>
       )}
+      </Box>
     </Box>
   );
 }
